@@ -16,9 +16,39 @@ processes (ffmpeg, Node.js) on all three systems; "Media on macOS and Windows" b
   without a program yet, and builds the WebRTC audio processing as build/libhydra-webrtc-apm.
 - Gallery sharing runs in JS (`__shareSketch` with fetch), so it needs no platform code.
 - No Python runs at run time. Python is only for some tests.
-- The build uses CMake (CMakeLists.txt) with SDL3 from the system; `make` is a thin wrapper. CMake downloads
-  the vendored libraries with pinned SHA-256 hashes. On macOS and Windows, SDL3 can come from a pinned
-  source download in the same way, because those systems have no SDL3 package.
+- The build uses CMake (CMakeLists.txt); `make` is a thin wrapper. CMake downloads the vendored libraries with
+  pinned SHA-256 hashes. SDL3 comes from the system on Linux, from Homebrew on macOS (`brew install sdl3`), and
+  from the Visual C++ package of the SDL project on Windows (a pinned download).
+- The window and the OpenGL ES 3.0 context come from src/window.c on all three systems: EGL of the system
+  (Mesa) on Linux, EGL on ANGLE elsewhere. test/window_test.c opens a hidden window, compiles a GLSL ES 3.00
+  shader, draws one pass into a framebuffer and reads the pixel back; CI runs it on macOS and Windows.
+- The settings file is in ~/Library/Application Support/hydra-native on macOS and in %APPDATA%\hydra-native on
+  Windows (SDL_GetPrefPath). The default font is Menlo on macOS and Consolas on Windows. The settings menu
+  lists other fonts only through fontconfig, so on macOS and Windows it shows none; a "font" path in
+  settings.json works. CoreText and DirectWrite lists are not done.
+- On macOS and Windows, CMake builds the window test and compiles the ported sources (editor, overlay, menu,
+  settings, signatures; on macOS only, because they still include POSIX headers) as a check. It does not link
+  the program yet. tools/package.sh has the macOS (.app in a zip) and Windows (zip) branches, untested.
+
+## ANGLE
+
+macOS and Windows get OpenGL ES 3.0 from ANGLE: on Metal on macOS, on Direct3D 11 on Windows. The reasons for
+ANGLE: the GLES code of the renderer, the overlay and p5 WEBGL stays as it is on all three systems, and ANGLE on
+Metal is the GLES that Chrome and Safari use for WebGL, so hydra sketches run on the same layer as in the
+browser.
+
+ANGLE comes as a pinned prebuilt archive, not as an own build. The archives are the release angle-9684da7 of
+https://github.com/jeremyfa/build-angle (ANGLE commit 9684da72c67be785ed049e4c5704964b5d6e1bcb, with libEGL,
+libGLESv2, the headers and the import libraries), which the public GitHub Actions workflow of that repository
+builds from the upstream commit; CMakeLists.txt checks their SHA-256 hashes. An own build needs depot_tools,
+gclient and GN, and on the Windows runners a patch for the pinned Windows SDK; it takes about an hour for each
+system and would use most of the CI budget of a round. To build ANGLE here instead, run the commands of
+setup-angle-mac.sh and build-angle-windows.bat of that repository with the same commit, and put include/, lib/
+and bin/ into vendor/angle.
+
+The program loads ANGLE from its own folder: src/window.c gives SDL the paths of libEGL and libGLESv2 next to
+the program, and the program links the same libGLESv2 (rpath @executable_path on macOS). On Windows,
+d3dcompiler_47.dll comes with ANGLE.
 
 ## By module
 
@@ -166,10 +196,12 @@ output of the helper. @roamhq/wrtc 0.8.0 has prebuilt packages for darwin-arm64,
 (version 0.8.0) and for linux-x64 and linux-arm64 (version 0.8.1). pnpm installs only the package of the system
 that runs it, because of their os and cpu fields. Thus a package for macOS or Windows must come from
 `pnpm install` on that system, or from `supportedArchitectures` in pnpm-workspace.yaml. tools/package.sh copies
-node_modules/@roamhq/wrtc-linux-x64 by name; a package for another system copies wrtc-darwin-arm64 or
-wrtc-win32-x64 into node_modules/@roamhq next to the bundled tools/patch-bay.mjs in the same way. On macOS, a
+the package of the system that runs it (wrtc-linux-x64, wrtc-darwin-arm64 or wrtc-win32-x64) into
+node_modules/@roamhq next to the bundled tools/patch-bay.mjs. On macOS, a
 signed and notarized app must sign wrtc.node with the identity of the app, because it is code in the bundle.
 
 The icon: assets/icon/favicon.ico has only 16, 32 and 48 px images. The Linux package uses them as hicolor icons
-and as the window icon. A macOS .icns needs images up to 1024 px, and a Windows .ico for the taskbar and the
-installer needs 256 px. Both need a larger source image (an SVG or a PNG of 1024 px) before the ports.
+and as the window icon. assets/icon/hydra-native.icns (macOS) holds the 16 and 32 px images, also as 16 px @2x;
+assets/icon/hydra-native.rc puts favicon.ico into the Windows program. The Dock and the Windows taskbar scale
+these small images up, so they look soft. A larger source image (an SVG or a PNG of 1024 px) would give sharp
+icons up to 1024 px (.icns) and 256 px (.ico).
