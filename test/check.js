@@ -1,6 +1,8 @@
 // Runs with `make check`: renders a chain into o0 and a feedback chain into o1,
 // reads pixels back and exits with status 0 when both outputs contain color and the 2D canvas checks pass.
 const CHECK_DELAY_MS = 500
+const PENDING_FRAMES = 3
+const PENDING_MAX_FRAMES = 1000
 
 osc(10, 0.1, 1.2).rotate(0.3).modulate(noise(3), 0.2).out(o0)
 src(o1).scale(1.01).blend(shape(4, 0.5).color(1, 0.5, 0), 0.5).out(o1)
@@ -140,13 +142,60 @@ function networkChecks () {
   }, (error) => [`fetch: ${error.message}`])
 }
 
+// While the driver compiles new passes, each output keeps its old pass; then the newest pass wins, and a pass
+// that does not compile goes to the error bar (js/main.js). programStatus() reports "compiling" here on request.
+// Frames count the steps: a timer can come late, after the GPU has rendered the frames that it queued.
+function pendingPassChecks () {
+  if (native.shaderCompile === 'blocking') {
+    console.log('pending passes: not checked, nothing compiles in the background')
+    return Promise.resolve([])
+  }
+  const programStatus = native.programStatus
+  const showError = native.showError
+  const errors = []
+  const failures = []
+  let holding = false
+  native.programStatus = (program, wait) => !wait && holding ? false : programStatus(program, wait)
+  native.showError = (text) => { errors.push(text); showError(text) }
+  const center = (output) => native.readPixel(output.getCurrent().id, Math.floor(width / 2), Math.floor(height / 2))
+  const expect = (name, actual, expected) => {
+    if (actual.join() !== expected.join()) failures.push(`${name}: ${actual} instead of ${expected}`)
+  }
+  const frames = (count) => new Promise((resolve) => {
+    const step = () => (count-- > 0 ? requestAnimationFrame(step) : resolve())
+    step()
+  })
+  const compiled = async () => {
+    for (let frame = 0; frame < PENDING_MAX_FRAMES && (o2.pendingDraw || o3.pendingDraw); frame++) await frames(1)
+  }
+  setFunction({ name: 'checkBroken', type: 'src', inputs: [], glsl: 'return undefinedName;' })
+  solid(0, 0, 1).out(o2)
+  return compiled().then(async () => {
+    holding = true
+    solid(1, 0, 0).out(o2)
+    solid(0, 1, 0).out(o2)
+    checkBroken().out(o3)
+    await frames(PENDING_FRAMES)
+    expect('old pass while compiling', center(o2), [0, 0, 255, 255])
+    holding = false
+    await compiled()
+    await frames(PENDING_FRAMES)
+    expect('newest pass after compiling', center(o2), [0, 255, 0, 255])
+    const shown = errors.some((text) => text.includes('shader could not compile'))
+    if (!shown) failures.push(`shader error not shown: ${errors}`)
+    return failures
+  })
+}
+
 const canvasFailures = canvasChecks()
 networkChecks().then((failures) => canvasFailures.push(...failures))
+const pendingPassFailures = pendingPassChecks()
 
-setTimeout(() => {
+setTimeout(() => pendingPassFailures.then((failures) => {
+  canvasFailures.push(...failures)
   const x = Math.floor(width / 2), y = Math.floor(height / 2)
   const pixels = [o0, o1].map((output) => native.readPixel(output.getCurrent().id, x, y))
   const ok = pixels.every(([r, g, b]) => r + g + b > 0) && !canvasFailures.length
   console.log(JSON.stringify({ check: ok ? 'ok' : 'failed', size: [width, height], o0: pixels[0], o1: pixels[1], canvasFailures }))
   native.exit(ok ? 0 : 1)
-}, CHECK_DELAY_MS)
+}), CHECK_DELAY_MS)
