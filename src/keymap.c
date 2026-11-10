@@ -2,6 +2,8 @@
 // The order matters: the first matching binding wins.
 #include "keymap.h"
 
+#include <stdio.h>
+
 static const struct key_binding keymap[] = {
     // overlay, evaluation and files (the keys of the user's Pulsar keymap and of hydra.ojack.xyz)
     { SDLK_h, KEY_CTRL | KEY_SHIFT, COMMAND_TOGGLE_CODE, .global = true },
@@ -15,6 +17,14 @@ static const struct key_binding keymap[] = {
     { SDLK_F11, 0, COMMAND_FULLSCREEN, .global = true },
     { SDLK_q, KEY_CTRL, COMMAND_QUIT, .global = true },
     { SDLK_ESCAPE, 0, COMMAND_ESCAPE, .global = true },
+    { SDLK_F1, 0, COMMAND_TOGGLE_HELP, .global = true },
+
+    // toolbar actions of hydra.ojack.xyz (the web editor has no keys for them)
+    { SDLK_DELETE, KEY_CTRL | KEY_SHIFT, COMMAND_CLEAR_ALL, .global = true },
+    { SDLK_F7, 0, COMMAND_SHOW_EXAMPLE, .global = true },
+    { SDLK_F8, 0, COMMAND_MUTATE, .global = true },
+    { SDLK_F8, KEY_CTRL, COMMAND_MUTATE_TRANSFORM, .global = true },
+    { SDLK_F8, KEY_SHIFT, COMMAND_MUTATE_UNDO, .global = true },
 
     // editing
     { SDLK_z, KEY_CTRL, COMMAND_UNDO },
@@ -82,4 +92,34 @@ const struct key_binding *keymap_lookup(SDL_Keycode key, SDL_Keymod modifiers, b
         }
     }
     return NULL;
+}
+
+static const char *key_name(SDL_Keycode key) {
+    if (key == SDLK_RETURN) return "Enter";
+    if (key == SDLK_KP_ENTER) return "Keypad Enter";
+    return SDL_GetKeyName(key);
+}
+
+const char *command_description(enum command command) {
+    static const char *const descriptions[] = {
+#define COMMAND_DESCRIPTION(name, description) description,
+        COMMANDS(COMMAND_DESCRIPTION)
+#undef COMMAND_DESCRIPTION
+    };
+    return command < COMMAND_COUNT ? descriptions[command] : "";
+}
+
+void command_keys(enum command command, char *text, size_t size) {
+    size_t used = 0;
+    text[0] = '\0';
+    for (size_t i = 0; i < sizeof keymap / sizeof keymap[0] && used + 1 < size; i++) {
+        const struct key_binding *binding = &keymap[i];
+        if (binding->command != command) continue;
+        int written = snprintf(text + used, size - used, "%s%s%s%s%s%s", used ? ", " : "",
+                               binding->modifiers & KEY_CTRL ? "Ctrl+" : "", binding->modifiers & KEY_SHIFT ? "Shift+" : "",
+                               binding->modifiers & KEY_ALT ? "Alt+" : "", key_name(binding->key),
+                               binding->shift_extends ? " (+Shift)" : "");
+        if (written < 0) break;
+        used += (size_t)written < size - used ? (size_t)written : size - used - 1;
+    }
 }

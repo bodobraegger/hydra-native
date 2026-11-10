@@ -42,7 +42,11 @@ static char *evaluate(const char *code, size_t length, const char *name) {
     return error;
 }
 
-static char *uppercase(const char *function, const char *argument) {
+// Stands in for js/main.js and js/editor-actions.js: __format makes upper case, the others return fixed code.
+static char *call(const char *function, const char *argument) {
+    if (!strcmp(function, "__randomExample")) return strdup("noise().out()");
+    if (!strcmp(function, "__mutate")) return strdup("noise(9).out()");
+    if (!strcmp(function, "__mutateUndo")) return strdup("noise().out()");
     char *text = strdup(argument);
     for (char *c = text; *c; c++) *c = (char)toupper((unsigned char)*c);
     return text;
@@ -92,7 +96,7 @@ int main(void) {
     int fd = mkstemp(path);
     close(fd);
     write_file(path, "osc(10)\n  .out()\n\nnoise().out()");
-    static const struct ui_host host = { evaluate, nothing, never, nothing, uppercase, nothing };
+    static const struct ui_host host = { evaluate, nothing, never, nothing, call, nothing };
     ui_init("unused.ttf", 20, path, &host);
     ui_draw(800, 600, 0);
 
@@ -141,6 +145,20 @@ int main(void) {
     key(SDLK_f, KMOD_LCTRL | KMOD_LSHIFT);
     key(SDLK_RETURN, KMOD_LCTRL | KMOD_LALT);
     EXPECT_STRING(evaluated, "SOLID().OUT()");
+
+    // The toolbar actions: clear all evaluates hush, an example replaces the code and runs it, the mutator replaces it.
+    key(SDLK_DELETE, KMOD_LCTRL | KMOD_LSHIFT);
+    EXPECT_STRING(evaluated, "hush(); speed = 1");
+    key(SDLK_RETURN, KMOD_LCTRL | KMOD_LALT);
+    EXPECT_STRING(evaluated, "\n \n // Type some code on a new line (such as \"osc().out()\"), and press CTRL+shift+enter");
+    key(SDLK_F7, 0);
+    EXPECT_STRING(evaluated, "noise().out()");
+    key(SDLK_F8, 0);
+    key(SDLK_RETURN, KMOD_LCTRL | KMOD_LALT);
+    EXPECT_STRING(evaluated, "noise(9).out()");
+    key(SDLK_F8, KMOD_LSHIFT);
+    key(SDLK_RETURN, KMOD_LCTRL | KMOD_LALT);
+    EXPECT_STRING(evaluated, "noise().out()");
 
     unlink(path);
     if (failures) {

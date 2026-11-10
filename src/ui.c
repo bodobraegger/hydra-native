@@ -39,6 +39,11 @@
 #define COLOR_BAR_BACKGROUND 0x000000D8u
 #define COLOR_ERROR 0xFF6B6BFFu
 #define COLOR_INFO 0xE6E6E6FFu
+#define COLOR_TOOLBAR 0x000000B8u
+#define COLOR_HELP_BACKGROUND 0x000000E0u
+#define COLOR_HELP_KEYS 0x6FDCF2FFu
+// The text of clear() in the web editor.
+#define CLEARED_CODE "\n \n // Type some code on a new line (such as \"osc().out()\"), and press CTRL+shift+enter"
 
 static const char *const keywords[] = {
     "const", "let", "var", "function", "return", "if", "else", "for", "while", "do", "new", "true", "false",
@@ -62,6 +67,7 @@ static bool evaluating;
 static char console_message[MAX_MESSAGE];
 static bool suppress_text; // the key press before this text input was a command
 static bool dragging;
+static bool help_visible;
 static double last_activity;
 static uint32_t *colors;
 static size_t colors_capacity;
@@ -256,11 +262,29 @@ static void format_code(void) {
     free(formatted);
 }
 
+// Replaces the code with the result of a JS function of js/editor-actions.js (examples, mutator).
+static bool replace_with(const char *function, const char *failure) {
+    char *code = host.call(function, editor.text);
+    if (!code) {
+        ui_show_message(failure, true);
+        return false;
+    }
+    editor_replace_text(&editor, code, strlen(code));
+    free(code);
+    return true;
+}
+
+static void clear_all(void) {
+    free(evaluate_code("hush(); speed = 1", strlen("hush(); speed = 1"), "<clear>"));
+    editor_replace_text(&editor, CLEARED_CODE, strlen(CLEARED_CODE));
+}
+
 static void run_command(enum command command, bool extend) {
     size_t start, end;
     long page = (long)visible_rows() - 1;
     switch (command) {
-    case COMMAND_NONE: break;
+    case COMMAND_NONE:
+    case COMMAND_COUNT: break;
     case COMMAND_TOGGLE_CODE: visible = !visible; return;
     case COMMAND_EVAL_LINE: editor_line_range(&editor, &start, &end); evaluate_range(start, end); break;
     case COMMAND_EVAL_BLOCK: editor_block_range(&editor, &start, &end); evaluate_range(start, end); break;
@@ -269,7 +293,8 @@ static void run_command(enum command command, bool extend) {
     case COMMAND_FULLSCREEN: host.toggle_fullscreen(); break;
     case COMMAND_QUIT: host.quit(); break;
     case COMMAND_ESCAPE:
-        if (searching) searching = false;
+        if (help_visible) help_visible = false;
+        else if (searching) searching = false;
         else if (visible && editor_has_selection(&editor)) editor_set_cursor(&editor, editor.cursor, false);
         else if (host.is_fullscreen()) host.toggle_fullscreen();
         break;
@@ -285,6 +310,16 @@ static void run_command(enum command command, bool extend) {
     case COMMAND_DUPLICATE_LINE: editor_duplicate_lines(&editor); break;
     case COMMAND_FORMAT: format_code(); break;
     case COMMAND_SCREENCAP: host.screencap(); break;
+    case COMMAND_CLEAR_ALL: clear_all(); break;
+    case COMMAND_SHOW_EXAMPLE:
+        clear_all();
+        if (replace_with("__randomExample", "no example")) evaluate_range(0, editor.length);
+        break;
+    // The mutator evaluates the code itself and retries on errors, like in the web editor.
+    case COMMAND_MUTATE: replace_with("__mutate", "mutator: the code does not parse"); break;
+    case COMMAND_MUTATE_TRANSFORM: replace_with("__mutateTransform", "mutator: the code does not parse"); break;
+    case COMMAND_MUTATE_UNDO: replace_with("__mutateUndo", "mutator: nothing to undo"); break;
+    case COMMAND_TOGGLE_HELP: help_visible = !help_visible; return;
     case COMMAND_SELECT_NEXT_OCCURRENCE: editor_select_next_occurrence(&editor); break;
     case COMMAND_FIND:
         if (searching && query[0]) editor_find_next(&editor, query, strlen(query));
@@ -365,10 +400,91 @@ void ui_text_input(const char *text) {
     reveal_cursor();
 }
 
+// ---------------------------------------------------------------- toolbar
+
+struct toolbar_item {
+    const char *label;
+    enum command command;
+    enum command with_shift; // like Shift+click on the dice of the web editor
+    enum command with_ctrl;
+};
+
+static const struct toolbar_item toolbar[] = {
+    { "run", COMMAND_EVAL_ALL, COMMAND_EVAL_ALL, COMMAND_EVAL_ALL },
+    { "clear", COMMAND_CLEAR_ALL, COMMAND_CLEAR_ALL, COMMAND_CLEAR_ALL },
+    { "example", COMMAND_SHOW_EXAMPLE, COMMAND_SHOW_EXAMPLE, COMMAND_SHOW_EXAMPLE },
+    { "mutate", COMMAND_MUTATE, COMMAND_MUTATE_UNDO, COMMAND_MUTATE_TRANSFORM },
+    { "?", COMMAND_TOGGLE_HELP, COMMAND_TOGGLE_HELP, COMMAND_TOGGLE_HELP },
+};
+#define TOOLBAR_COUNT (sizeof toolbar / sizeof toolbar[0])
+
+// The right-aligned boxes of the toolbar; returns the x of item `index`, and its width in `width`.
+static float toolbar_x(size_t index, float *width) {
+    float x = (float)last_width - MARGIN;
+    for (size_t i = TOOLBAR_COUNT; i-- > index;) {
+        *width = ((float)strlen(toolbar[i].label) + 1) * overlay_char_width();
+        x -= *width + TEXT_PADDING;
+    }
+    return x;
+}
+
+static bool toolbar_click(float x, float y, SDL_Keymod modifiers) {
+    if (y < MARGIN || y > MARGIN + overlay_line_height()) return false;
+    for (size_t i = 0; i < TOOLBAR_COUNT; i++) {
+        float width, left = toolbar_x(i, &width);
+        if (x < left || x > left + width) continue;
+        const struct toolbar_item *item = &toolbar[i];
+        run_command(modifiers & KMOD_SHIFT ? item->with_shift : modifiers & KMOD_CTRL ? item->with_ctrl : item->command,
+                    false);
+        return true;
+    }
+    return false;
+}
+
+static void draw_toolbar(void) {
+    for (size_t i = 0; i < TOOLBAR_COUNT; i++) {
+        float width, x = toolbar_x(i, &width);
+        overlay_rect(x, MARGIN, width, overlay_line_height(), COLOR_TOOLBAR);
+        overlay_text(x + overlay_char_width() / 2, MARGIN, toolbar[i].label, strlen(toolbar[i].label), 0, 64, NULL,
+                     COLOR_INFO);
+    }
+}
+
+// ---------------------------------------------------------------- help
+
+static void draw_help(int width, int height) {
+    overlay_rect(0, 0, (float)width, (float)height, COLOR_HELP_BACKGROUND);
+    float line_height = overlay_line_height(), char_width = overlay_char_width();
+    const char *title = "hydra-native: live coding with hydra-synth. F1 or Escape closes this help.";
+    overlay_text(MARGIN, MARGIN, title, strlen(title), 0, visible_columns(), NULL, COLOR_TEXT);
+    size_t rows = (size_t)(((float)height - 3 * MARGIN - line_height) / line_height);
+    if (rows == 0) rows = 1;
+    size_t entries = COMMAND_COUNT - 1, columns = (entries + rows - 1) / rows;
+    size_t column_width = visible_columns() / columns, keys_width = column_width * 2 / 5;
+    for (size_t entry = 0; entry < entries; entry++) {
+        enum command command = (enum command)(entry + 1);
+        char keys[256];
+        command_keys(command, keys, sizeof keys);
+        if (!keys[0]) snprintf(keys, sizeof keys, "(no key)");
+        float x = MARGIN + (float)((entry / rows) * column_width) * char_width;
+        float y = MARGIN + line_height * (1.5f + (float)(entry % rows));
+        overlay_text(x, y, keys, strlen(keys), 0, keys_width - 1, NULL, COLOR_HELP_KEYS);
+        const char *description = command_description(command);
+        overlay_text(x + (float)keys_width * char_width, y, description, strlen(description), 0,
+                     column_width - keys_width - 1, NULL, COLOR_TEXT);
+    }
+}
+
 // ---------------------------------------------------------------- mouse
 
-void ui_mouse_button(float x, float y, bool down, int clicks, bool shift) {
+void ui_mouse_button(float x, float y, bool down, int clicks, SDL_Keymod modifiers) {
     if (!visible) return;
+    bool shift = modifiers & KMOD_SHIFT;
+    if (down && help_visible) {
+        help_visible = false;
+        return;
+    }
+    if (down && toolbar_click(x, y, modifiers)) return;
     dragging = down;
     if (!down) return;
     size_t offset = offset_at_point(x, y);
@@ -549,7 +665,13 @@ void ui_draw(int width, int height, double now_ms) {
     last_height = height;
     if (!visible) return;
     overlay_begin();
+    if (help_visible) {
+        draw_help(width, height);
+        overlay_end(width, height);
+        return;
+    }
     draw_code();
+    draw_toolbar();
     if (searching) {
         char text[MAX_QUERY + 64];
         snprintf(text, sizeof text, "find: %s   (Enter: next, Escape: close)", query);

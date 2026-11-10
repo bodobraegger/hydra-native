@@ -3,6 +3,7 @@ import { onAfterFrame } from './dom-shim.js'
 import Hydra from 'hydra-synth'
 import { installSources } from './sources.js'
 import beautify from 'js-beautify'
+import './editor-actions.js'
 
 const canvas = document.createElement('canvas')
 ;[canvas.width, canvas.height] = native.drawableSize()

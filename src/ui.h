@@ -21,7 +21,7 @@ struct ui_host {
 bool ui_init(const char *font_path, float font_size, const char *file_path, const struct ui_host *host);
 bool ui_key(const SDL_KeyboardEvent *event); // true when the overlay used the key
 void ui_text_input(const char *text);
-void ui_mouse_button(float x, float y, bool down, int clicks, bool shift);
+void ui_mouse_button(float x, float y, bool down, int clicks, SDL_Keymod modifiers);
 void ui_mouse_motion(float x, float y);
 void ui_wheel(int lines);
 void ui_draw(int width, int height, double now_ms);

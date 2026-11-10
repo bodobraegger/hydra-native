@@ -596,7 +596,7 @@ static void handle_events(void) {
         case SDL_MOUSEBUTTONUP:
             if (event.button.button == SDL_BUTTON_LEFT)
                 ui_mouse_button(event.button.x * scale, event.button.y * scale, event.type == SDL_MOUSEBUTTONDOWN,
-                                event.button.clicks, (SDL_GetModState() & KMOD_SHIFT) != 0);
+                                event.button.clicks, SDL_GetModState());
             dispatch_mouse(event.type == SDL_MOUSEBUTTONDOWN ? "mousedown" : "mouseup", event.button.x, event.button.y);
             break;
         case SDL_WINDOWEVENT:
