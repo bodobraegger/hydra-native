@@ -28,7 +28,8 @@ const send = (message) => process.stdout.write(JSON.stringify(message) + '\n')
 console.log = console.info = (...parts) => send({ type: 'log', text: parts.map(String).join(' ') })
 console.warn = console.error = (...parts) => send({ type: 'log', text: parts.map(String).join(' '), error: true })
 
-// The channels that wait for their connection: name -> function (socket, the bytes after the first line).
+// The channels that wait for a connection: name -> function (socket, the bytes after the first line, the second
+// word of the first line).
 const channels = new Map()
 const socketServer = net.createServer((socket) => {
   let head = Buffer.alloc(0)
