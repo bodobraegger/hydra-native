@@ -73,10 +73,15 @@ jobs:
           path: dist
           merge-multiple: true
       # Always a draft: a person copies the notes from RELEASE.md and publishes it.
+      # A second run for the same tag replaces the files of the existing release instead of making a second draft.
       - name: Attach the archives to a draft release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "hydra-native $GITHUB_REF_NAME" \
-            --notes "Draft. Copy the release notes from RELEASE.md before publishing." dist/*.tar.gz
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/*.tar.gz --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "hydra-native $GITHUB_REF_NAME" \
+              --notes "Draft. Copy the release notes from RELEASE.md before publishing." dist/*.tar.gz
+          fi
