@@ -278,6 +278,7 @@ so sketches and loaded scripts define keys with the browser API.
 | webRTC initStream and pb (editor patch bay, @roamhq/wrtc)        | 3 to 5 days | done          |
 | Zero-copy PipeWire and V4L2 input (needs PipeWire headers)       | 3 to 5 days | open          |
 | Robustness for stage use (error overlay, crash recovery, tests)  | 3 to 5 days | open          |
+| Fast native-to-native sync, faster than webRTC                   | to plan     | open          |
 
 ## System packages
 
