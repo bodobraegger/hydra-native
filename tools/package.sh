@@ -69,7 +69,8 @@ hydra-native is under the GNU Affero General Public License 3.0 (LICENSE), becau
 and code of the hydra web editor. hydra-native-$version-source.tar.gz is the source of this build
 (commit $(git -C "$root" rev-parse HEAD)).
 Build it with \`make\` (README.md); CMakeLists.txt downloads the C libraries of THIRD_PARTY.md at the
-pinned versions. hydra-synth 1.4.0: https://github.com/hydra-synth/hydra-synth
+pinned versions. hydra-synth, commit 9d29a9f4fd8f9081b9759943f38db36f05b9a88f:
+https://github.com/hydra-synth/hydra-synth
 The hydra web editor: https://github.com/hydra-synth/hydra
 EOF
 

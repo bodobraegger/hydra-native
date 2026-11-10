@@ -1,2 +1,4 @@
 allowBuilds:
   esbuild: false
+  # a git dependency; esbuild bundles its src/, so it needs no build or prepare script
+  hydra-synth: false

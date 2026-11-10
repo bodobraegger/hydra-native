@@ -33,7 +33,8 @@ a distributed hydra-native binary with its bundle falls under the AGPL-3.0.
 
 ## JavaScript packages (installed by pnpm, bundled by esbuild)
 
-- hydra-synth 1.4.0, AGPL-3.0. https://github.com/hydra-synth/hydra-synth
+- hydra-synth, commit 9d29a9f4fd8f9081b9759943f38db36f05b9a88f of the main branch (1.4.0 and the fixes #201, #202, #203 and
+  #205), AGPL-3.0. https://github.com/hydra-synth/hydra-synth
   The renderer and the API; it runs unchanged. js/regl-shim.js, js/raf-loop-shim.js and js/meyda-shim.js
   replace its dependencies regl, raf-loop and meyda.
 - js-beautify 1.15.4, MIT license. The formatter of the web editor (Shift+Ctrl+F).

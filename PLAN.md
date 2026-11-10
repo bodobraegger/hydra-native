@@ -93,7 +93,7 @@ Native can win in these areas:
 editor --(Unix socket, code)--> hydra-native (C, one process)
                                   SDL3 window, OpenGL ES 3.0 context (Wayland)
                                   QuickJS: build/hydra-bundle.js
-                                     hydra-synth 1.4.0, unchanged (npm package)
+                                     hydra-synth main 9d29a9f (1.4.0 and fixes), unchanged
                                      js/regl-shim.js   regl subset on native GL calls
                                      js/dom-shim.js    window, document, timers, events
                                      js/meyda-shim.js  audio features from src/audio.c
@@ -166,7 +166,7 @@ gallery and signalling server (hydra-synth/hydra-server) and from the CodeMirror
 
 | Feature                        | hydra-native                                   | Identical                        |
 | ------------------------------ | ---------------------------------------------- | -------------------------------- |
-| hydra-synth API                | the same hydra-synth 1.4.0                     | yes                              |
+| hydra-synth API                | hydra-synth main 9d29a9f: 1.4.0 and 4 fixes    | yes, and the fixes               |
 | setResolution, top-level await | stretched canvas, async global eval            | yes                              |
 | loadScript (paths and URLs)    | file or curl, global eval                      | yes                              |
 | fetch, XMLHttpRequest          | curl, CORS and mixed content of the web origin | yes                              |

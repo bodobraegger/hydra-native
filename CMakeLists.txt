@@ -195,10 +195,10 @@ set_tests_properties(portal PROPERTIES LABELS unit)
 
 # The checks run the program in hidden windows, with a settings folder of their own.
 add_test(NAME check COMMAND hydra-native --hidden --no-vsync --no-analog-agc ${CMAKE_SOURCE_DIR}/test/check.js)
-foreach(check fetch gallery patch_bay)
+foreach(check fetch gallery patch_bay error)
   add_test(NAME ${check} COMMAND python3 ${CMAKE_SOURCE_DIR}/test/${check}_test.py)
 endforeach()
-set_tests_properties(check fetch gallery patch_bay PROPERTIES LABELS check RUN_SERIAL true)
+set_tests_properties(check fetch gallery patch_bay error PROPERTIES LABELS check RUN_SERIAL true)
 get_property(ALL_TESTS DIRECTORY PROPERTY TESTS)
 set_tests_properties(${ALL_TESTS} PROPERTIES
   ENVIRONMENT "XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/test-config;HYDRA_NATIVE_BUILD=${CMAKE_BINARY_DIR}")

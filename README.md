@@ -1,7 +1,9 @@
 # hydra-native
 
 hydra-native runs Hydra sketches in a native window without a browser.
-It runs the unchanged hydra-synth 1.4.0 code in the QuickJS engine.
+It runs the unchanged hydra-synth code in the QuickJS engine: commit 9d29a9f of its main branch, which is
+1.4.0 with four fixes (the debug option, an empty `src()`, an error for a function passed without parentheses,
+and a `sum()` that compiles).
 A small regl replacement draws with OpenGL ES through SDL3.
 A code editor in C draws the sketch over the visuals, like the editor of hydra.ojack.xyz.
 Video comes from child processes (GStreamer, ffmpeg, the Mutter ScreenCast API) and audio comes from PulseAudio or PipeWire.

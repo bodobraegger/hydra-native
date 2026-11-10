@@ -24,8 +24,8 @@ importers:
         specifier: 3.3.0
         version: 3.3.0
       hydra-synth:
-        specifier: 1.4.0
-        version: 1.4.0
+        specifier: github:hydra-synth/hydra-synth#9d29a9f4fd8f9081b9759943f38db36f05b9a88f
+        version: https://codeload.github.com/hydra-synth/hydra-synth/tar.gz/9d29a9f4fd8f9081b9759943f38db36f05b9a88f
       inherits:
         specifier: 2.0.4
         version: 2.0.4
@@ -515,8 +515,9 @@ packages:
     resolution: {integrity: sha512-T2UbfbBEF32wiepXIsMlTW9+dDYC6wMh/t/vYA4tuOMKqWz/n3vr1NFSxQiyP+zk2mXsoMA/i/7qV6LKut1t1A==}
     engines: {node: '>= 0.4'}
 
-  hydra-synth@1.4.0:
-    resolution: {integrity: sha512-suKn8wjx5Kqvj5Ev0aTByNzpT+7PTX2Qu83h9mIp7CArFn14VVNxlm6hBS0T/O4GG2E9P9SHvhyN2Ue0f1jH5A==}
+  hydra-synth@https://codeload.github.com/hydra-synth/hydra-synth/tar.gz/9d29a9f4fd8f9081b9759943f38db36f05b9a88f:
+    resolution: {gitHosted: true, integrity: sha512-khgMNLHfs0LyDcpcyESdlDnfwwuyJhFqgjK3YqgvLcVFV1kZwa1162oQjl1v7qfNFf2Orli9r0T2uCjT6qzOPA==, tarball: https://codeload.github.com/hydra-synth/hydra-synth/tar.gz/9d29a9f4fd8f9081b9759943f38db36f05b9a88f}
+    version: 1.4.0
 
   ieee754@1.2.1:
     resolution: {integrity: sha512-dcyqhDvX1C46lXZcVqCpK+FtMRQVdIMN6/Df5js2zouUsqG7I6sFxitIC+7KYK29KdXOLHdu9zL4sFnoVQnqaA==}
@@ -1163,7 +1164,7 @@ snapshots:
     dependencies:
       function-bind: 1.1.2
 
-  hydra-synth@1.4.0:
+  hydra-synth@https://codeload.github.com/hydra-synth/hydra-synth/tar.gz/9d29a9f4fd8f9081b9759943f38db36f05b9a88f:
     dependencies:
       meyda: 5.6.3
       raf-loop: 1.1.3
