@@ -29,7 +29,7 @@ void settings_defaults(struct settings *settings) {
     snprintf(settings->font, sizeof settings->font, "%s", SETTINGS_DEFAULT_FONT);
     settings->font_size = SETTINGS_DEFAULT_FONT_SIZE;
     snprintf(settings->theme, sizeof settings->theme, "%s", SETTINGS_DEFAULT_THEME);
-    // Pulsar shows invisible characters (showInvisibles) in the setup of the user, so all of them show by default.
+    // All invisible characters show by default, like Pulsar with showInvisibles.
     settings->render_whitespace = WHITESPACE_ALL;
     settings->word_wrap = true; // CodeMirror lineWrapping in the web editor
     settings->vsync = true;

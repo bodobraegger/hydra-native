@@ -45,7 +45,7 @@ static const struct key_binding default_keymap[] = {
     { SDLK_DOWN, 0, COMMAND_PROMPT_DOWN, .context = CONTEXT_PROMPT },
     { SDLK_BACKSPACE, 0, COMMAND_PROMPT_BACKSPACE, .context = CONTEXT_PROMPT },
 
-    // overlay, evaluation and files (the keys of the user's Pulsar keymap and of hydra.ojack.xyz)
+    // overlay, evaluation and files (the keys of hydra.ojack.xyz and of the Pulsar package atom-hydra)
     { SDLK_H, KEY_CTRL | KEY_SHIFT, COMMAND_TOGGLE_CODE, .global = true },
     { SDLK_RETURN, KEY_CTRL | KEY_ALT, COMMAND_EVAL_ALL, .global = true },
     { SDLK_RETURN, KEY_CTRL | KEY_SHIFT, COMMAND_EVAL_ALL, .global = true },
@@ -139,7 +139,7 @@ static const struct key_binding default_keymap[] = {
     { SDLK_LEFTBRACKET, KEY_CTRL, COMMAND_INDENT_LESS },
     { SDLK_M, KEY_CTRL, COMMAND_GO_TO_BRACKET },
     { SDLK_M, KEY_CTRL | KEY_SHIFT, COMMAND_SELECT_BETWEEN_BRACKETS },
-    { SDLK_UP, KEY_CTRL | KEY_SHIFT, COMMAND_ADD_CURSOR_ABOVE }, // the user's Pulsar keymap
+    { SDLK_UP, KEY_CTRL | KEY_SHIFT, COMMAND_ADD_CURSOR_ABOVE }, // as in Pulsar
     { SDLK_DOWN, KEY_CTRL | KEY_SHIFT, COMMAND_ADD_CURSOR_BELOW },
     { SDLK_UP, KEY_CTRL | KEY_ALT, COMMAND_ADD_CURSOR_ABOVE }, // the sublime keymap of the web editor
     { SDLK_DOWN, KEY_CTRL | KEY_ALT, COMMAND_ADD_CURSOR_BELOW },
