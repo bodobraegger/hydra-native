@@ -1,4 +1,5 @@
 #include "editor.h"
+#include "unicode.h"
 
 #include <ctype.h>
 #include <stdlib.h>
@@ -163,15 +164,20 @@ size_t editor_line_end(const struct editor *editor, size_t line) {
     return line + 1 < editor->line_count ? editor->line_starts[line + 1] - 1 : editor->length;
 }
 
-// Columns of one character at `column`: a tab reaches the next multiple of EDITOR_TAB_WIDTH.
-static size_t char_columns(char c, size_t column) {
-    return c == '\t' ? EDITOR_TAB_WIDTH - column % EDITOR_TAB_WIDTH : 1;
+// Columns of the character at `offset` when it starts at `column`: a tab reaches the next multiple of
+// EDITOR_TAB_WIDTH, a wide East Asian character takes two.
+static size_t char_columns(const struct editor *editor, size_t offset, size_t column) {
+    unsigned char c = (unsigned char)editor->text[offset];
+    if (c == '\t') return EDITOR_TAB_WIDTH - column % EDITOR_TAB_WIDTH;
+    if (c < 0xE0) return 1;
+    size_t consumed;
+    return unicode_is_wide(unicode_decode((const unsigned char *)editor->text + offset, editor->length - offset, &consumed)) ? 2 : 1;
 }
 
 static size_t columns_between(const struct editor *editor, size_t start, size_t end) {
     size_t columns = 0;
     for (size_t i = start; i < end; i++)
-        if (!is_continuation((unsigned char)editor->text[i])) columns += char_columns(editor->text[i], columns);
+        if (!is_continuation((unsigned char)editor->text[i])) columns += char_columns(editor, i, columns);
     return columns;
 }
 
@@ -183,7 +189,7 @@ size_t editor_column_of(const struct editor *editor, size_t offset) {
 static size_t advance_columns(const struct editor *editor, size_t offset, size_t end, size_t columns) {
     size_t column = 0;
     while (offset < end) {
-        size_t width = char_columns(editor->text[offset], column);
+        size_t width = char_columns(editor, offset, column);
         if (column + width > columns) break;
         column += width;
         offset = next_char(editor, offset);

@@ -13,6 +13,7 @@
 #include "editor.h"
 #include "keymap.h"
 #include "overlay.h"
+#include "unicode.h"
 
 #define MARGIN 12.0f
 #define TEXT_PADDING 3.0f
@@ -919,9 +920,11 @@ _Static_assert(OVERLAY_TAB_WIDTH == EDITOR_TAB_WIDTH, "the overlay and the edito
 
 static size_t columns_between(size_t start, size_t end) {
     size_t columns = 0;
-    for (size_t i = start; i < end; i++) {
-        if ((editor.text[i] & 0xC0) == 0x80) continue;
-        columns += editor.text[i] == '\t' ? EDITOR_TAB_WIDTH - columns % EDITOR_TAB_WIDTH : 1;
+    for (size_t i = start; i < end;) {
+        size_t consumed;
+        int codepoint = unicode_decode((const unsigned char *)editor.text + i, end - i, &consumed);
+        columns += codepoint == '\t' ? EDITOR_TAB_WIDTH - columns % EDITOR_TAB_WIDTH : unicode_is_wide(codepoint) ? 2 : 1;
+        i += consumed;
     }
     return columns;
 }

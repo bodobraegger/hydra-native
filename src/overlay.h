@@ -19,7 +19,10 @@ float overlay_line_height(void);
 void overlay_begin(void);
 void overlay_rect(float x, float y, float width, float height, uint32_t color);
 // Draws `length` bytes of UTF-8 from column `first_column` on, at most `max_columns` columns.
+// Glyphs render on their first use; characters that the code font lacks come from fontconfig fallback fonts.
 // `colors` gives one color per byte, or is NULL for `color`.
 void overlay_text(float x, float y, const char *text, size_t length, size_t first_column, size_t max_columns,
                   const uint32_t *colors, uint32_t color);
 void overlay_end(int width, int height);
+int overlay_columns(int codepoint); // 2 for wide East Asian characters, else 1
+size_t overlay_text_columns(const char *text, size_t length);

@@ -1,5 +1,6 @@
 // Glyph rendering uses stb_truetype.h 1.26 (public domain or MIT, see THIRD_PARTY.md).
 #include "overlay.h"
+#include "unicode.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,37 +11,49 @@
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "stb_truetype.h"
 
-#define ATLAS_SIZE 1024
+#define ATLAS_SIZE 2048
 // The last two rows of the atlas stay white; rectangles sample them, so text and rectangles share one shader.
-#define ATLAS_PACK_HEIGHT (ATLAS_SIZE - 2)
+#define ATLAS_GLYPH_HEIGHT (ATLAS_SIZE - 2)
+#define GLYPH_PADDING 1
 #define FALLBACK_CODEPOINT '?'
 #define LINE_SPACING 1.25f
+#define GLYPH_TABLE_SIZE 8192 // a power of two
+#define MAX_FONTS 16
+#define MAX_FONT_PATH 1024
 
-struct glyph_range {
-    int first;
-    int count;
+// A font file: the code font first, then fallback fonts that fontconfig finds for other scripts.
+struct font {
+    char path[MAX_FONT_PATH];
+    int index;
+    unsigned char *data;
+    stbtt_fontinfo info;
+    float scale;
 };
 
-static const struct glyph_range glyph_ranges[] = {
-    { 32, 95 },      // ASCII
-    { 160, 224 },    // Latin-1 and Latin Extended-A
-    { 0x2010, 24 },  // dashes, quotes, bullet, ellipsis
-    { 0x20AC, 1 },   // euro sign
-    { 0x2190, 4 },   // arrows
+// A glyph in the atlas, rendered on the first use.
+struct glyph {
+    int codepoint; // 0: free slot
+    int columns; // 1, or 2 for wide East Asian characters
+    float x0, y0, x1, y1; // the bitmap relative to the pen position on the baseline
+    float s0, t0, s1, t1;
 };
-#define GLYPH_RANGE_COUNT (sizeof glyph_ranges / sizeof glyph_ranges[0])
+
+static struct glyph *overlay_glyph(int codepoint);
 
 struct vertex {
     float x, y, u, v;
     uint8_t color[4];
 };
 
-static unsigned char *font_data;
-static stbtt_packedchar *packed[GLYPH_RANGE_COUNT];
+static struct font fonts[MAX_FONTS];
+static int font_count;
+static struct glyph glyphs[GLYPH_TABLE_SIZE];
+static int shelf_x, shelf_y, shelf_height; // the shelf packer of the atlas
 static float current_font_size, char_width, ascent, line_height;
 static GLuint atlas, program, vertex_array, vertex_buffer;
 static GLint screen_location;
 static struct vertex *vertices;
+static bool atlas_full;
 static size_t vertex_count, vertex_capacity;
 
 static const char *vertex_source =
@@ -76,65 +89,134 @@ static GLuint compile(GLenum type, const char *source) {
     return shader;
 }
 
+static bool load_font(struct font *font, const char *path, int index) {
+    FILE *file = fopen(path, "rb");
+    if (!file) return false;
+    fseek(file, 0, SEEK_END);
+    long size = ftell(file);
+    fseek(file, 0, SEEK_SET);
+    font->data = malloc((size_t)size);
+    bool read = fread(font->data, 1, (size_t)size, file) == (size_t)size;
+    fclose(file);
+    int offset = read ? stbtt_GetFontOffsetForIndex(font->data, index) : -1;
+    if (offset < 0 || !stbtt_InitFont(&font->info, font->data, offset)) {
+        free(font->data);
+        font->data = NULL;
+        return false;
+    }
+    snprintf(font->path, sizeof font->path, "%s", path);
+    font->index = index;
+    font->scale = stbtt_ScaleForPixelHeight(&font->info, current_font_size);
+    return true;
+}
+
+// Asks fontconfig for a font with the code point and adds it to the fallback fonts.
+static struct font *fallback_font(int codepoint) {
+    if (font_count == MAX_FONTS) return NULL;
+    char command[128], answer[MAX_FONT_PATH + 16] = "";
+    snprintf(command, sizeof command, "fc-match -f '%%{file}|%%{index}' ':charset=%x'", codepoint);
+    FILE *pipe = popen(command, "r");
+    if (!pipe) return NULL;
+    if (!fgets(answer, sizeof answer, pipe)) answer[0] = '\0';
+    pclose(pipe);
+    char *separator = strrchr(answer, '|');
+    if (!separator) return NULL;
+    *separator = '\0';
+    int index = atoi(separator + 1);
+    for (int i = 0; i < font_count; i++)
+        if (!strcmp(fonts[i].path, answer) && fonts[i].index == index)
+            return stbtt_FindGlyphIndex(&fonts[i].info, codepoint) ? &fonts[i] : NULL;
+    if (!load_font(&fonts[font_count], answer, index)) return NULL;
+    struct font *font = &fonts[font_count++];
+    return stbtt_FindGlyphIndex(&font->info, codepoint) ? font : NULL;
+}
+
+static void clear_glyphs(void) {
+    memset(glyphs, 0, sizeof glyphs);
+    shelf_x = shelf_y = shelf_height = 0;
+    unsigned char *pixels = calloc(ATLAS_SIZE, ATLAS_SIZE);
+    memset(pixels + (size_t)ATLAS_GLYPH_HEIGHT * ATLAS_SIZE, 0xFF, 2 * ATLAS_SIZE);
+    glBindTexture(GL_TEXTURE_2D, atlas);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, ATLAS_SIZE, ATLAS_SIZE, 0, GL_RED, GL_UNSIGNED_BYTE, pixels);
+    free(pixels);
+}
+
+int overlay_columns(int codepoint) { return unicode_is_wide(codepoint) ? 2 : 1; }
+
+static struct glyph *render_glyph(struct glyph *slot, int codepoint) {
+    struct font *font = &fonts[0];
+    if (!stbtt_FindGlyphIndex(&font->info, codepoint)) {
+        font = NULL;
+        for (int i = 1; i < font_count && !font; i++)
+            if (stbtt_FindGlyphIndex(&fonts[i].info, codepoint)) font = &fonts[i];
+        if (!font) font = fallback_font(codepoint);
+        if (!font) return codepoint == FALLBACK_CODEPOINT ? NULL : overlay_glyph(FALLBACK_CODEPOINT);
+    }
+    int x0, y0, x1, y1;
+    stbtt_GetCodepointBitmapBox(&font->info, codepoint, font->scale, font->scale, &x0, &y0, &x1, &y1);
+    int width = x1 - x0, height = y1 - y0;
+    if (shelf_x + width + GLYPH_PADDING > ATLAS_SIZE) {
+        shelf_x = 0;
+        shelf_y += shelf_height + GLYPH_PADDING;
+        shelf_height = 0;
+    }
+    if (shelf_y + height + GLYPH_PADDING > ATLAS_GLYPH_HEIGHT) return NULL; // full; overlay_end clears it
+    unsigned char *bitmap = calloc((size_t)(width > 0 ? width : 1) * (size_t)(height > 0 ? height : 1), 1);
+    if (width > 0 && height > 0) {
+        stbtt_MakeCodepointBitmap(&font->info, bitmap, width, height, width, font->scale, font->scale, codepoint);
+        glBindTexture(GL_TEXTURE_2D, atlas);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, shelf_x, shelf_y, width, height, GL_RED, GL_UNSIGNED_BYTE, bitmap);
+    }
+    free(bitmap);
+    // A glyph of a fallback font sits on the baseline of the code font.
+    *slot = (struct glyph){ codepoint, overlay_columns(codepoint), (float)x0, (float)y0, (float)x1, (float)y1,
+                            (float)shelf_x / ATLAS_SIZE, (float)shelf_y / ATLAS_SIZE,
+                            (float)(shelf_x + width) / ATLAS_SIZE, (float)(shelf_y + height) / ATLAS_SIZE };
+    shelf_x += width + GLYPH_PADDING;
+    if (height > shelf_height) shelf_height = height;
+    return slot;
+}
+
+static struct glyph *overlay_glyph(int codepoint) {
+    unsigned hash = (unsigned)codepoint * 2654435761u;
+    for (unsigned probe = 0; probe < GLYPH_TABLE_SIZE; probe++) {
+        struct glyph *slot = &glyphs[(hash + probe) & (GLYPH_TABLE_SIZE - 1)];
+        if (slot->codepoint == codepoint) return slot;
+        if (slot->codepoint == 0) return render_glyph(slot, codepoint);
+    }
+    return NULL;
+}
+
 bool overlay_set_font_size(float font_size) {
     if (font_size < OVERLAY_MIN_FONT_SIZE) font_size = OVERLAY_MIN_FONT_SIZE;
     if (font_size > OVERLAY_MAX_FONT_SIZE) font_size = OVERLAY_MAX_FONT_SIZE;
-    unsigned char *pixels = calloc(ATLAS_SIZE, ATLAS_SIZE);
-    memset(pixels + ATLAS_PACK_HEIGHT * ATLAS_SIZE, 0xFF, 2 * ATLAS_SIZE);
-    stbtt_pack_context context;
-    bool ok = stbtt_PackBegin(&context, pixels, ATLAS_SIZE, ATLAS_PACK_HEIGHT, ATLAS_SIZE, 1, NULL);
-    for (size_t i = 0; ok && i < GLYPH_RANGE_COUNT; i++) {
-        free(packed[i]);
-        packed[i] = calloc((size_t)glyph_ranges[i].count, sizeof(stbtt_packedchar));
-        ok = stbtt_PackFontRange(&context, font_data, 0, font_size, glyph_ranges[i].first, glyph_ranges[i].count,
-                                 packed[i]);
-    }
-    if (ok) stbtt_PackEnd(&context);
-    if (!ok) {
-        fprintf(stderr, "overlay: font size %.0f does not fit the glyph atlas\n", font_size);
-        free(pixels);
-        return false;
-    }
-
-    stbtt_fontinfo info;
-    stbtt_InitFont(&info, font_data, stbtt_GetFontOffsetForIndex(font_data, 0));
-    float scale = stbtt_ScaleForPixelHeight(&info, font_size);
-    int font_ascent, font_descent, line_gap, advance, bearing;
-    stbtt_GetFontVMetrics(&info, &font_ascent, &font_descent, &line_gap);
-    stbtt_GetCodepointHMetrics(&info, 'M', &advance, &bearing);
     current_font_size = font_size;
-    char_width = (float)(int)(advance * scale + 0.5f);
-    ascent = (float)(int)(font_ascent * scale + 0.5f);
+    for (int i = 0; i < font_count; i++) fonts[i].scale = stbtt_ScaleForPixelHeight(&fonts[i].info, font_size);
+    int font_ascent, font_descent, line_gap, advance, bearing;
+    stbtt_GetFontVMetrics(&fonts[0].info, &font_ascent, &font_descent, &line_gap);
+    stbtt_GetCodepointHMetrics(&fonts[0].info, 'M', &advance, &bearing);
+    char_width = (float)(int)(advance * fonts[0].scale + 0.5f);
+    ascent = (float)(int)(font_ascent * fonts[0].scale + 0.5f);
     line_height = (float)(int)(font_size * LINE_SPACING + 0.5f);
-
-    if (!atlas) glGenTextures(1, &atlas);
-    glBindTexture(GL_TEXTURE_2D, atlas);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, ATLAS_SIZE, ATLAS_SIZE, 0, GL_RED, GL_UNSIGNED_BYTE, pixels);
-    free(pixels);
+    if (!atlas) {
+        glGenTextures(1, &atlas);
+        glBindTexture(GL_TEXTURE_2D, atlas);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    }
+    clear_glyphs();
     return true;
 }
 
 bool overlay_init(const char *font_path, float font_size) {
-    FILE *file = fopen(font_path, "rb");
-    if (!file) {
-        fprintf(stderr, "overlay: cannot open font %s\n", font_path);
+    current_font_size = font_size;
+    if (!load_font(&fonts[0], font_path, 0)) {
+        fprintf(stderr, "overlay: cannot use the font %s\n", font_path);
         return false;
     }
-    fseek(file, 0, SEEK_END);
-    long size = ftell(file);
-    fseek(file, 0, SEEK_SET);
-    font_data = malloc((size_t)size);
-    bool read = fread(font_data, 1, (size_t)size, file) == (size_t)size;
-    fclose(file);
-    if (!read || stbtt_GetFontOffsetForIndex(font_data, 0) < 0) {
-        fprintf(stderr, "overlay: %s is no TrueType or OpenType font\n", font_path);
-        return false;
-    }
-
+    font_count = 1;
     program = glCreateProgram();
     glAttachShader(program, compile(GL_VERTEX_SHADER, vertex_source));
     glAttachShader(program, compile(GL_FRAGMENT_SHADER, fragment_source));
@@ -187,29 +269,9 @@ void overlay_rect(float x, float y, float width, float height, uint32_t color) {
     push_quad(x, y, x + width, y + height, 0.5f / ATLAS_SIZE, white, 0.5f / ATLAS_SIZE, white, color);
 }
 
-static const stbtt_packedchar *find_glyph(int codepoint, int *range_index, int *index) {
-    for (int range = 0; range < (int)GLYPH_RANGE_COUNT; range++) {
-        int offset = codepoint - glyph_ranges[range].first;
-        if (offset >= 0 && offset < glyph_ranges[range].count) {
-            *range_index = range;
-            *index = offset;
-            return &packed[range][offset];
-        }
-    }
-    return codepoint == FALLBACK_CODEPOINT ? NULL : find_glyph(FALLBACK_CODEPOINT, range_index, index);
-}
-
 static int decode_utf8(const unsigned char *text, size_t length, size_t *consumed) {
-    unsigned char first = text[0];
-    int count = first < 0x80 ? 1 : first < 0xE0 ? 2 : first < 0xF0 ? 3 : 4;
-    if ((size_t)count > length || (first >= 0x80 && first < 0xC0)) {
-        *consumed = 1;
-        return FALLBACK_CODEPOINT;
-    }
-    int codepoint = count == 1 ? first : first & (0x3F >> (count - 1));
-    for (int i = 1; i < count; i++) codepoint = (codepoint << 6) | (text[i] & 0x3F);
-    *consumed = (size_t)count;
-    return codepoint;
+    int codepoint = unicode_decode(text, length, consumed);
+    return codepoint == 0xFFFD ? FALLBACK_CODEPOINT : codepoint;
 }
 
 void overlay_text(float x, float y, const char *text, size_t length, size_t first_column, size_t max_columns,
@@ -218,22 +280,39 @@ void overlay_text(float x, float y, const char *text, size_t length, size_t firs
     for (size_t offset = 0; offset < length && column < first_column + max_columns;) {
         size_t consumed;
         int codepoint = decode_utf8((const unsigned char *)text + offset, length - offset, &consumed);
+        int columns = codepoint == '\t' ? OVERLAY_TAB_WIDTH - (int)(column % OVERLAY_TAB_WIDTH) : overlay_columns(codepoint);
         if (column >= first_column && codepoint > ' ') {
-            int range, index;
-            if (find_glyph(codepoint, &range, &index)) {
+            struct glyph *glyph = overlay_glyph(codepoint);
+            if (glyph) {
                 float pen_x = x + (float)(column - first_column) * char_width, pen_y = y + ascent;
-                stbtt_aligned_quad quad;
-                stbtt_GetPackedQuad(packed[range], ATLAS_SIZE, ATLAS_SIZE, index, &pen_x, &pen_y, &quad, 1);
-                push_quad(quad.x0, quad.y0, quad.x1, quad.y1, quad.s0, quad.t0, quad.s1, quad.t1,
-                          colors ? colors[offset] : color);
+                push_quad(pen_x + glyph->x0, pen_y + glyph->y0, pen_x + glyph->x1, pen_y + glyph->y1, glyph->s0,
+                          glyph->t0, glyph->s1, glyph->t1, colors ? colors[offset] : color);
+            } else {
+                atlas_full = true;
             }
         }
         offset += consumed;
-        column += codepoint == '\t' ? OVERLAY_TAB_WIDTH - column % OVERLAY_TAB_WIDTH : 1;
+        column += (size_t)columns;
     }
 }
 
+size_t overlay_text_columns(const char *text, size_t length) {
+    size_t columns = 0;
+    for (size_t offset = 0; offset < length;) {
+        size_t consumed;
+        int codepoint = decode_utf8((const unsigned char *)text + offset, length - offset, &consumed);
+        columns += codepoint == '\t' ? OVERLAY_TAB_WIDTH - columns % OVERLAY_TAB_WIDTH : (size_t)overlay_columns(codepoint);
+        offset += consumed;
+    }
+    return columns;
+}
+
 void overlay_end(int width, int height) {
+    // A full atlas starts again empty; the glyphs of this frame come back in the next frame.
+    if (atlas_full) {
+        atlas_full = false;
+        clear_glyphs();
+    }
     if (vertex_count == 0) return;
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glViewport(0, 0, width, height);
