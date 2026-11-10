@@ -49,9 +49,9 @@ __setPatchBayServer('%s')
 const wait = setInterval(() => {
   if (typeof pb === 'undefined' || !pb.id) return
   clearInterval(wait)
-  log('started ' + (__patchBayId() === pb.id + ' ' + pb.streamId && pb.streamId.length > 0))
+  log('started ' + (__patchBayStreamId() === pb.streamId && pb.streamId.length > 0))
   __setPatchBayServer('')
-  log('stopped ' + typeof pb + ' ' + JSON.stringify(__patchBayId()))
+  log('stopped ' + typeof pb + ' ' + JSON.stringify(__patchBayStreamId()))
   setTimeout(() => native.exit(0), 3000)
 }, 200)
 setTimeout(() => { log('timeout'); native.exit(1) }, 20000)

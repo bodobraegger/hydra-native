@@ -121,7 +121,7 @@ static char *call(const char *function, const char *argument) {
         snprintf(patch_bay_server, sizeof patch_bay_server, "%s", argument);
         return strdup("");
     }
-    if (!strcmp(function, "__patchBayId")) return strdup(patch_bay_server[0] ? "pbid123 " STREAM_ID : "");
+    if (!strcmp(function, "__patchBayStreamId")) return strdup(patch_bay_server[0] ? STREAM_ID : "");
     char *text = strdup(argument);
     for (char *c = text; *c; c++) *c = (char)toupper((unsigned char)*c);
     return text;

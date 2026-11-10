@@ -32,8 +32,8 @@ window.__setPatchBayServer = (server) => {
   native.galleryServer = server || null
   return ''
 }
-// "pb.id <id> <stream id>" for the settings panel; others connect with s0.initStream('<stream id>').
-window.__patchBayId = () => patchBay && patchBay.id && patchBay.streamId ? `${patchBay.id} ${patchBay.streamId}` : ''
+// The stream id for the settings panel and Ctrl+Alt+I; others connect with s0.initStream('<stream id>').
+window.__patchBayStreamId = () => patchBay && patchBay.streamId ? patchBay.streamId : ''
 if (native.galleryServer) window.__setPatchBayServer(native.galleryServer)
 // The audio meter of lib/audio.js draws its bars into this recording context, see the overlay code below.
 if (hydra.synth.a) {

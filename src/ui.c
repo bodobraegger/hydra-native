@@ -823,25 +823,24 @@ static void set_server(const char *url) {
     ui_show_message(text, false);
 }
 
-// "pb.id stream-id" of this instance in the patch bay room ("" without a connection). The stream id (the socket
-// id of the signalling) is what other peers pass to s0.initStream; pb.id is only the default nickname.
-static char *patch_bay_id(void) {
-    char *id = host.call("__patchBayId", "");
+// The stream id of this instance in the patch bay room ("" without a connection): the socket id of the
+// signalling, which other peers pass to s0.initStream and which pb.list() shows.
+static char *patch_bay_stream_id(void) {
+    char *id = host.call("__patchBayStreamId", "");
     if (!id) id = strdup("");
     return id;
 }
 
 static void copy_patch_bay_id(void) {
-    char *id = patch_bay_id(), text[192];
-    char *stream_id = strchr(id, ' ');
-    if (stream_id) {
-        SDL_SetClipboardText(stream_id + 1);
-        snprintf(text, sizeof text, "copied the stream id %s: s0.initStream('%s') elsewhere", stream_id + 1, stream_id + 1);
+    char *stream_id = patch_bay_stream_id(), text[192];
+    if (stream_id[0]) {
+        SDL_SetClipboardText(stream_id);
+        snprintf(text, sizeof text, "copied the stream id %s: s0.initStream('%s') elsewhere", stream_id, stream_id);
     } else {
         snprintf(text, sizeof text, "the patch bay is not connected (settings: server)");
     }
-    ui_show_message(text, !stream_id);
-    free(id);
+    ui_show_message(text, !stream_id[0]);
+    free(stream_id);
 }
 
 // Writes the settings file after a change of the settings menu or of the font size.
@@ -1727,14 +1726,14 @@ static void draw_settings(void) {
     flow_label(&flow, "hydra.ojack.xyz", !strcmp(server, WEB_EDITOR_SERVER), "server web");
     bool custom = server[0] && strcmp(server, WEB_EDITOR_SERVER);
     flow_label(&flow, custom ? server : "custom", custom, "server custom");
-    char *id = patch_bay_id(), *stream_id = strchr(id, ' ');
-    if (stream_id) { // while the patch bay is connected: the id for s0.initStream, with a button that copies it
+    char *stream_id = patch_bay_stream_id();
+    if (stream_id[0]) { // while the patch bay is connected: the id for s0.initStream, with a button that copies it
         char label[160];
-        snprintf(label, sizeof label, "stream id %s", stream_id + 1);
+        snprintf(label, sizeof label, "stream id %s", stream_id);
         flow_text(&flow, label, theme->help_keys);
         flow_label(&flow, "copy", false, "copy id");
     }
-    free(id);
+    free(stream_id);
     flow_row(&flow, label_x, "font size", false);
     char size[16];
     snprintf(size, sizeof size, "%.0f px", overlay_font_size());
