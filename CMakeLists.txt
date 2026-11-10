@@ -134,9 +134,18 @@ target_link_libraries(hydra-native PRIVATE quickjs plutovg harfbuzz sheenbidi SD
 set_target_properties(hydra-native PROPERTIES LINKER_LANGUAGE CXX)
 
 # The screen capture of initScreen, initMonitor, initArea and initWindow (src/capture.h), a video source command.
-add_executable(hydra-native-capture src/capture_main.c src/capture_linux.c ${PROCESS_SOURCE})
+# Backends: ScreenCaptureKit on macOS, the portal and Mutter over GDBus on Linux.
+if(APPLE)
+  enable_language(OBJC)
+  add_executable(hydra-native-capture src/capture_main.c src/capture_macos.m ${PROCESS_SOURCE})
+  target_compile_options(hydra-native-capture PRIVATE $<$<COMPILE_LANGUAGE:OBJC>:-fobjc-arc>)
+  target_link_libraries(hydra-native-capture PRIVATE "-framework ScreenCaptureKit" "-framework CoreMedia"
+    "-framework CoreVideo" "-framework CoreGraphics" "-framework Accelerate" "-framework AppKit")
+else()
+  add_executable(hydra-native-capture src/capture_main.c src/capture_linux.c ${PROCESS_SOURCE})
+  target_link_libraries(hydra-native-capture PRIVATE PkgConfig::GIO)
+endif()
 target_compile_options(hydra-native-capture PRIVATE ${WARNINGS})
-target_link_libraries(hydra-native-capture PRIVATE PkgConfig::GIO)
 
 # The audio processing of Chrome from the system (not downloaded); only its headers come from upstream.
 # C++17 makes absl::optional the std::optional that the system library uses.
@@ -200,8 +209,10 @@ foreach(test ${UNIT_TESTS})
   set_tests_properties(${test} PROPERTIES LABELS unit)
 endforeach()
 add_custom_target(unit-tests DEPENDS ${UNIT_TESTS} hydra-native-capture)
-add_test(NAME portal COMMAND python3 ${CMAKE_SOURCE_DIR}/test/portal_test.py)
-set_tests_properties(portal PROPERTIES LABELS unit)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  add_test(NAME portal COMMAND python3 ${CMAKE_SOURCE_DIR}/test/portal_test.py)
+  set_tests_properties(portal PROPERTIES LABELS unit)
+endif()
 
 # The checks run the program in hidden windows, with a settings folder of their own.
 add_test(NAME check COMMAND hydra-native --hidden --no-vsync --no-analog-agc ${CMAKE_SOURCE_DIR}/test/check.js)
