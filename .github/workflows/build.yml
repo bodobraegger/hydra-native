@@ -18,8 +18,8 @@ jobs:
         include:
           - os: ubuntu-26.04
             package: true
-          # The ports (PORTING.md): the window and GLES context on ANGLE, the ported sources, and the screen
-          # capture tool. No program yet, so no archive; a failure here does not stop the release of Linux.
+          # The ports (PORTING.md). macOS builds the program, Windows the window test and the capture tool. No
+          # archive yet; a failure here does not stop the release of Linux.
           - os: macos-15
             port: true
           - os: windows-2025
@@ -28,6 +28,10 @@ jobs:
     continue-on-error: ${{ matrix.port == true }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The JS bundle of the macOS program; pnpm installs the WebRTC module of this system.
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        if: matrix.port && runner.os == 'macOS'
 
       - name: Build the port
         if: matrix.port
@@ -44,11 +48,18 @@ jobs:
       # Opens a hidden window with ANGLE (Metal on macOS, Direct3D 11 on Windows) and reads a drawn pixel back.
       - name: Run the window test
         if: matrix.port
-        run: ctest --test-dir build -C Release -L window --verbose
+        run: ctest --test-dir build -C Release -R "^window$" --verbose
+
+      # The program on ANGLE: two outputs and the 2D canvas, read back (test/check.js), and the unit tests.
+      - name: Run the program check and the unit tests
+        if: matrix.port && runner.os == 'macOS'
+        run: |
+          ctest --test-dir build -R "^check$" --verbose
+          cmake --build build --target unit-tests
+          ctest --test-dir build -L unit --output-on-failure
 
       - name: Build the screen capture tool
-        if: matrix.port
-        continue-on-error: true
+        if: matrix.port && runner.os == 'Windows'
         run: cmake --build build --config Release --target hydra-native-capture
 
       # The packages of the build in README.md, python3 for test/portal_test.py, and the speech samples

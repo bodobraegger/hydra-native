@@ -323,29 +323,16 @@ if(TARGET hydra-webrtc-apm)
   add_dependencies(hydra-audio-midi hydra-webrtc-apm)
 endif()
 
-if(NOT HYDRA_LINUX)
-  # The parts of the program that are ported so far; the others come with the ports of PORTING.md. The editor
-  # core and the overlay compile here as a check, without a program yet.
-  add_library(hydra-native-portable OBJECT src/editor.c src/bidi.c src/keymap.c src/signature.c src/overlay.c
-    src/ui.c src/settings.c src/window.c)
-  target_compile_options(hydra-native-portable PRIVATE ${WARNINGS})
-  target_include_directories(hydra-native-portable PRIVATE ${VENDOR}/stb ${VENDOR}/quickjs ${VENDOR}/harfbuzz/src
-    ${VENDOR}/sheenbidi/Headers)
-  target_link_libraries(hydra-native-portable PRIVATE SDL3::SDL3 gles)
-  if(MSVC)
-    set_target_properties(hydra-native-portable PROPERTIES EXCLUDE_FROM_ALL TRUE) # POSIX headers still
-  endif()
-  # Not compiled on macOS and Windows so far; CI builds it in a step of its own that may fail.
-  set_target_properties(hydra-native-capture PROPERTIES EXCLUDE_FROM_ALL TRUE)
+if(WIN32)
+  # No program on Windows yet: QuickJS does not build with MSVC (quickjs-ng replaces it, PORTING.md), and the
+  # program still includes POSIX headers. The window test and the capture tool build.
   enable_testing()
   add_test(NAME window COMMAND window-test)
   set_tests_properties(window PROPERTIES LABELS window)
   return()
 endif()
 
-# ---------------------------------------------------------------- programs (Linux)
-
-pkg_check_modules(SYSTEM REQUIRED IMPORTED_TARGET glesv2)
+# ---------------------------------------------------------------- programs (Linux and macOS)
 
 add_executable(hydra-native src/main.c src/canvas2d.c src/svg_filter.c src/webgl.c src/video.c src/fetch.c
   src/thumbnails.c src/recorder.c src/patch_bay.c src/editor.c src/bidi.c src/ui.c src/settings.c src/overlay.c
@@ -353,8 +340,8 @@ add_executable(hydra-native src/main.c src/canvas2d.c src/svg_filter.c src/webgl
 target_compile_options(hydra-native PRIVATE ${WARNINGS})
 target_compile_definitions(hydra-native PRIVATE HYDRA_NATIVE_VERSION="${PROJECT_VERSION}")
 target_include_directories(hydra-native PRIVATE ${VENDOR}/stb)
-target_link_libraries(hydra-native PRIVATE quickjs plutovg harfbuzz sheenbidi hydra-audio-midi SDL3::SDL3
-  PkgConfig::SYSTEM m dl pthread)
+target_link_libraries(hydra-native PRIVATE quickjs plutovg harfbuzz sheenbidi hydra-audio-midi SDL3::SDL3 gles
+  m dl pthread)
 # harfbuzz is C++, so the C++ driver links the program.
 set_target_properties(hydra-native PROPERTIES LINKER_LANGUAGE CXX)
 
@@ -388,10 +375,13 @@ set(SANITIZERS -fsanitize=address,undefined)
 add_executable(editor-test EXCLUDE_FROM_ALL test/editor_test.c src/editor.c src/bidi.c)
 add_executable(ui-test EXCLUDE_FROM_ALL test/ui_test.c src/ui.c src/keymap.c src/editor.c src/bidi.c src/settings.c
   src/signature.c)
-add_executable(audio-test EXCLUDE_FROM_ALL test/audio_test.c src/audio_processing.c src/analog_agc.c)
 add_executable(process-test EXCLUDE_FROM_ALL test/process_test.c ${PROCESS_SOURCE})
 target_link_libraries(editor-test PRIVATE sheenbidi)
 target_link_libraries(ui-test PRIVATE sheenbidi quickjs SDL3::SDL3 m dl pthread)
+set(UNIT_TESTS editor-test ui-test process-test)
+# The audio and MIDI tests are for Linux (ALSA, the speech samples of alsa-utils).
+if(HYDRA_LINUX)
+add_executable(audio-test EXCLUDE_FROM_ALL test/audio_test.c src/audio_processing.c src/analog_agc.c)
 target_link_libraries(audio-test PRIVATE SDL3::SDL3 m)
 target_compile_definitions(audio-test PRIVATE WEBRTC_APM_FILE="${WEBRTC_APM_FILE}")
 # midi-test sends through the ALSA sequencer; with HYDRA_MINIAUDIO_LIBREMIDI it tests src/midi_libremidi.cc.
@@ -404,7 +394,8 @@ else()
   target_sources(midi-test PRIVATE src/midi.c)
 endif()
 target_link_libraries(midi-test PRIVATE PkgConfig::AUDIO_MIDI m)
-set(UNIT_TESTS editor-test ui-test audio-test midi-test process-test)
+list(APPEND UNIT_TESTS audio-test midi-test)
+endif()
 foreach(test ${UNIT_TESTS})
   target_compile_options(${test} PRIVATE -O1 ${WARNINGS} ${SANITIZERS})
   target_link_options(${test} PRIVATE ${SANITIZERS})
