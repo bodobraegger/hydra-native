@@ -47,6 +47,8 @@ a distributed hydra-native binary with its bundle falls under the AGPL-3.0.
 - @roamhq/wrtc 0.8.0 and its prebuilt binary @roamhq/wrtc-linux-x64 0.8.1 (wrtc.node, which contains the
   WebRTC library of Google), BSD-2-Clause license. https://github.com/WonderInventions/node-webrtc
   The WebRTC stack (ICE, DTLS-SRTP, VP8) of pb and s0.initStream. The user allowed this prebuilt download.
+  On macOS and Windows, pnpm installs the prebuilt binary of that system instead: @roamhq/wrtc-darwin-arm64,
+  @roamhq/wrtc-darwin-x64 or @roamhq/wrtc-win32-x64, version 0.8.0, under the same license.
 - simple-peer 9.11.1 and socket.io-client 2.5.0 (the versions of the web editor), MIT license; shortid 2.2.17,
   MIT license; inherits 2.0.4, ISC license; events 3.3.0, MIT license (also for js/patch-bay.js in the bundle).
 - socket.io 2.5.0, MIT license. Only for test/signalling_server.cjs.

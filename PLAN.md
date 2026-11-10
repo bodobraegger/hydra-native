@@ -183,7 +183,7 @@ gallery and signalling server (hydra-synth/hydra-server) and from the CodeMirror
 
 `initStream` and `pb` run the patch bay code of the web editor (rtc-patch-bay.js, pb-live.js) unchanged in
 node with @roamhq/wrtc 0.8 (tools/patch-bay.mjs). The helper joins the room with the events of hydra-server,
-writes the RGBA frames of received streams into FIFOs that src/video.c reads, and publishes the output frames
+writes the RGBA frames of received streams to a local socket that src/video.c reads, and publishes the output frames
 that src/recorder.c writes while a peer is connected. Tests: test/patch_bay_test.py with two instances and a local
 copy of the signalling (test/signalling_server.cjs). With the local web editor in headless Chromium and the same
 signalling copy, both directions work: hydra-native receives the output of the browser, and the browser receives

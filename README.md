@@ -233,10 +233,10 @@ All `init*` calls accept `{ width, height }` for the capture size (default 1280x
 
 | Call                            | Source                                                        |
 | ------------------------------- | ------------------------------------------------------------- |
-| `s0.initCam(index)`             | webcam number `index` (V4L2, GStreamer)                       |
-| `s0.initScreen()`               | a window or monitor that you pick in the portal dialog        |
-| `s0.initMonitor(index)`         | monitor number `index`, no dialog (Mutter ScreenCast)         |
-| `s0.initArea(x, y, w, h)`       | an area of the screen, no portal dialog                       |
+| `s0.initCam(index)`             | webcam number `index` (GStreamer on Linux, else SDL)          |
+| `s0.initScreen()`               | a window or monitor that you pick in the system dialog        |
+| `s0.initMonitor(index)`         | monitor number `index`, no dialog                             |
+| `s0.initArea(x, y, w, h)`       | an area of the screen, no dialog                              |
 | `s0.initWindow(delay)`          | the window that has the focus after `delay` seconds           |
 | `s0.initVideo(url)`             | a file or stream (ffmpeg, loops); YouTube links need `yt-dlp` |
 | `s0.initImage(url)`             | an image (ffmpeg)                                             |
@@ -245,7 +245,9 @@ All `init*` calls accept `{ width, height }` for the capture size (default 1280x
 `initScreen()` opens the picker of xdg-desktop-portal, as `getDisplayMedia()` does in the browser.
 `initMonitor`, `initArea` and `initWindow` use the Mutter ScreenCast API directly and open no dialog.
 build/hydra-native-capture (src/capture.h, with the Linux backend src/capture_linux.c on GDBus) does both and
-writes the frames, so no Python runs; Python is only for some tests.
+writes the frames, so no Python runs; Python is only for some tests. On macOS, ScreenCaptureKit and its picker
+do the same, and on Windows Windows.Graphics.Capture; PORTING.md describes the permissions and the differences.
+initVideo, initImage and vidRecorder need ffmpeg in PATH; the error bar names a missing program.
 A monitor stream sends no frame until something on that monitor repaints.
 Window and area streams start at once.
 
