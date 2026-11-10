@@ -17,6 +17,7 @@
 #include <winrt/Windows.Graphics.Capture.h>
 #include <winrt/Windows.Graphics.DirectX.Direct3D11.h>
 #include <winrt/Windows.Graphics.DirectX.h>
+#include <winrt/Windows.Graphics.h>
 
 #include <algorithm>
 #include <cstdio>
@@ -127,9 +128,13 @@ GraphicsCaptureItem pick_item() {
 }
 
 // Copies the content (or the crop of it) of `texture` into state.frame: nearest-neighbor scaling, BGRA to RGBA.
-void convert_frame(ID3D11Texture2D *texture, SizeInt32 content) {
+// False for an empty frame (a minimized window).
+bool convert_frame(ID3D11Texture2D *texture, SizeInt32 content) {
     D3D11_TEXTURE2D_DESC description;
     texture->GetDesc(&description);
+    int content_width = std::min(content.Width, static_cast<int>(description.Width));
+    int content_height = std::min(content.Height, static_cast<int>(description.Height));
+    if (content_width <= 0 || content_height <= 0) return false;
     D3D11_TEXTURE2D_DESC staging_description{};
     if (state.staging) state.staging->GetDesc(&staging_description);
     if (!state.staging || staging_description.Width != description.Width || staging_description.Height != description.Height) {
@@ -143,11 +148,9 @@ void convert_frame(ID3D11Texture2D *texture, SizeInt32 content) {
     state.context->CopyResource(state.staging.get(), texture);
     D3D11_MAPPED_SUBRESOURCE mapped;
     winrt::check_hresult(state.context->Map(state.staging.get(), 0, D3D11_MAP_READ, 0, &mapped));
-    int content_width = std::min(content.Width, static_cast<int>(description.Width));
-    int content_height = std::min(content.Height, static_cast<int>(description.Height));
     crop area = state.area.width > 0 ? state.area : crop{ 0, 0, content_width, content_height };
-    area.x = std::clamp(area.x, 0, std::max(content_width - 1, 0));
-    area.y = std::clamp(area.y, 0, std::max(content_height - 1, 0));
+    area.x = std::clamp(area.x, 0, content_width - 1);
+    area.y = std::clamp(area.y, 0, content_height - 1);
     area.width = std::clamp(area.width, 1, content_width - area.x);
     area.height = std::clamp(area.height, 1, content_height - area.y);
     const auto *pixels = static_cast<const uint8_t *>(mapped.pData);
@@ -163,6 +166,7 @@ void convert_frame(ID3D11Texture2D *texture, SizeInt32 content) {
         }
     }
     state.context->Unmap(state.staging.get(), 0);
+    return true;
 }
 
 // Runs on a thread of the thread pool (a free-threaded frame pool).
@@ -175,13 +179,14 @@ void frame_arrived(Direct3D11CaptureFramePool const &pool, winrt::Windows::Found
         auto access = frame.Surface().as<::Windows::Graphics::DirectX::Direct3D11::IDirect3DDxgiInterfaceAccess>();
         winrt::com_ptr<ID3D11Texture2D> texture;
         winrt::check_hresult(access->GetInterface(__uuidof(ID3D11Texture2D), texture.put_void()));
-        convert_frame(texture.get(), content);
+        bool converted = convert_frame(texture.get(), content);
         frame.Close();
         // A window changed its size: the pool follows, so the next frames hold all of the window.
         if (content.Width != state.pool_size.Width || content.Height != state.pool_size.Height) {
             state.pool_size = content;
-            pool.Recreate(state.device, FRAME_FORMAT, FRAME_BUFFER_COUNT, content);
+            if (converted) pool.Recreate(state.device, FRAME_FORMAT, FRAME_BUFFER_COUNT, content);
         }
+        if (!converted) return;
     } catch (winrt::hresult_error const &error) {
         fprintf(stderr, "capture: %ls (0x%08x)\n", error.message().c_str(), static_cast<unsigned>(error.code()));
         finish(1);
