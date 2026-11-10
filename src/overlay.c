@@ -433,13 +433,16 @@ static int decode_utf8(const unsigned char *text, size_t length, size_t *consume
 // Embedding levels of the full Unicode bidi algorithm (UAX #9, with explicit embeddings and isolates) from
 // SheenBidi; the levels of the line include rule L1 for the white space at the end.
 static void bidi_levels(const int *codepoints, int count, int paragraph, unsigned char *levels) {
+    for (int i = 0; i < count; i++) levels[i] = (unsigned char)paragraph; // text after a paragraph separator
+    // SheenBidi returns no algorithm for empty text.
+    if (count <= 0) return;
     SBCodepointSequence sequence = { SBStringEncodingUTF32, codepoints, (SBUInteger)count };
     SBAlgorithmRef algorithm = SBAlgorithmCreate(&sequence);
+    if (!algorithm) return;
     SBParagraphRef bidi_paragraph = SBAlgorithmCreateParagraph(algorithm, 0, (SBUInteger)count, (SBLevel)paragraph);
     SBUInteger length = SBParagraphGetLength(bidi_paragraph);
     SBLineRef line = SBParagraphCreateLine(bidi_paragraph, 0, length);
     const SBRun *runs = SBLineGetRunsPtr(line);
-    for (int i = 0; i < count; i++) levels[i] = (unsigned char)paragraph; // text after a paragraph separator
     for (SBUInteger r = 0; r < SBLineGetRunCount(line); r++)
         for (SBUInteger k = runs[r].offset; k < runs[r].offset + runs[r].length; k++) levels[k] = runs[r].level;
     SBLineRelease(line);
