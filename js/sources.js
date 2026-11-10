@@ -1,6 +1,7 @@
 // Replaces the DOM media inputs of HydraSource (s0..s3) with native video sources:
 // a child process writes raw RGBA frames to a pipe, src/video.c uploads the newest frame.
-// The commands use gst-launch-1.0, ffmpeg and tools/screencast.py (Mutter ScreenCast, no portal dialog).
+// The commands use gst-launch-1.0, ffmpeg, tools/portal_screencast.py (the portal picker of initScreen) and
+// tools/screencast.py (Mutter ScreenCast without a dialog: initMonitor, initArea, initWindow).
 
 const DEFAULT_WIDTH = 1280
 const DEFAULT_HEIGHT = 720
@@ -56,8 +57,15 @@ export function installSources (sourcePrototype) {
       `${rawVideoCaps(width, height)} ! fdsink fd=1 sync=false`, { width, height, ...params })
   }
 
-  // initScreen(index) records monitor `index` of org.gnome.Mutter.DisplayConfig.
+  // initScreen() opens the picker of xdg-desktop-portal, like getDisplayMedia() in the browser:
+  // the user selects a window or a monitor. The index of hydra-synth's initScreen(index) is not used.
   sourcePrototype.initScreen = function (index = 0, { width = DEFAULT_WIDTH, height = DEFAULT_HEIGHT, ...params } = {}) {
+    return this.initCommand(`python3 ${quote(native.directory + '/../tools/portal_screencast.py')} ${width} ${height}`,
+      { width, height, ...params })
+  }
+
+  // initMonitor(index) records monitor `index` of org.gnome.Mutter.DisplayConfig without a dialog.
+  sourcePrototype.initMonitor = function (index = 0, { width = DEFAULT_WIDTH, height = DEFAULT_HEIGHT, ...params } = {}) {
     return this.initCommand(screencast('monitor', index, width, height), { width, height, ...params })
   }
 

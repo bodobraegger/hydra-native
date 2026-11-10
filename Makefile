@@ -70,6 +70,7 @@ build/ui-test: test/ui_test.c src/ui.c src/keymap.c src/editor.c src/*.h
 test: build/editor-test build/ui-test
 	build/editor-test
 	build/ui-test
+	python3 test/portal_test.py
 
 check: all test
 	build/hydra-native --hidden --no-vsync test/check.js
