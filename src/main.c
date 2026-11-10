@@ -377,11 +377,143 @@ static JSValue js_read_pixel(JSContext *ctx, JSValueConst this, int argc, JSValu
 
 // ---------------------------------------------------------------- media and system bindings
 
+// The sandbox: shared code (a sketch URL, a sketch of the gallery, an extension, a remote script) turns it on with
+// native.sandbox(). It stays on until the program ends, because shared code can leave timers and changed globals
+// behind. In the sandbox, a sketch cannot run shell commands or open local media files, and readFile and writeFile
+// work only in the program directory and the cache directory, so that shared code gets the access of a web page.
+static bool sandboxed;
+#define SANDBOX_REASON "shared code ran in this session (restart hydra-native to use it)"
+#define CACHE_DIRECTORY "/.cache/hydra-native/"
+#define MAX_COMMAND 8192
+
+static JSValue js_sandbox(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    if (!sandboxed) fprintf(stderr, "sandbox: shell commands and local files are off from now on\n");
+    sandboxed = true;
+    return JS_UNDEFINED;
+}
+
+static bool in_directory(const char *path, const char *directory) {
+    size_t length = strlen(directory);
+    return directory[0] && !strncmp(path, directory, length) && (directory[length - 1] == '/' || path[length] == '/');
+}
+
+static bool sandbox_allows_path(const char *path, bool write) {
+    if (!sandboxed) return true;
+    if (strstr(path, "..")) return false;
+    char cache[PATH_MAX];
+    const char *home = getenv("HOME");
+    snprintf(cache, sizeof cache, "%s" CACHE_DIRECTORY, home ? home : "/tmp");
+    return in_directory(path, cache) || (!write && in_directory(path, executable_path_directory));
+}
+
+// `text` as one word of the shell of process_start_shell (malloc'd): in single quotes for /bin/sh, in double quotes
+// for cmd.exe, where a word cannot hold a double quote. NULL for such a word and for control characters.
+static char *shell_word(const char *text) {
+    size_t length = 3;
+    for (const char *c = text; *c; c++) {
+        if ((unsigned char)*c < 0x20 || *c == 0x7f) return NULL;
+        length += *c == '\'' ? 4 : 1;
+    }
+#if defined(_WIN32)
+    if (strchr(text, '"')) return NULL;
+    char *word = malloc(length);
+    snprintf(word, length, "\"%s\"", text);
+#else
+    char *word = malloc(length), *end = word;
+    *end++ = '\'';
+    for (const char *c = text; *c; c++) {
+        if (*c == '\'') {
+            memcpy(end, "'\\''", 4);
+            end += 4;
+        } else *end++ = *c;
+    }
+    *end++ = '\'';
+    *end = '\0';
+#endif
+    return word;
+}
+
+// videoOpen(command, width, height): initCommand, a shell command that writes frames.
 static JSValue js_video_open(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    if (sandboxed) return JS_ThrowTypeError(ctx, "initCommand is off: " SANDBOX_REASON);
     const char *command = JS_ToCString(ctx, argv[0]);
     int handle = video_open(command, to_int(ctx, argv[1]), to_int(ctx, argv[2]));
     JS_FreeCString(ctx, command);
     if (handle < 0) return JS_ThrowInternalError(ctx, "cannot start video source");
+    return JS_NewInt32(ctx, handle);
+}
+
+// mediaOpen(url, width, height, kind): ffmpeg plays a file or a stream ("video", in a loop), takes the first frame
+// ("image"), or plays the output of yt-dlp ("youtube"). In the sandbox, only HTTP and HTTPS URLs work.
+static JSValue js_media_open(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    const char *url = JS_ToCString(ctx, argv[0]), *kind = JS_ToCString(ctx, argv[3]);
+    int width = to_int(ctx, argv[1]), height = to_int(ctx, argv[2]);
+    if (!url || !kind) {
+        JS_FreeCString(ctx, url);
+        JS_FreeCString(ctx, kind);
+        return JS_EXCEPTION;
+    }
+    bool remote = !strncmp(url, "https://", 8) || !strncmp(url, "http://", 7);
+    char *word = shell_word(!remote && !strncmp(url, "file://", 7) ? url + 7 : url);
+    char format[64];
+    snprintf(format, sizeof format, "best[height<=%d]/best", height);
+    char *format_word = shell_word(format);
+    char output[96];
+    snprintf(output, sizeof output, "-vf scale=%d:%d -pix_fmt rgba -f rawvideo -", width, height);
+    // ffmpeg opens no local file for a URL of shared code, also not from a playlist
+    const char *protocols = sandboxed ? "-protocol_whitelist http,https,tcp,tls,crypto " : "";
+    char command[MAX_COMMAND] = "";
+    if (word && !strcmp(kind, "youtube"))
+        snprintf(command, sizeof command, "yt-dlp -q -f %s -o - %s | ffmpeg -hide_banner -loglevel error -re -i - %s",
+                 format_word, word, output);
+    else if (word && !strcmp(kind, "image"))
+        snprintf(command, sizeof command, "ffmpeg -hide_banner -loglevel error %s-i %s -frames:v 1 %s", protocols, word,
+                 output);
+    else if (word)
+        snprintf(command, sizeof command, "ffmpeg -hide_banner -loglevel error %s-re -stream_loop -1 -i %s %s",
+                 protocols, word, output);
+    free(word);
+    free(format_word);
+    JSValue result;
+    if (sandboxed && !remote) result = JS_ThrowTypeError(ctx, "local file %s is off: " SANDBOX_REASON, url);
+    else if (!command[0]) result = JS_ThrowTypeError(ctx, "cannot use %s as a media URL", url);
+    else {
+        int handle = video_open(command, width, height);
+        result = handle < 0 ? JS_ThrowInternalError(ctx, "cannot start video source") : JS_NewInt32(ctx, handle);
+    }
+    JS_FreeCString(ctx, url);
+    JS_FreeCString(ctx, kind);
+    return result;
+}
+
+// captureOpen(mode, ...numbers, width, height): build/hydra-native-capture (src/capture_main.c) as a video source,
+// with the mode "picker", "monitor", "area" or "window" and the numbers of its usage.
+static JSValue js_capture_open(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    static const char *const modes[] = { "picker", "monitor", "area", "window" };
+    const char *mode = JS_ToCString(ctx, argv[0]);
+    if (!mode) return JS_EXCEPTION;
+    bool known = false;
+    for (size_t i = 0; i < sizeof modes / sizeof modes[0]; i++) known = known || !strcmp(mode, modes[i]);
+    if (!known || argc < 3) {
+        JSValue error = JS_ThrowTypeError(ctx, "unknown capture %s", mode);
+        JS_FreeCString(ctx, mode);
+        return error;
+    }
+    char program[PATH_MAX + 32];
+#if defined(_WIN32)
+    snprintf(program, sizeof program, "%s\\hydra-native-capture.exe", executable_path_directory);
+#else
+    snprintf(program, sizeof program, "%s/hydra-native-capture", executable_path_directory);
+#endif
+    char *program_word = shell_word(program);
+    char command[MAX_COMMAND];
+    int length = snprintf(command, sizeof command, "%s %s", program_word ? program_word : "", mode);
+    for (int i = 1; i < argc && length < (int)sizeof command; i++)
+        length += snprintf(command + length, sizeof command - (size_t)length, " %d", to_int(ctx, argv[i]));
+    free(program_word);
+    JS_FreeCString(ctx, mode);
+    int handle = program_word ? video_open(command, to_int(ctx, argv[argc - 2]), to_int(ctx, argv[argc - 1])) : -1;
+    if (handle < 0) return JS_ThrowInternalError(ctx, "cannot start the screen capture");
     return JS_NewInt32(ctx, handle);
 }
 
@@ -400,14 +532,14 @@ static JSValue js_video_close(JSContext *ctx, JSValueConst this, int argc, JSVal
 
 #define MAX_CAMERAS 64
 
-// cameraOpen(index, width, height): a video source of the SDL camera (macOS, Windows; Linux uses GStreamer).
+// cameraOpen(index, width, height): a video source of camera `index` of cameras().
 static JSValue js_camera_open(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
     int handle = video_open_camera(to_int(ctx, argv[0]), to_int(ctx, argv[1]), to_int(ctx, argv[2]));
     if (handle < 0) return JS_ThrowInternalError(ctx, "cannot open the camera");
     return JS_NewInt32(ctx, handle);
 }
 
-// cameras(): the names of the SDL cameras, in the order of initCam(index).
+// cameras(): the names of the cameras (the /dev/video* nodes on Linux), in the order of initCam(index).
 static JSValue js_cameras(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
     const char *names[MAX_CAMERAS];
     int count = video_camera_names(names, MAX_CAMERAS);
@@ -719,7 +851,7 @@ static JSValue js_midi_poll(JSContext *ctx, JSValueConst this, int argc, JSValue
 static JSValue js_fetch_sync(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
     const char *url = JS_ToCString(ctx, argv[0]);
     if (!url) return JS_EXCEPTION;
-    const char *argv_curl[] = { "curl", "-fsSL", "--max-time", "15", "--", url, NULL };
+    const char *argv_curl[] = { "curl", "-fsSL", CURL_PROTOCOL_OPTIONS, "--max-time", "15", "--", url, NULL };
     SDL_Process *process = SDL_CreateProcess(argv_curl, true);
     JS_FreeCString(ctx, url);
     if (!process) return JS_ThrowInternalError(ctx, "cannot start curl: %s", SDL_GetError());
@@ -746,7 +878,7 @@ static JSValue js_write_file(JSContext *ctx, JSValueConst this, int argc, JSValu
     size_t length;
     const char *text = JS_ToCStringLen(ctx, &length, argv[1]);
     bool ok = false;
-    if (path && text) {
+    if (path && text && sandbox_allows_path(path, true)) {
         char directory[PATH_MAX];
         snprintf(directory, sizeof directory, "%s", path);
         for (char *slash = strchr(directory + 1, '/'); slash; slash = strchr(slash + 1, '/')) {
@@ -771,6 +903,11 @@ static JSValue js_now(JSContext *ctx, JSValueConst this, int argc, JSValueConst 
 static JSValue js_read_file(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
     const char *path = JS_ToCString(ctx, argv[0]);
     if (!path) return JS_EXCEPTION;
+    if (!sandbox_allows_path(path, false)) {
+        JSValue error = JS_ThrowReferenceError(ctx, "cannot read %s: " SANDBOX_REASON, path);
+        JS_FreeCString(ctx, path);
+        return error;
+    }
     size_t length;
     char *text = read_file(path, &length);
     bool binary = argc > 1 && JS_ToBool(ctx, argv[1]);
@@ -839,6 +976,9 @@ static const JSCFunctionListEntry native_functions[] = {
     JS_CFUNC_DEF("fillRects", 1, js_fill_rects),
     JS_CFUNC_DEF("readPixel", 3, js_read_pixel),
     JS_CFUNC_DEF("videoOpen", 3, js_video_open),
+    JS_CFUNC_DEF("mediaOpen", 4, js_media_open),
+    JS_CFUNC_DEF("captureOpen", 3, js_capture_open),
+    JS_CFUNC_DEF("sandbox", 0, js_sandbox),
     JS_CFUNC_DEF("videoUpload", 2, js_video_upload),
     JS_CFUNC_DEF("videoRunning", 1, js_video_running),
     JS_CFUNC_DEF("videoClose", 1, js_video_close),

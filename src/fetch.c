@@ -48,7 +48,8 @@ static int process_start(char *const argv[], SDL_IOStream *input) {
 }
 
 int fetch_start(const char *url) {
-    char *argv[] = { "curl", "-fsSL", "--max-time", FETCH_TIMEOUT_SECONDS, "--", (char *)url, NULL };
+    char *argv[] = { "curl", "-fsSL", CURL_PROTOCOL_OPTIONS, "--max-time", FETCH_TIMEOUT_SECONDS, "--", (char *)url,
+                     NULL };
     return process_start(argv, NULL);
 }
 
@@ -84,14 +85,16 @@ int http_start(const char *url, const char *method, const char *const *headers, 
         if (!input) return -1;
     }
     // -D - writes the header blocks (one per redirect) before the body; without -f an error status is a response.
-    const char *argv[16 + 2 * MAX_REQUEST_HEADERS] = { "curl", "-sSL", "-D", "-", "--max-time", FETCH_TIMEOUT_SECONDS };
-    size_t count = 6;
+    const char *argv[20 + 2 * MAX_REQUEST_HEADERS] = { "curl", "-sSL", CURL_PROTOCOL_OPTIONS, "-D", "-", "--max-time",
+                                                       FETCH_TIMEOUT_SECONDS };
+    size_t count = 10;
     if (!strcmp(method, "HEAD")) argv[count++] = "-I";
     else if (strcmp(method, "GET") != 0) {
         argv[count++] = "-X";
         argv[count++] = method;
     }
     for (size_t i = 0; i < header_count && i < MAX_REQUEST_HEADERS; i++) {
+        if (headers[i][0] == '@') continue; // curl reads "-H @file" from a file
         argv[count++] = "-H";
         argv[count++] = headers[i];
     }

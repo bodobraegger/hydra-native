@@ -52,6 +52,7 @@ const entry = (index) => CATEGORIES[selectedCategory].entries[Number(index)]
 window.__extensionLoadCode = (index) => {
   const item = entry(index)
   if (!item || !item.load) throw new Error('no load code')
+  native.sandbox() // the load code comes from the extension list on the network
   return item.load
 }
 

@@ -10,8 +10,8 @@
 // command, see src/process.h), or a stream of the patch bay brings them (video_open_stream owns `stream`).
 int video_open(const char *command, int width, int height);
 int video_open_stream(int stream, int width, int height);
-// The SDL camera (AVFoundation on macOS, Media Foundation on Windows): camera `index` of the names that
-// video_camera_names lists, in RGBA frames of width x height.
+// Camera `index` of the names that video_camera_names lists, in RGBA frames of width x height: GStreamer with the
+// /dev/video* capture nodes on Linux, the SDL camera elsewhere (AVFoundation on macOS, Media Foundation on Windows).
 int video_open_camera(int index, int width, int height);
 int video_camera_names(const char **names, int capacity);
 bool video_upload(int handle, GLuint texture);
@@ -30,6 +30,9 @@ void audio_set_gain(int percent); // multiplies the samples before the analysis
 struct audio_device;
 int audio_devices(struct audio_device *devices, int capacity); // see audio_input_devices() of src/audio_input.h
 bool audio_features(float specific[BARK_BAND_COUNT], float *total);
+
+// The options of curl for each request: only HTTP and HTTPS, also after a redirect, so that no URL reads a local file.
+#define CURL_PROTOCOL_OPTIONS "--proto", "=http,https", "--proto-redir", "=http,https"
 
 // Downloads with curl, and other child processes; fetch_poll calls `done` once per finished process with its
 // output and whether it exited with status 0.

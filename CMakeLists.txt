@@ -333,7 +333,7 @@ add_custom_command(OUTPUT ${NODE_MODULES}/.modules.yaml
 file(GLOB JS_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/js/*.js ${CMAKE_SOURCE_DIR}/js/hydra-editor/*)
 # The metafile lists the bundled npm packages for the license files of the release archive.
 add_custom_command(OUTPUT ${CMAKE_BINARY_DIR}/hydra-bundle.js ${CMAKE_BINARY_DIR}/hydra-bundle.meta.json
-  COMMAND ${NODE_MODULES}/.bin/esbuild js/main.js --bundle --format=iife --log-level=warning
+  COMMAND ${NODE_MODULES}/.bin/esbuild js/main.js --bundle --format=iife --log-level=warning --inject:js/native.js
     --outfile=${CMAKE_BINARY_DIR}/hydra-bundle.js --metafile=${CMAKE_BINARY_DIR}/hydra-bundle.meta.json
     --alias:regl=./js/regl-shim.js --alias:raf-loop=./js/raf-loop-shim.js --alias:meyda=./js/meyda-shim.js
   DEPENDS ${JS_SOURCES} ${NODE_MODULES}/.modules.yaml
@@ -390,10 +390,11 @@ endif()
 add_test(NAME check COMMAND hydra-native --hidden --no-vsync ${CMAKE_SOURCE_DIR}/test/check.js)
 add_test(NAME window COMMAND window-test)
 add_test(NAME programs COMMAND programs-test)
-foreach(check fetch gallery patch_bay error)
+foreach(check fetch gallery patch_bay error sandbox)
   add_test(NAME ${check} COMMAND python3 ${CMAKE_SOURCE_DIR}/test/${check}_test.py)
 endforeach()
-set_tests_properties(check window programs fetch gallery patch_bay error PROPERTIES LABELS check RUN_SERIAL true)
+set_tests_properties(check window programs fetch gallery patch_bay error sandbox PROPERTIES LABELS check RUN_SERIAL true
+  ENVIRONMENT HYDRA_NATIVE_TEST=1) # sketches of the tests use the global `native` (js/native.js)
 get_property(ALL_TESTS DIRECTORY PROPERTY TESTS)
 set_tests_properties(${ALL_TESTS} PROPERTIES
   ENVIRONMENT "XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/test-config;HYDRA_NATIVE_BUILD=${CMAKE_BINARY_DIR}")

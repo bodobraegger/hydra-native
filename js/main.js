@@ -94,6 +94,7 @@ window.loadScript = (url = '') => new Promise((resolve) => {
     return resolve()
   }
   pendingFetches.set(native.fetchStart(url), (ok, text) => {
+    if (ok) native.sandbox() // a remote script is shared code
     if (ok) runScript(text, url)
     else console.error(`error loading script ${url}`)
     resolve()

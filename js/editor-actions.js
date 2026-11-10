@@ -1,4 +1,5 @@
 // The toolbar actions of the web editor that need JavaScript: random examples and the mutator.
+// The code of a sketch URL and of the gallery turns on the sandbox (native.sandbox() of src/main.c).
 // src/ui.c calls the window.__* functions through the `call` host function.
 import Mutator from './hydra-editor/Mutator.js'
 import examples from './hydra-editor/examples.json'
@@ -138,9 +139,11 @@ window.__codeFromUrl = (url) => {
   const query = url.includes('?') ? url.slice(url.indexOf('?') + 1).split('#')[0] : url
   const sketchId = queryParameter(query, 'sketch_id')
   // Like setSketchFromURL() of gallery.js: an example, else the sketch of the gallery server, else ?code=.
-  const sketch = sketchId && (examples.find((item) => item.sketch_id === sketchId) || sketchFromServer(sketchId))
+  const example = sketchId && examples.find((item) => item.sketch_id === sketchId)
+  const sketch = example || (sketchId && sketchFromServer(sketchId))
   const base64 = sketch ? sketch.code : queryParameter(query, 'code')
   if (!base64) throw new Error(`no code in ${url}`)
+  if (!example) native.sandbox() // the code of the URL or of the gallery is shared code; the examples come with the program
   let code = decodeURIComponent(decodeBase64(base64))
   if (sketch && !code.includes(GALLERY_LICENSE)) code = `${GALLERY_LICENSE}\n${code}\n`
   const showCode = queryParameter(query, 'showCode') || queryParameter(query, 'show-code')

@@ -89,6 +89,49 @@ int video_open_stream(int stream, int width, int height) {
     return add_source(handle, NULL, stream, NULL, width, height);
 }
 
+#if defined(__linux__)
+#define MAX_VIDEO_DEVICES 64
+#define CAMERA_NAME_SIZE 24
+
+// The capture nodes of /dev/video* in the order of their number; a camera also has a metadata node, whose index
+// is 1.
+static int linux_cameras(int *numbers, int capacity) {
+    int count = 0;
+    for (int number = 0; number < MAX_VIDEO_DEVICES && count < capacity; number++) {
+        char path[64], index[8] = "";
+        snprintf(path, sizeof path, "/sys/class/video4linux/video%d/index", number);
+        FILE *file = fopen(path, "r");
+        if (!file) continue;
+        bool capture = fgets(index, sizeof index, file) && atoi(index) == 0;
+        fclose(file);
+        if (capture) numbers[count++] = number;
+    }
+    return count;
+}
+
+int video_camera_names(const char **names, int capacity) {
+    static char storage[MAX_VIDEO_DEVICES][CAMERA_NAME_SIZE];
+    int numbers[MAX_VIDEO_DEVICES];
+    int count = linux_cameras(numbers, capacity < MAX_VIDEO_DEVICES ? capacity : MAX_VIDEO_DEVICES);
+    for (int index = 0; index < count; index++) {
+        snprintf(storage[index], CAMERA_NAME_SIZE, "/dev/video%d", numbers[index]);
+        names[index] = storage[index];
+    }
+    return count;
+}
+
+int video_open_camera(int index, int width, int height) {
+    int numbers[MAX_VIDEO_DEVICES];
+    int count = linux_cameras(numbers, MAX_VIDEO_DEVICES);
+    if (index < 0 || index >= count) return -1;
+    char command[512];
+    snprintf(command, sizeof command,
+             "gst-launch-1.0 -q v4l2src device=/dev/video%d ! decodebin ! videoconvert ! videoscale ! "
+             "video/x-raw,format=RGBA,width=%d,height=%d ! fdsink fd=1 sync=false",
+             numbers[index], width, height);
+    return video_open(command, width, height);
+}
+#else
 static bool start_cameras(void) {
     if (SDL_WasInit(SDL_INIT_CAMERA) || SDL_InitSubSystem(SDL_INIT_CAMERA)) return true;
     fprintf(stderr, "camera: %s\n", SDL_GetError());
@@ -125,6 +168,7 @@ int video_open_camera(int index, int width, int height) {
     }
     return add_source(handle, NULL, -1, camera, width, height);
 }
+#endif
 
 // Copies the newest frame of the camera of `source` into `front`; under the lock of the source.
 static void take_camera_frame(struct video_source *source) {
