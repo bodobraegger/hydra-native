@@ -13,7 +13,7 @@ OBJECTS := build/main.o build/canvas2d.o build/video.o build/audio.o build/fetch
 CFLAGS := -O2 -g -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -I$(QUICKJS_DIR) -Ivendor/stb -I$(PLUTOVG_DIR)/include -DPLUTOVG_BUILD_STATIC $(shell pkg-config --cflags sdl2)
 LDLIBS := $(shell pkg-config --libs sdl2 glesv2 libpulse-simple alsa) -lm -ldl -lpthread
 
-all: build/hydra-native build/hydra-bundle.js
+all: build/hydra-native build/hydra-bundle.js build/p5.min.js
 
 $(QUICKJS_DIR)/quickjs.c:
 	mkdir -p vendor
@@ -49,6 +49,10 @@ build/%.o: src/%.c src/*.h $(QUICKJS_DIR)/quickjs.c $(PLUTOVG_DIR)/include/pluto
 
 build/hydra-native: $(OBJECTS) $(QUICKJS_OBJECTS) $(PLUTOVG_OBJECTS)
 	$(CC) -o $@ $^ $(LDLIBS)
+
+build/p5.min.js: node_modules/hydra-synth/package.json
+	@mkdir -p build
+	cp node_modules/p5/lib/p5.min.js $@
 
 node_modules/hydra-synth/package.json:
 	pnpm install

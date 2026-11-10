@@ -1,4 +1,5 @@
 import { CanvasElement, Path2D } from './canvas.js'
+import { Element } from './element.js'
 
 // The browser globals that hydra-synth, its lib/audio.js and the user's sketches use,
 // backed by the `native` object that src/main.c installs.
@@ -12,7 +13,7 @@ console.info = console.debug = (...parts) => console.log(...parts)
 console.warn = console.error = (...parts) => native.consoleMessage(parts.map(String).join(' '))
 
 window.performance = { now: () => native.now() }
-window.location = { href: 'hydra-native://', search: '', hash: '' }
+window.location = { href: 'hydra-native://local/', protocol: 'hydra-native:', host: 'local', hostname: 'local', pathname: '/', search: '', hash: '' }
 
 // ---------------------------------------------------------------- events
 
@@ -136,51 +137,37 @@ export class RecordingContext2D {
   }
 }
 
-class Element {
-  constructor (tagName) {
-    this.tagName = tagName.toUpperCase()
-    this.style = {}
-    this.children = []
-    this.parentNode = null
-    this.width = 300
-    this.height = 150
-  }
-
-  appendChild (child) {
-    child.parentNode = this
-    this.children.push(child)
-    return child
-  }
-
-  removeChild (child) {
-    this.children = this.children.filter((item) => item !== child)
-    child.parentNode = null
-    return child
-  }
-
-  remove () { if (this.parentNode) this.parentNode.removeChild(this) }
-  setAttribute (name, value) { this[name] = value }
-  addEventListener () {}
-  removeEventListener () {}
-  get clientWidth () { return this.width }
-  get clientHeight () { return this.height }
-}
-
+const documentElement = new Element('html')
 window.document = {
-  body: new Element('body'),
-  head: new Element('head'),
+  readyState: 'complete',
+  documentElement,
+  body: documentElement.appendChild(new Element('body')),
+  head: documentElement.appendChild(new Element('head')),
   createElement: (tagName) => String(tagName).toLowerCase() === 'canvas' ? new CanvasElement() : new Element(tagName),
-  getElementById: () => null,
-  querySelector: () => null,
+  createElementNS: (namespace, tagName) => window.document.createElement(tagName),
+  createTextNode: (text) => ({ nodeType: 3, textContent: String(text) }),
+  getElementById: (id) => documentElement.getElementById(id),
+  getElementsByTagName: (name) => documentElement.getElementsByTagName(name),
+  getElementsByClassName: (name) => documentElement.getElementsByClassName(name),
+  querySelector: (selector) => documentElement.querySelector(selector),
+  querySelectorAll: (selector) => documentElement.querySelectorAll(selector),
+  hasFocus: () => true,
   addEventListener,
   removeEventListener
 }
+window.devicePixelRatio = 1
+window.screen = { get width () { return window.innerWidth }, get height () { return window.innerHeight } }
+window.scrollX = window.scrollY = window.pageXOffset = window.pageYOffset = 0
+window.matchMedia = () => ({ matches: false, addListener () {}, removeListener () {}, addEventListener () {} })
+window.getComputedStyle = (element) => ({ ...element.style, getPropertyValue: (name) => element.style[name] || '' })
 
 // ---------------------------------------------------------------- media
 
 window.navigator = {
   platform: 'Linux x86_64',
   userAgent: 'hydra-native',
+  language: 'en-US',
+  languages: ['en-US'],
   maxTouchPoints: 0,
   mediaDevices: {
     // lib/audio.js asks for the microphone here; the Meyda shim then reads native audio.

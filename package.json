@@ -7,7 +7,8 @@
     "astravel": "^0.5.0",
     "astring": "^1.9.0",
     "hydra-synth": "1.4.0",
-    "js-beautify": "^1.15.4"
+    "js-beautify": "^1.15.4",
+    "p5": "1.6.0"
   },
   "devDependencies": {
     "esbuild": "^0.28.2"

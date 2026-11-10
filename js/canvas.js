@@ -1,3 +1,5 @@
+import { Element } from './element.js'
+
 // A <canvas> element with a CanvasRenderingContext2D, drawn by src/canvas2d.c (plutovg).
 // It covers what hydra-text, hydra-canvas and s0.initCanvas() sketches use: rectangles, paths, arcs, text,
 // transforms, clipping, globalAlpha, composite operations and drawImage of other canvases.
@@ -324,12 +326,9 @@ const surfaces = new FinalizationRegistry((id) => native.canvasDestroy(id))
 
 let nextVersion = 1
 
-export class CanvasElement {
+export class CanvasElement extends Element {
   constructor () {
-    this.tagName = 'CANVAS'
-    this.style = {}
-    this.children = []
-    this.parentNode = null
+    super('canvas')
     this._width = DEFAULT_WIDTH
     this._height = DEFAULT_HEIGHT
     this.handle = -1
@@ -351,8 +350,6 @@ export class CanvasElement {
   get height () { return this._height }
   set width (value) { this.resize(value, this._height) }
   set height (value) { this.resize(this._width, value) }
-  get clientWidth () { return this._width }
-  get clientHeight () { return this._height }
 
   // Setting the size clears the canvas and its context state, as in the browser.
   resize (width, height) {
@@ -382,11 +379,5 @@ export class CanvasElement {
     this.uploaded = `${texture.id}:${texture.width}x${texture.height}:${this.version}`
   }
 
-  appendChild (child) { this.children.push(child); return child }
-  removeChild (child) { this.children = this.children.filter((item) => item !== child); return child }
-  remove () { if (this.parentNode) this.parentNode.removeChild(this) }
-  setAttribute (name, value) { this[name] = value }
-  addEventListener () {}
-  removeEventListener () {}
   toDataURL () { return '' }
 }
