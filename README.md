@@ -140,8 +140,10 @@ All `init*` calls accept `{ width, height }` for the capture size (default 1280x
 A monitor stream sends no frame until something on that monitor repaints.
 Window and area streams start at once.
 
-`p5 = new P5()` creates a p5.js 1.6.0 sketch in 2D mode, as in the web editor; `s0.init({ src: p5.canvas })`
-uses it as a source. `vidRecorder.start()` and `vidRecorder.stop()` record the visuals to a WebM file
+`p5 = new P5()` creates a p5.js 1.6.0 sketch, as in the web editor, in 2D mode or with `new P5({ mode: 'WEBGL' })`
+in WEBGL mode; `s0.init({ src: p5.canvas })` uses it as a source.
+The 2D canvas has gradients, patterns, shadows, image data, images and all blend modes;
+`canvas.getContext('webgl')` gives a WebGL 1 context. `vidRecorder.start()` and `vidRecorder.stop()` record the visuals to a WebM file
 (VP9, 25 fps) in ~/Downloads. `navigator.requestMIDIAccess()` gives MIDI input and output through ALSA.
 
 The audio object `a` is the one of hydra-synth (`a.show()`, `a.setBins()`, `a.setSmooth()`, `a.fft`).

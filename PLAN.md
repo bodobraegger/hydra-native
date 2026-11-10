@@ -122,103 +122,77 @@ Thus `a.setScale`, `a.setCutoff` and `a.setBins` keep their meaning.
 
 The list comes from the source of the web editor (src/views/editor/editor.js, keymaps.js, src/stores/store.js,
 editor-store.js, gallery-store.js, gallery.js, extension-store.js, language-store.js, src/views/toolbar.js, info.js,
-extension-info.js, Hydra.js, repl-v2.js, randomizer/Mutator.js, src/lib/p5-wrapper.js and src/lib/patch-bay) and from
-the CodeMirror 5 sublime keymap that it loads. Status "done" means that a test or a screenshot checked it.
-"not possible" gives the technical reason.
+extension-info.js, Hydra.js, repl-v2.js, randomizer/Mutator.js, src/lib/p5-wrapper.js and src/lib/patch-bay), from the
+gallery and signalling server (hydra-synth/hydra-server) and from the CodeMirror 5 sublime keymap that it loads.
+"Identical" says whether the behavior is the same as in the web editor; "no" names the difference.
 
 ### Evaluation, overlay, toolbar and panels
 
-| Feature                          | Web editor                    | hydra-native                        | Status |
-| -------------------------------- | ----------------------------- | ----------------------------------- | ------ |
-| eval line                        | Ctrl+Enter (line)             | Ctrl/Shift+Enter, also selection    | done   |
-| eval block                       | Alt+Enter                     | Alt+Enter                           | done   |
-| eval all                         | Ctrl+Shift+Enter, run button  | also Ctrl+Alt+Enter, run button     | done   |
-| flash of the evaluated code      | 300 ms                        | 300 ms                              | done   |
-| error line at the bottom         | yes                           | yes, also shader errors             | done   |
-| hide code                        | Ctrl+Shift+H                  | Ctrl+Shift+H                        | done   |
-| format code (js-beautify)        | Ctrl+Shift+F                  | Ctrl+Shift+F, Shift+Alt+F (spaces)  | done   |
-| toggle comment                   | Ctrl+/                        | Ctrl+/ (Ctrl+Shift+7 on ch)         | done   |
-| screencap with code              | Ctrl+Shift+S (png and js)     | Ctrl+Shift+S, to ~/Downloads        | done   |
-| clear all (hush, speed 1)        | toolbar                       | toolbar, Ctrl+Shift+Delete          | done   |
-| random example (examples.json)   | toolbar                       | toolbar, F7                         | done   |
-| mutator, undo, change a function | dice, Shift+dice, Meta+dice   | toolbar, F8, Shift+F8, Ctrl+F8      | done   |
-| start without a sketch           | random example and info       | random example and info             | done   |
-| info panel                       | toolbar                       | toolbar, translated texts and links | done   |
-| toolbar tooltips                 | translated titles             | translated, on hover                | done   |
-| language selection               | 9 languages from l10n         | the same, cached offline, --lang    | done   |
-| right-to-left text (Arabic)      | browser bidi and shaping      | basic shaping, run reordering       | done   |
-| extensions panel                 | 3 categories, thumbnails      | the same, + adds code to the top    | done   |
-| save to URL                      | Ctrl+Shift+L                  | Ctrl+Shift+L, URL to the clipboard  | done   |
-| open a sketch URL                | ?code=, ?sketch_id=           | the URL as an argument              | done   |
-| sketches of the gallery server   | ?sketch_id= of the server     | examples only, no /sketchById       | partly |
-| share to the gallery             | Ctrl+Shift+G, prompt, toolbar | the same, --gallery-server          | done   |
-| line wrapping                    | on                            | on, Alt+Z toggles                   | done   |
-| multiple selections              | CodeMirror                    | yes                                 | done   |
-| tab width                        | 4 (CodeMirror 5 default)      | 4                                   | done   |
-| IME composition                  | browser                       | shown underlined at the cursor      | done   |
+| Feature                          | hydra-native                        | Identical                         |
+| -------------------------------- | ----------------------------------- | --------------------------------- |
+| eval line, block, all; flash     | the same keys, also Ctrl+Alt+Enter  | yes                               |
+| error line                       | also shader errors                  | yes                               |
+| hide code, format, comment       | the same keys                       | format uses spaces, not tabs      |
+| screencap with code              | PNG and js in ~/Downloads           | yes                               |
+| clear all, random example        | toolbar, keys                       | yes                               |
+| mutator, undo, change a function | toolbar with Shift and Ctrl         | yes                               |
+| start without a sketch           | random example and info             | yes                               |
+| info panel, tooltips, languages  | 9 languages, cached offline         | yes                               |
+| Arabic text                      | HarfBuzz shaping and a bidi subset  | bidi is a subset of UAX #9        |
+| emoji                            | monochrome Noto Emoji               | the browser shows color emoji     |
+| extensions panel                 | categories, thumbnails, +, examples | yes                               |
+| save to URL                      | Ctrl+Shift+L, URL to the clipboard  | no address bar, so the clipboard  |
+| open a sketch URL, sketch_id     | argument; /sketchById of the server | yes                               |
+| share to the gallery             | prompt, /sketch, /image             | yes (with --gallery-server)       |
+| line wrapping, selections, tabs  | wrap, multiple cursors, tab width 4 | yes                               |
+| IME composition                  | underlined at the cursor            | no candidate window of the system |
 
-### Keys of the CodeMirror 5 sublime keymap (loaded by the web editor)
+### Keys of the CodeMirror 5 sublime keymap
 
-| Feature                             | Web editor                  | hydra-native                     | Status  |
-| ----------------------------------- | --------------------------- | -------------------------------- | ------- |
-| select next occurrence, skip        | Ctrl+D, Ctrl+K Ctrl+D       | Ctrl+D, Ctrl+K Ctrl+D            | done    |
-| select line, delete line            | Ctrl+L, Ctrl+Shift+K        | Ctrl+L, Ctrl+Shift+K             | done    |
-| duplicate line, join lines          | Ctrl+Shift+D, Ctrl+J        | the same, also Shift+Alt+Down    | done    |
-| go to bracket, inside brackets      | Ctrl+M, Ctrl+Shift+M        | Ctrl+M, Ctrl+Shift+M             | done    |
-| select scope                        | Ctrl+Shift+Space            | Ctrl+Shift+Space                 | done    |
-| split selection by line             | Ctrl+Shift+L                | Shift+Alt+I (L saves to URL)     | done    |
-| add cursor above and below          | Ctrl+Alt+Up/Down            | also Ctrl+Shift+Up/Down (Pulsar) | done    |
-| swap line up and down               | Ctrl+Shift+Up/Down          | Alt+Up/Down (Pulsar)             | done    |
-| indent more and less                | Ctrl+], Ctrl+[              | Ctrl+], Ctrl+[                   | done    |
-| transpose characters                | Ctrl+T                      | Ctrl+T                           | done    |
-| sort lines, reverse, ignore case    | F9, Ctrl/Shift+F9           | F9, Ctrl/Shift+F9                | done    |
-| delete word left and right          | Ctrl+Backspace, Ctrl+Delete | Ctrl+Backspace, Ctrl+Delete      | done    |
-| smart backspace in the indentation  | Backspace                   | Backspace                        | done    |
-| move by subword                     | Alt+Left/Right              | Alt+Left/Right                   | done    |
-| bookmarks                           | Ctrl+F2, F2, Shift+F2, ...  | the same, mark in the margin     | done    |
-| find under, find all under          | Ctrl+F3, Alt+F3             | Ctrl+F3, Ctrl+Shift+F3, Alt+F3   | done    |
-| Ctrl+K chords: case, mark, yank     | Ctrl+K Ctrl+U, L, K, ...    | the same                         | done    |
-| Escape: keep the top selection      | Escape                      | Escape                           | done    |
-| wrap lines (Alt+Q)                  | no-op: no hardwrap addon    | wraps the paragraph at 80        | differs |
-| fold keys (Ctrl+Shift+[, ])         | no-op: no fold addon        | no-op                            | done    |
-| find, replace (Ctrl+F, Ctrl+H)      | browser find, no addon      | own find and replace prompts     | differs |
-| subword motion with Ctrl+Left/Right | subword                     | by word, like Pulsar and VS Code | differs |
+| Feature                                 | hydra-native         | Identical                           |
+| --------------------------------------- | -------------------- | ----------------------------------- |
+| occurrences, lines, brackets, scope     | the same keys        | yes                                 |
+| split selection by line                 | Shift+Alt+I          | no: Ctrl+Shift+L saves to URL       |
+| bookmarks, find under, Ctrl+K chords    | the same keys        | yes                                 |
+| sort, smart backspace, Escape, subwords | the same keys        | yes                                 |
+| fold keys                               | nothing              | yes (the web loads no fold addon)   |
+| wrap lines (Alt+Q)                      | wraps at 80 columns  | no: the web loads no hardwrap addon |
+| find, replace (Ctrl+F, Ctrl+H)          | own prompts          | no: the web has no search addon     |
+| Ctrl+Left/Right                         | by word, like Pulsar | no: subword in the web editor       |
 
 ### Hydra API and inputs
 
-| Feature                           | Web editor                  | hydra-native                        | Status       |
-| --------------------------------- | --------------------------- | ----------------------------------- | ------------ |
-| sources, transforms, render, hush | hydra-synth                 | the same hydra-synth 1.4.0          | done         |
-| speed, bpm, update, time, mouse   | hydra-synth                 | the same                            | done         |
-| setResolution                     | stretched by CSS            | stretched over the window           | done         |
-| top-level await                   | async wrapper               | global async eval                   | done         |
-| loadScript (paths and http URLs)  | script tag                  | file or curl, global eval           | done         |
-| initCam                           | getUserMedia                | GStreamer v4l2src                   | done         |
-| initScreen                        | portal picker               | portal picker (xdg-desktop-portal)  | done         |
-| initMonitor, initArea, initWindow | none                        | Mutter ScreenCast, no dialog        | extra        |
-| initVideo, initImage              | video and img elements      | ffmpeg (YouTube needs yt-dlp)       | done         |
-| initCanvas and 2D canvas          | DOM canvas                  | plutovg, no gradients or image data | done         |
-| P5 (p5.js 1.6.0, 2D mode)         | window.P5                   | the same p5.js on the 2D canvas     | done         |
-| a (audio FFT, show, setBins, ...) | Meyda on the microphone     | the same feature from PulseAudio    | done         |
-| Web MIDI input and output         | navigator.requestMIDIAccess | ALSA sequencer                      | done         |
-| screencap()                       | download                    | PNG and js in ~/Downloads           | done         |
-| vidRecorder.start(), stop()       | MediaRecorder, WebM         | ffmpeg, WebM VP9 in ~/Downloads     | done         |
-| initStream and pb (webRTC)        | patch-bay, simple-peer      | none                                | not possible |
+| Feature                        | hydra-native                            | Identical                       |
+| ------------------------------ | --------------------------------------- | ------------------------------- |
+| hydra-synth API                | the same hydra-synth 1.4.0              | yes                             |
+| setResolution, top-level await | stretched canvas, async global eval     | yes                             |
+| loadScript (paths and URLs)    | file or curl, global eval               | yes                             |
+| initCam, initVideo, initImage  | GStreamer, ffmpeg                       | yes (YouTube needs yt-dlp)      |
+| initScreen                     | portal picker                           | yes                             |
+| initCanvas, 2D canvas          | plutovg: gradients, shadows, image data | no: filter is missing           |
+| P5 (p5.js 1.6.0), 2D mode      | on the 2D canvas                        | yes                             |
+| P5 WEBGL mode                  | WebGL 1 on GLES 3                       | no: text and drawImage of WebGL |
+| a (audio FFT)                  | the Meyda feature from PulseAudio       | no browser gain control         |
+| Web MIDI input and output      | ALSA sequencer                          | yes                             |
+| screencap(), vidRecorder       | PNG and js; WebM VP9 through ffmpeg     | yes                             |
+| setTimeout, setInterval        | between frames, about 1 ms late         | yes, except while a frame draws |
+| initStream and pb (webRTC)     | none                                    | no: blocked, see below          |
 
-`initStream` and `pb` are not possible without new system packages. A receiver needs a WebRTC stack
-(ICE, DTLS-SRTP, SDP) and a VP8 decoder; GStreamer has it in webrtcbin and the libnice elements, which are not
-installed (`gst-inspect-1.0 webrtcbin` finds nothing). The signalling of the patch bay is socket.io 2, which also
-needs a client library. With `sudo apt install gstreamer1.0-plugins-bad gstreamer1.0-nice gir1.2-gst-plugins-bad-1.0`
-and a socket.io 2 client (python-socketio 4.x in a virtual environment), a helper like tools/screencast.py could
-receive a stream into the pipe of src/video.c (estimate: 3 to 5 days). I did not build a WebRTC stack from scratch.
+`initStream` and `pb` are not built. A receiver needs a WebRTC stack (ICE, DTLS-SRTP, VP8). Without system packages
+there are two ways, a prebuilt WebRTC binary for Node.js (@roamhq/wrtc, with the socket.io-client 2 and simple-peer
+modules of the web editor) or Python wheels (aiortc with PyAV in a virtual environment built with uv). Both
+download and run native code from npm or PyPI; the permission system of this session refused to run such a
+download, so the decision is the user's. With that permission, the plan is: a helper process joins the room
+like rtc-patch-bay.js (events join, ready, new peer, message, broadcast of the hydra-server), receives the video
+track and writes RGBA frames into the pipe of src/video.c; `pb.init` publishes the output. The tests would use a
+local copy of the hydra-server signalling code with socket.io 2 and two native instances.
 
 Other differences that remain:
 
-- Timers fire at frame boundaries (resolution 16 ms at 60 Hz).
-- Thumbnails, languages and extensions need the network once; languages stay cached.
-- Arabic text has no ligatures (lam-alef) and only simple reordering of mixed runs; no HarfBuzz is installed.
-- Emoji of the share prompt show as "?", because the code font and the fallback fonts have no monochrome emoji.
-- Sketches of the gallery server by `sketch_id` (not the examples) need its `/sketchById` request; that is not built.
+- The 2D canvas has no `filter`; layers for shadows and blend modes ignore the clip.
+- p5 WEBGL mode has no text (it needs loadFont of opentype.js fonts) and no drawImage of a WebGL canvas into
+  a 2D canvas; texSubImage2D is missing.
+- Network data (thumbnails, languages, extensions) needs the network once; languages stay cached.
 
 ## Video input
 

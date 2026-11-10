@@ -15,6 +15,8 @@ a distributed hydra-native binary with its bundle falls under the AGPL-3.0.
   commit 4e9b368bfc071e97206ea5c6adba68dd0cbf8897 of https://github.com/nothings/stb.
   Glyph atlas of the code overlay (src/overlay.c) and PNG output (src/main.c).
 - stb_image.h 2.30 by Sean Barrett, public domain or MIT license, same commit. Thumbnails (src/thumbnails.c).
+- HarfBuzz 14.6.0, "Old MIT" license. https://github.com/harfbuzz/harfbuzz
+  Text shaping of panels and prompts (src/overlay.c); built from the amalgamated src/harfbuzz.cc.
 - plutovg 1.3.3 by Samuel Ugochukwu, MIT license. https://github.com/sammycage/plutovg
   2D canvas (src/canvas2d.c). Its files plutovg-ft-*.c come from FreeType and are under the FreeType License (FTL);
   plutovg contains its own copy of stb_truetype.
@@ -52,4 +54,11 @@ Translations of the info panel come at run time from https://github.com/hydra-sy
 ## Fonts
 
 The code overlay and the 2D canvas use fonts that are installed on the system (default: DejaVu Sans Mono).
-No font is included.
+`make` downloads one font: Noto Emoji (monochrome), SIL Open Font License 1.1, from
+https://github.com/google/fonts (ofl/notoemoji, commit 8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5), into
+vendor/fonts with its OFL.txt. It draws emoji in the overlay.
+
+## Data
+
+- js/webgl-constants.js holds the constant values of GLES2/gl2.h of the Khronos Group (generated from the
+  system header) plus the WebGL constants.
