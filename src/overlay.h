@@ -30,4 +30,6 @@ size_t overlay_text_columns(const char *text, size_t length);
 // Proportional text, shaped with HarfBuzz, in visual order after a bidi pass; returns the width in pixels.
 // For panels and prompts; the code uses the monospace grid of overlay_text().
 float overlay_text_shaped(float x, float y, const char *text, size_t length, bool right_to_left, uint32_t color);
+// Right-to-left text shaped as one run and drawn into `width` pixels from the right, shrunk when it is wider.
+void overlay_text_fitted(float x, float y, const char *text, size_t length, float width, uint32_t color);
 float overlay_text_shaped_width(const char *text, size_t length, bool right_to_left);

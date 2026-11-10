@@ -1,7 +1,10 @@
 #include "editor.h"
+#include "bidi.h"
 #include "unicode.h"
 
 #include <ctype.h>
+#include <limits.h>
+#include <stdint.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -261,7 +264,7 @@ static int compare_selections(const void *a, const void *b) {
 }
 
 static struct selection primary_selection(const struct editor *editor) {
-    return (struct selection){ editor->cursor, editor->anchor, editor->goal_column, editor->has_goal_column, true };
+    return (struct selection){ editor->cursor, editor->anchor, editor->goal_column, editor->has_goal_column, true, editor->sticky };
 }
 
 size_t editor_selection_count(const struct editor *editor) { return editor->extra_count + 1; }
@@ -295,6 +298,7 @@ static void store_selections(struct editor *editor, struct selection *list, size
                 last->primary = true;
                 last->goal_column = list[i].goal_column;
                 last->has_goal_column = list[i].has_goal_column;
+                last->sticky = list[i].sticky;
             }
             continue;
         }
@@ -307,6 +311,7 @@ static void store_selections(struct editor *editor, struct selection *list, size
     editor->anchor = list[primary].anchor;
     editor->goal_column = list[primary].goal_column;
     editor->has_goal_column = list[primary].has_goal_column;
+    editor->sticky = list[primary].sticky;
     if (kept - 1 > editor->extra_capacity) {
         editor->extra_capacity = kept;
         editor->extra = realloc(editor->extra, editor->extra_capacity * sizeof *editor->extra);
@@ -332,6 +337,7 @@ static void for_each_selection(struct editor *editor, selection_function functio
         editor->anchor = (size_t)((long)list[i].anchor + delta);
         editor->goal_column = list[i].goal_column;
         editor->has_goal_column = list[i].has_goal_column;
+        editor->sticky = list[i].sticky;
         size_t length_before = editor->length;
         function(editor, data);
         delta += (long)editor->length - (long)length_before;
@@ -339,6 +345,7 @@ static void for_each_selection(struct editor *editor, selection_function functio
         list[i].anchor = editor->anchor;
         list[i].goal_column = editor->goal_column;
         list[i].has_goal_column = editor->has_goal_column;
+        list[i].sticky = editor->sticky;
     }
     store_selections(editor, list, count);
     free(list);
@@ -380,6 +387,7 @@ void editor_set_cursor(struct editor *editor, size_t offset, bool extend) {
     if (!extend) editor->anchor = editor->cursor;
     editor->last_edit = EDIT_OTHER;
     editor->has_goal_column = false;
+    editor->sticky = STICKY_NONE;
 }
 
 void editor_collapse(struct editor *editor) { editor->extra_count = 0; }
@@ -398,7 +406,7 @@ static void add_selection(struct editor *editor, size_t anchor, size_t cursor) {
     size_t count = editor_selections(editor, &list);
     list = realloc(list, (count + 1) * sizeof *list);
     for (size_t i = 0; i < count; i++) list[i].primary = false;
-    list[count] = (struct selection){ cursor, anchor, 0, false, true };
+    list[count] = (struct selection){ cursor, anchor, 0, false, true, STICKY_NONE };
     store_selections(editor, list, count + 1);
     free(list);
     editor->last_edit = EDIT_OTHER;
@@ -461,7 +469,75 @@ size_t editor_wrap_rows(const struct editor *editor, size_t line, size_t *row_st
     return rows;
 }
 
-void editor_visual_position(const struct editor *editor, size_t offset, size_t *row, size_t *x) {
+// ---------------------------------------------------------------- right-to-left text in rows
+
+bool editor_line_has_rtl(const struct editor *editor, size_t line) {
+    size_t start = editor_line_start(editor, line);
+    return bidi_line_has_rtl(editor->text + start, editor_line_end(editor, line) - start);
+}
+
+size_t editor_row_cells(const struct editor *editor, size_t line, size_t row_start, size_t row_end, size_t indent,
+                        struct editor_cell **cells) {
+    size_t line_start = editor_line_start(editor, line), line_length = editor_line_end(editor, line) - line_start;
+    unsigned char *levels = malloc(line_length + 1);
+    bidi_row_levels(editor->text + line_start, line_length, row_start - line_start, row_end - line_start, levels);
+    size_t count = 0;
+    *cells = malloc(sizeof **cells * (row_end - row_start + 1));
+    for (size_t i = row_start; i < row_end; i = editor_cluster_end(editor, i))
+        (*cells)[count++] = (struct editor_cell){ i, editor_cluster_end(editor, i), 0, 0, levels[i - line_start] };
+    free(levels);
+    // Rule L2: reverse the sequences at each level, from the highest to the lowest odd level.
+    unsigned char highest = 0, lowest_odd = UCHAR_MAX;
+    for (size_t i = 0; i < count; i++) {
+        if ((*cells)[i].level > highest) highest = (*cells)[i].level;
+        if ((*cells)[i].level % 2 && (*cells)[i].level < lowest_odd) lowest_odd = (*cells)[i].level;
+    }
+    for (int level = highest; lowest_odd != UCHAR_MAX && level >= lowest_odd; level--) {
+        for (size_t i = 0; i < count;) {
+            if ((*cells)[i].level < level) { i++; continue; }
+            size_t end = i;
+            while (end < count && (*cells)[end].level >= level) end++;
+            for (size_t a = i, b = end - 1; a < b; a++, b--) {
+                struct editor_cell swap = (*cells)[a];
+                (*cells)[a] = (*cells)[b];
+                (*cells)[b] = swap;
+            }
+            i = end;
+        }
+    }
+    size_t column = 0;
+    for (size_t i = 0; i < count; i++) {
+        struct editor_cell *cell = &(*cells)[i];
+        cell->width = cluster_columns(editor, cell->start, cell->end, column);
+        cell->column = indent + column;
+        column += cell->width;
+    }
+    return count;
+}
+
+// The visual column of a caret in a row with right-to-left text: at the end of the character before it
+// (STICKY_BEFORE, or at the end of the row) or at the start of the character after it, in that character's
+// direction.
+static size_t caret_column(const struct editor *editor, size_t line, size_t row_start, size_t row_end, size_t indent,
+                           size_t offset, enum sticky sticky) {
+    struct editor_cell *cells;
+    size_t count = editor_row_cells(editor, line, row_start, row_end, indent, &cells), column = indent;
+    bool before = (sticky == STICKY_BEFORE && offset > row_start) || offset >= row_end;
+    for (size_t i = 0; i < count; i++) {
+        const struct editor_cell *cell = &cells[i];
+        bool rtl = cell->level % 2;
+        if (before && cell->start < offset && offset <= cell->end) column = rtl ? cell->column : cell->column + cell->width;
+        else if (!before && cell->start <= offset && offset < cell->end) column = rtl ? cell->column + cell->width : cell->column;
+        else continue;
+        break;
+    }
+    free(cells);
+    return column;
+}
+
+// ---------------------------------------------------------------- visual positions
+
+void editor_caret_position(const struct editor *editor, size_t offset, enum sticky sticky, size_t *row, size_t *x) {
     size_t line = editor_line_of(editor, offset);
     size_t starts[MAX_WRAP_ROWS];
     size_t rows = editor_wrap_rows(editor, line, starts, MAX_WRAP_ROWS);
@@ -469,7 +545,34 @@ void editor_visual_position(const struct editor *editor, size_t offset, size_t *
     size_t current = 0;
     while (current + 1 < rows && starts[current + 1] <= offset) current++;
     *row = current;
-    *x = editor_columns_between(editor, starts[current], offset) + (current > 0 ? editor_row_indent(editor, line) : 0);
+    size_t indent = current > 0 ? editor_row_indent(editor, line) : 0;
+    size_t end = current + 1 < rows ? starts[current + 1] : editor_line_end(editor, line);
+    *x = editor_line_has_rtl(editor, line) ? caret_column(editor, line, starts[current], end, indent, offset, sticky)
+                                           : editor_columns_between(editor, starts[current], offset) + indent;
+}
+
+void editor_visual_position(const struct editor *editor, size_t offset, size_t *row, size_t *x) {
+    editor_caret_position(editor, offset, STICKY_NONE, row, x);
+}
+
+// The caret position nearest to column x in a row with right-to-left text.
+static size_t offset_at_column(const struct editor *editor, size_t line, size_t row_start, size_t row_end, size_t indent, size_t x) {
+    struct editor_cell *cells;
+    size_t count = editor_row_cells(editor, line, row_start, row_end, indent, &cells), best = row_end, best_distance = SIZE_MAX;
+    for (size_t i = 0; i < count; i++) {
+        bool rtl = cells[i].level % 2;
+        size_t edges[2][2] = { { cells[i].column, rtl ? cells[i].end : cells[i].start },
+                               { cells[i].column + cells[i].width, rtl ? cells[i].start : cells[i].end } };
+        for (int k = 0; k < 2; k++) {
+            size_t distance = edges[k][0] > x ? edges[k][0] - x : x - edges[k][0];
+            if (distance < best_distance) {
+                best_distance = distance;
+                best = edges[k][1];
+            }
+        }
+    }
+    free(cells);
+    return best;
 }
 
 size_t editor_offset_at_visual(const struct editor *editor, size_t line, size_t row, size_t x) {
@@ -479,6 +582,10 @@ size_t editor_offset_at_visual(const struct editor *editor, size_t line, size_t 
     if (row >= rows) row = rows - 1;
     size_t indent = row > 0 ? editor_row_indent(editor, line) : 0;
     size_t end = row + 1 < rows ? starts[row + 1] : editor_line_end(editor, line);
+    if (editor_line_has_rtl(editor, line)) {
+        size_t offset = offset_at_column(editor, line, starts[row], end, indent, x);
+        return offset == end && row + 1 < rows ? previous_char(editor, end) : offset;
+    }
     size_t offset = advance_columns(editor, starts[row], end, x > indent ? x - indent : 0);
     // The end of a wrapped row is the start of the next row; stay on this row.
     if (offset == end && row + 1 < rows) offset = previous_char(editor, end);
@@ -584,6 +691,146 @@ static void vertical(struct editor *editor, long rows, bool extend) {
     editor->has_goal_column = true;
 }
 
+// ---------------------------------------------------------------- visual cursor motion (CodeMirror 5)
+
+#define MAX_BIDI_SPANS 256
+#define NO_POSITION SIZE_MAX
+
+// bidiOrdering of CodeMirror 5 for a line, with offsets of the whole text.
+static size_t line_order(const struct editor *editor, size_t line, struct bidi_span *spans) {
+    size_t start = editor_line_start(editor, line);
+    size_t count = bidi_codemirror_order(editor->text + start, editor_line_end(editor, line) - start, spans, MAX_BIDI_SPANS);
+    for (size_t i = 0; i < count; i++) {
+        spans[i].from += start;
+        spans[i].to += start;
+    }
+    return count;
+}
+
+// getBidiPartAt of CodeMirror 5.
+static size_t part_at(const struct bidi_span *order, size_t count, size_t offset, enum sticky sticky) {
+    size_t found = NO_POSITION, other = NO_POSITION;
+    for (size_t i = 0; i < count; i++) {
+        const struct bidi_span *part = &order[i];
+        if (part->from < offset && part->to > offset) return i;
+        if (part->to == offset) {
+            if (part->from != part->to && sticky == STICKY_BEFORE) found = i;
+            else other = i;
+        }
+        if (part->from == offset) {
+            if (part->from != part->to && sticky != STICKY_BEFORE) found = i;
+            else other = i;
+        }
+    }
+    return found != NO_POSITION ? found : other;
+}
+
+// moveCharLogically within the line: NO_POSITION at its edges.
+static size_t step_in_line(const struct editor *editor, size_t line, size_t offset, int direction) {
+    if (offset == NO_POSITION || (direction < 0 ? offset <= editor_line_start(editor, line) : offset >= editor_line_end(editor, line)))
+        return NO_POSITION;
+    return cursor_step(editor, offset, direction);
+}
+
+struct extent {
+    size_t begin, end;
+};
+
+// The visual row (wrappedLineExtentChar) that holds `offset`.
+static struct extent row_extent(const struct editor *editor, size_t line, size_t offset) {
+    size_t starts[MAX_WRAP_ROWS];
+    size_t rows = editor_wrap_rows(editor, line, starts, MAX_WRAP_ROWS);
+    if (rows > MAX_WRAP_ROWS) rows = MAX_WRAP_ROWS;
+    size_t current = 0;
+    while (current + 1 < rows && starts[current + 1] <= offset) current++;
+    return (struct extent){ starts[current], current + 1 < rows ? starts[current + 1] : editor_line_end(editor, line) };
+}
+
+// searchInVisualLine of moveVisually.
+static size_t search_in_row(const struct editor *editor, size_t line, const struct bidi_span *order, size_t count, long index,
+                            int direction, struct extent extent, enum sticky *sticky) {
+    for (; index >= 0 && (size_t)index < count; index += direction) {
+        const struct bidi_span *part = &order[index];
+        bool storage_order = (direction > 0) == (part->level != 1);
+        size_t offset = storage_order ? extent.begin : step_in_line(editor, line, extent.end, -1);
+        if (!(part->from <= offset && offset < part->to)) {
+            offset = storage_order ? part->from : step_in_line(editor, line, part->to, -1);
+            if (!(extent.begin <= offset && offset < extent.end)) continue;
+        }
+        *sticky = storage_order ? STICKY_BEFORE : STICKY_AFTER;
+        return storage_order ? step_in_line(editor, line, offset, 1) : offset;
+    }
+    return NO_POSITION;
+}
+
+// moveVisually of CodeMirror 5 (the arrow keys, as rtlMoveVisually is on outside Windows): in a line with
+// right-to-left text, the next position to the left or right on the screen; NO_POSITION at the end of the line.
+static size_t move_visually(const struct editor *editor, size_t offset, enum sticky *sticky, int direction) {
+    size_t line = editor_line_of(editor, offset), start = editor_line_start(editor, line), end = editor_line_end(editor, line);
+    struct bidi_span order[MAX_BIDI_SPANS];
+    size_t count = line_order(editor, line, order), next;
+    if (!count) {
+        next = step_in_line(editor, line, offset, direction);
+        *sticky = direction < 0 ? STICKY_AFTER : STICKY_BEFORE;
+        return next;
+    }
+    if (offset >= end) {
+        offset = end;
+        *sticky = STICKY_BEFORE;
+    } else if (offset <= start) {
+        offset = start;
+        *sticky = STICKY_AFTER;
+    }
+    size_t index = part_at(order, count, offset, *sticky);
+    const struct bidi_span *part = &order[index];
+    if (part->level % 2 == 0 && (direction > 0 ? part->to > offset : part->from < offset)) {
+        next = step_in_line(editor, line, offset, direction);
+        *sticky = direction < 0 ? STICKY_AFTER : STICKY_BEFORE;
+        return next;
+    }
+    struct extent extent = row_extent(editor, line, *sticky == STICKY_BEFORE ? step_in_line(editor, line, offset, -1) : offset);
+    if (part->level == 1) {
+        bool storage_order = direction < 0;
+        next = step_in_line(editor, line, offset, storage_order ? 1 : -1);
+        if (next != NO_POSITION && (storage_order ? next <= part->to && next <= extent.end : next >= part->from && next >= extent.begin)) {
+            *sticky = storage_order ? STICKY_BEFORE : STICKY_AFTER;
+            return next;
+        }
+    }
+    next = search_in_row(editor, line, order, count, (long)index + direction, direction, extent, sticky);
+    if (next != NO_POSITION) return next;
+    size_t next_row = direction > 0 ? extent.end : step_in_line(editor, line, extent.begin, -1);
+    if (next_row != NO_POSITION && !(direction > 0 && next_row == end))
+        return search_in_row(editor, line, order, count, direction > 0 ? 0 : (long)count - 1, direction,
+                             row_extent(editor, line, next_row), sticky);
+    return NO_POSITION;
+}
+
+// endOfLine of CodeMirror 5 with visual motion: where the cursor enters a line from the previous one
+// (direction 1) or from the next one (direction -1).
+static size_t line_visual_edge(const struct editor *editor, size_t line, int direction, enum sticky *sticky) {
+    struct bidi_span order[MAX_BIDI_SPANS];
+    size_t count = line_order(editor, line, order);
+    if (!count) {
+        *sticky = direction < 0 ? STICKY_BEFORE : STICKY_AFTER;
+        return direction < 0 ? editor_line_end(editor, line) : editor_line_start(editor, line);
+    }
+    const struct bidi_span *part = direction < 0 ? &order[count - 1] : &order[0];
+    bool storage_order = (direction < 0) == (part->level == 1);
+    *sticky = storage_order ? STICKY_AFTER : STICKY_BEFORE;
+    if (part->level == 0) return direction < 0 ? part->to : part->from;
+    size_t offset = (direction < 0) == (part->level == 1) ? part->from : step_in_line(editor, line, part->to, -1);
+    return *sticky == STICKY_BEFORE ? step_in_line(editor, line, offset, 1) : offset;
+}
+
+// The arrow keys: moveVisually, then into the next or the previous line.
+static size_t arrow_step(const struct editor *editor, size_t offset, enum sticky *sticky, int direction) {
+    size_t next = move_visually(editor, offset, sticky, direction), line = editor_line_of(editor, offset);
+    if (next != NO_POSITION) return next;
+    if (direction > 0 ? line + 1 >= editor->line_count : line == 0) return offset;
+    return line_visual_edge(editor, line + (size_t)direction, direction, sticky);
+}
+
 // The word characters of CodeMirror 5: \w and letters outside ASCII ("$" is no word character there).
 static bool is_codemirror_word(const struct editor *editor, size_t offset) {
     unsigned char c = (unsigned char)editor->text[offset];
@@ -672,8 +919,16 @@ static void move_one(struct editor *editor, void *data) {
     size_t line = editor_line_of(editor, offset);
     bool collapse = editor_has_selection(editor) && !arguments->extend;
     switch (arguments->motion) {
-    case MOTION_LEFT: offset = collapse ? start : cursor_step(editor, offset, -1); break;
-    case MOTION_RIGHT: offset = collapse ? end : cursor_step(editor, offset, 1); break;
+    case MOTION_LEFT:
+    case MOTION_RIGHT: {
+        int direction = arguments->motion == MOTION_LEFT ? -1 : 1;
+        enum sticky sticky = editor->sticky;
+        if (collapse) offset = direction < 0 ? start : end;
+        else offset = arrow_step(editor, offset, &sticky, direction);
+        editor_set_cursor(editor, offset, arguments->extend);
+        editor->sticky = collapse ? STICKY_NONE : sticky;
+        return;
+    }
     case MOTION_UP: vertical(editor, -arguments->rows, arguments->extend); return;
     case MOTION_DOWN: vertical(editor, arguments->rows, arguments->extend); return;
     case MOTION_LINE_START: {
@@ -772,7 +1027,7 @@ void editor_split_selection_by_line(struct editor *editor) {
             if (used == capacity) result = realloc(result, (capacity *= 2) * sizeof *result);
             size_t from = line == first ? start : editor_line_start(editor, line);
             size_t to = line == last ? end : editor_line_end(editor, line);
-            result[used++] = (struct selection){ to, from, 0, false, list[i].primary && line == last };
+            result[used++] = (struct selection){ to, from, 0, false, list[i].primary && line == last, STICKY_NONE };
         }
     }
     store_selections(editor, result, used);
@@ -1191,7 +1446,7 @@ static void restore_positions(struct editor *editor, const struct line_column *p
             size_t line = (size_t)((long)positions[2 * i + k].line + lines);
             offsets[k] = editor_line_start(editor, line) + positions[2 * i + k].column;
         }
-        list[i] = (struct selection){ offsets[0], offsets[1], 0, false, positions[2 * i].primary };
+        list[i] = (struct selection){ offsets[0], offsets[1], 0, false, positions[2 * i].primary, STICKY_NONE };
     }
     store_selections(editor, list, count);
     free(list);
@@ -1667,7 +1922,7 @@ void editor_select_bookmarks(struct editor *editor) {
     struct selection *list = calloc(editor->bookmark_count, sizeof *list);
     for (size_t i = 0; i < editor->bookmark_count; i++) {
         size_t line = editor->bookmarks[i];
-        list[i] = (struct selection){ editor_line_end(editor, line), editor_line_start(editor, line), 0, false, i == 0 };
+        list[i] = (struct selection){ editor_line_end(editor, line), editor_line_start(editor, line), 0, false, i == 0, STICKY_NONE };
     }
     store_selections(editor, list, editor->bookmark_count);
     free(list);
@@ -1695,7 +1950,7 @@ void editor_select_all_under(struct editor *editor) {
     for (size_t i = 0; i + length <= editor->length; i++) {
         if (memcmp(editor->text + i, editor->text + start, length) != 0) continue;
         if (count == capacity) list = realloc(list, (capacity *= 2) * sizeof *list);
-        list[count++] = (struct selection){ i + length, i, 0, false, i == start };
+        list[count++] = (struct selection){ i + length, i, 0, false, i == start, STICKY_NONE };
         i += length - 1;
     }
     store_selections(editor, list, count);

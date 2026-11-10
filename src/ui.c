@@ -199,11 +199,13 @@ static size_t line_of_row(size_t row) {
     return low;
 }
 
-static size_t global_row(size_t offset, size_t *x) {
+static size_t global_caret_row(size_t offset, enum sticky sticky, size_t *x) {
     size_t row;
-    editor_visual_position(&editor, offset, &row, x);
+    editor_caret_position(&editor, offset, sticky, &row, x);
     return layout.first_row[editor_line_of(&editor, offset)] + row;
 }
+
+static size_t global_row(size_t offset, size_t *x) { return global_caret_row(offset, STICKY_NONE, x); }
 
 static void reveal_cursor(void) {
     update_layout();
@@ -1364,9 +1366,63 @@ static void draw_bar(int width, int height, const char *text, uint32_t color, si
     overlay_text(MARGIN, y + BAR_PADDING, text, strlen(text), 0, visible_columns(), NULL, color);
 }
 
+// Rectangles over the cells of a right-to-left row whose text starts in [start, end).
+static void cell_rects(float y, const struct editor_cell *cells, size_t count, size_t start, size_t end, uint32_t color) {
+    for (size_t i = 0; i < count; i++)
+        if (cells[i].start >= start && cells[i].start < end) column_rect(y, cells[i].column, cells[i].column + cells[i].width, color);
+}
+
+// A row with right-to-left text, drawn in the visual order of the full bidi algorithm, as the browser draws the
+// line of CodeMirror 5: left-to-right runs on the grid, right-to-left runs shaped (Arabic joins) in their cells.
+static void draw_bidi_row(size_t line, size_t row_start, size_t row_end, size_t indent, float y, const struct selection *selections,
+                          size_t selection_count, long bracket, long bracket_self) {
+    size_t line_start = editor_line_start(&editor, line);
+    bool last_row = row_end == editor_line_end(&editor, line);
+    struct editor_cell *cells;
+    size_t count = editor_row_cells(&editor, line, row_start, row_end, indent, &cells);
+    size_t row_columns = count ? cells[count - 1].column + cells[count - 1].width - indent : 0;
+    if (row_columns > 0) column_rect(y, indent, indent + row_columns, COLOR_LINE_BACKGROUND);
+    if (now < flash_until && flash_start != flash_end && flash_start <= row_end && flash_end >= row_start)
+        column_rect(y, indent, indent + (row_columns > 0 ? row_columns : 1), COLOR_FLASH);
+    for (size_t i = 0; i < selection_count; i++) {
+        size_t start = selections[i].cursor < selections[i].anchor ? selections[i].cursor : selections[i].anchor;
+        size_t end = selections[i].cursor < selections[i].anchor ? selections[i].anchor : selections[i].cursor;
+        if (start == end) continue;
+        cell_rects(y, cells, count, start, end, COLOR_SELECTION);
+        if (last_row && end > row_end && start <= row_end) column_rect(y, indent + row_columns, indent + row_columns + 1, COLOR_SELECTION);
+    }
+    for (size_t i = 0; i < match_count; i++)
+        cell_rects(y, cells, count, matches[i].start, matches[i].end, i == active_match ? COLOR_MATCH_ACTIVE : COLOR_MATCH);
+    if (bracket >= 0)
+        for (int k = 0; k < 2; k++) {
+            size_t position = (size_t)(k ? bracket_self : bracket);
+            cell_rects(y, cells, count, position, position + 1, COLOR_BRACKET);
+        }
+    for (size_t i = 0; i < count;) {
+        size_t end = i + 1, first = cells[i].start, last = cells[i].end;
+        while (end < count && cells[end].level == cells[i].level) {
+            if (cells[end].start < first) first = cells[end].start;
+            if (cells[end].end > last) last = cells[end].end;
+            end++;
+        }
+        size_t column = cells[i].column, width = cells[end - 1].column + cells[end - 1].width - column;
+        if (column >= scroll_column) {
+            float x = MARGIN + (float)(column - scroll_column) * overlay_char_width();
+            if (cells[i].level % 2)
+                overlay_text_fitted(x, y, editor.text + first, last - first, (float)width * overlay_char_width(), colors[first - line_start]);
+            else
+                overlay_text(x, y, editor.text + first, last - first, 0, width, colors + (first - line_start), COLOR_TEXT);
+        }
+        i = end;
+    }
+    free(cells);
+}
+
 // Draws one visual row: the bytes [start, end) of `line`, shown from column `indent` on.
 static void draw_row(size_t line, size_t row_start, size_t row_end, size_t indent, float y,
                      const struct selection *selections, size_t selection_count, long bracket, long bracket_self) {
+    if (editor_line_has_rtl(&editor, line))
+        return draw_bidi_row(line, row_start, row_end, indent, y, selections, selection_count, bracket, bracket_self);
     size_t line_start = editor_line_start(&editor, line);
     size_t row_columns = columns_between(row_start, row_end);
     bool last_row = row_end == editor_line_end(&editor, line);
@@ -1451,7 +1507,7 @@ static void draw_code(void) {
 
     bool blink_on = fmod(now - last_activity, 2 * CURSOR_BLINK_MS) < CURSOR_BLINK_MS;
     for (size_t i = 0; blink_on && i < selection_count; i++) {
-        size_t x, row = global_row(selections[i].cursor, &x);
+        size_t x, row = global_caret_row(selections[i].cursor, selections[i].sticky, &x);
         if (row < scroll_row || row >= scroll_row + rows || x < scroll_column || x > scroll_column + visible_columns())
             continue;
         overlay_rect(MARGIN + (float)(x - scroll_column) * overlay_char_width() - CURSOR_WIDTH / 2,

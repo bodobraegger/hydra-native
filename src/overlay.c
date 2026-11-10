@@ -569,6 +569,14 @@ float overlay_text_shaped(float x, float y, const char *text, size_t length, boo
     return draw_glyphs(x, y, shaped_glyphs, count, color, 1);
 }
 
+void overlay_text_fitted(float x, float y, const char *text, size_t length, float width, uint32_t color) {
+    int count = shape(text, length, 1, shaped_glyphs, MAX_SHAPED);
+    float natural = 0;
+    for (int i = 0; i < count; i++) natural += shaped_glyphs[i].advance;
+    float scale = natural > width && natural > 0 ? width / natural : 1;
+    draw_glyphs(x + width - natural * scale, y, shaped_glyphs, count, color, scale);
+}
+
 #define MAX_CLUSTER_GLYPHS 32
 
 // A grapheme cluster of several code points (ZWJ sequence, flag, keycap, letter with marks) shaped as one,

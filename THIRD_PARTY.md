@@ -77,6 +77,10 @@ the system.
 
 ## Algorithms from specifications
 
+- src/bidi.c ports bidiOrdering, and src/editor.c ports moveVisually, getBidiPartAt and endOfLine of
+  CodeMirror 5.65.9 (MIT license, https://codemirror.net/5/), so that the arrow keys move in right-to-left
+  code as in the web editor.
+
 - src/unicode_tables.h comes from the Unicode Character Database 16.0.0 (GraphemeBreakProperty.txt,
   emoji-data.txt, EastAsianWidth.txt; Unicode License v3) and the extendingChars class of CodeMirror 5.65.9 (MIT),
   through tools/unicode_tables.py. src/unicode.h follows the grapheme cluster rules of UAX #29.

@@ -423,6 +423,54 @@ static void test_clusters(void) {
     editor_free(&editor);
 }
 
+#define MAX_STOPS 16
+
+// The arrow keys in lines with right-to-left text, against moveVisually of CodeMirror 5.65.9: the stops come from
+// running its kh() and bidiOrdering on the same lines in Node.js (offsets converted to bytes).
+static void test_visual_motion(void) {
+    static const struct {
+        const char *text;
+        struct { size_t offset; enum sticky sticky; } right[MAX_STOPS];
+        size_t right_count;
+        struct { size_t offset; enum sticky sticky; } left[MAX_STOPS];
+        size_t left_count;
+    } cases[] = {
+    { "abc \xD7\x90" "\xD7\x91" "\xD7\x92" " 123 def", { { 1, STICKY_BEFORE }, { 2, STICKY_BEFORE }, { 3, STICKY_BEFORE }, { 4, STICKY_BEFORE }, { 12, STICKY_BEFORE }, { 13, STICKY_BEFORE }, { 14, STICKY_BEFORE }, { 10, STICKY_AFTER }, { 8, STICKY_AFTER }, { 6, STICKY_AFTER }, { 4, STICKY_AFTER }, { 15, STICKY_BEFORE }, { 16, STICKY_BEFORE }, { 17, STICKY_BEFORE }, { 18, STICKY_BEFORE } }, 15, { { 17, STICKY_AFTER }, { 16, STICKY_AFTER }, { 15, STICKY_AFTER }, { 14, STICKY_AFTER }, { 6, STICKY_BEFORE }, { 8, STICKY_BEFORE }, { 10, STICKY_BEFORE }, { 11, STICKY_BEFORE }, { 13, STICKY_AFTER }, { 12, STICKY_AFTER }, { 11, STICKY_AFTER }, { 3, STICKY_AFTER }, { 2, STICKY_AFTER }, { 1, STICKY_AFTER }, { 0, STICKY_AFTER } }, 15 },
+    { "x = '\xD9\x85" "\xD8\xB1" "\xD8\xAD" "\xD8\xA8" "\xD8\xA7" "' + 1", { { 1, STICKY_BEFORE }, { 2, STICKY_BEFORE }, { 3, STICKY_BEFORE }, { 4, STICKY_BEFORE }, { 5, STICKY_BEFORE }, { 20, STICKY_BEFORE }, { 18, STICKY_AFTER }, { 17, STICKY_AFTER }, { 16, STICKY_AFTER }, { 15, STICKY_AFTER }, { 13, STICKY_AFTER }, { 11, STICKY_AFTER }, { 9, STICKY_AFTER }, { 7, STICKY_AFTER }, { 5, STICKY_AFTER } }, 15, { { 19, STICKY_AFTER }, { 4, STICKY_AFTER }, { 3, STICKY_AFTER }, { 2, STICKY_AFTER }, { 1, STICKY_AFTER }, { 0, STICKY_AFTER } }, 6 },
+    { "\xD7\xA9" "\xD7\x9C" "\xD7\x95" "\xD7\x9D" " world", { { 9, STICKY_BEFORE }, { 10, STICKY_BEFORE }, { 11, STICKY_BEFORE }, { 12, STICKY_BEFORE }, { 13, STICKY_BEFORE }, { 14, STICKY_BEFORE } }, 6, { { 13, STICKY_AFTER }, { 12, STICKY_AFTER }, { 11, STICKY_AFTER }, { 10, STICKY_AFTER }, { 9, STICKY_AFTER }, { 8, STICKY_AFTER }, { 2, STICKY_BEFORE }, { 4, STICKY_BEFORE }, { 6, STICKY_BEFORE }, { 8, STICKY_BEFORE } }, 10 },
+    };
+    struct editor editor;
+    editor_init(&editor);
+    for (size_t c = 0; c < sizeof cases / sizeof cases[0]; c++) {
+        load(&editor, cases[c].text);
+        editor_set_cursor(&editor, 0, false);
+        for (size_t i = 0; i < cases[c].right_count; i++) {
+            editor_move(&editor, MOTION_RIGHT, false);
+            if (editor.cursor != cases[c].right[i].offset || editor.sticky != cases[c].right[i].sticky)
+                fprintf(stderr, "case %zu right %zu: %zu/%d, expected %zu/%d\n", c, i, editor.cursor, editor.sticky,
+                        cases[c].right[i].offset, cases[c].right[i].sticky);
+            EXPECT(editor.cursor == cases[c].right[i].offset && editor.sticky == cases[c].right[i].sticky);
+        }
+        editor_set_cursor(&editor, editor.length, false);
+        for (size_t i = 0; i < cases[c].left_count; i++) {
+            editor_move(&editor, MOTION_LEFT, false);
+            if (editor.cursor != cases[c].left[i].offset || editor.sticky != cases[c].left[i].sticky)
+                fprintf(stderr, "case %zu left %zu: %zu/%d, expected %zu/%d\n", c, i, editor.cursor, editor.sticky,
+                        cases[c].left[i].offset, cases[c].left[i].sticky);
+            EXPECT(editor.cursor == cases[c].left[i].offset && editor.sticky == cases[c].left[i].sticky);
+        }
+    }
+    // The caret before the Hebrew word sits at the right edge of its first letter, which the row shows rightmost.
+    load(&editor, "abc \xD7\x90\xD7\x91\xD7\x92");
+    size_t row, x;
+    editor_caret_position(&editor, 4, STICKY_AFTER, &row, &x);
+    EXPECT(row == 0 && x == 7);
+    editor_caret_position(&editor, 4, STICKY_BEFORE, &row, &x); // after the space
+    EXPECT(x == 4);
+    EXPECT(editor_offset_at_visual(&editor, 0, 0, 7) == 4);
+    editor_free(&editor);
+}
+
 static void test_sublime_commands(void) {
     struct editor editor;
     editor_init(&editor);
@@ -502,6 +550,7 @@ int main(void) {
     test_sublime_commands();
     test_group_motion();
     test_clusters();
+    test_visual_motion();
     if (failures) {
         fprintf(stderr, "editor_test: %d failures\n", failures);
         return 1;

@@ -48,6 +48,7 @@ int overlay_columns(int codepoint) { return 1; }
 void overlay_image(float x, float y, float width, float height, unsigned texture) {}
 unsigned thumbnail_texture(const char *url) { return 0; }
 float overlay_text_shaped(float x, float y, const char *text, size_t length, bool right_to_left, uint32_t color) { return 0; }
+void overlay_text_fitted(float x, float y, const char *text, size_t length, float width, uint32_t color) {}
 float overlay_text_shaped_width(const char *text, size_t length, bool right_to_left) { return (float)length * 10; }
 size_t overlay_text_columns(const char *text, size_t length) { return length; }
 
