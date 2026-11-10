@@ -1,11 +1,13 @@
 // Sends a MIDI clock at a known tempo from a sequencer client of its own and checks that the tempo computed
-// from the time stamps of src/midi.c stays steady, while the test reads the messages only every 50 ms
-// like a slow frame. The own client keeps the clocks of other programs out. Skips without the ALSA sequencer
-// (for example in CI).
+// from the time stamps of src/midi.h stays steady, while the test reads the messages only every 50 ms
+// like a slow frame. The own client keeps the clocks of other programs out. The test finds its port in the
+// lists of src/midi.h, so it also runs with src/midi_libremidi.cc, and it checks that midi_send() sends two
+// messages of one call to that port. Skips without the ALSA sequencer (for example in CI).
 #include <alsa/asoundlib.h>
 #include <math.h>
 #include <stdio.h>
 #include <time.h>
+#include <unistd.h>
 
 #include "../src/midi.h"
 
@@ -17,9 +19,12 @@
 #define MAX_TEMPO_ERROR_BPM 0.2
 #define MIDI_CLOCK 0xF8
 #define NANOSECONDS_PER_SECOND 1000000000L
+#define MAX_PORTS 64
+#define OUTPUT_TIMEOUT_MS 1000
 
 static snd_seq_t *sender;
-static int sender_client, sender_port;
+static int sender_port;
+static struct midi_port input, output; // the port of the sender as src/midi.h lists it
 static double clock_times[CLOCKS];
 static double poll_times[CLOCKS];
 static int received;
@@ -47,8 +52,19 @@ static void send_clock(void) {
     snd_seq_drain_output(sender);
 }
 
+static bool find_port(int (*list)(struct midi_port *ports, int capacity), const char *name, struct midi_port *found) {
+    struct midi_port ports[MAX_PORTS];
+    int count = list(ports, MAX_PORTS);
+    for (int i = 0; i < count; i++) {
+        if (strcmp(ports[i].name, name) != 0) continue;
+        *found = ports[i];
+        return true;
+    }
+    return false;
+}
+
 static void receive(int client, int port, double time, const unsigned char *bytes, int length) {
-    if (client != sender_client || port != sender_port || length != 1 || bytes[0] != MIDI_CLOCK) return;
+    if (client != input.client || port != input.port || length != 1 || bytes[0] != MIDI_CLOCK) return;
     if (received == CLOCKS) return;
     poll_times[received] = poll_time;
     clock_times[received++] = time;
@@ -74,18 +90,47 @@ static double tempo_error(const double *times, const char *label) {
     return largest;
 }
 
+// midi_send() with a note on and a note off in one call; the client of the test receives both.
+static bool check_output(void) {
+    const unsigned char notes[] = { 0x90, 60, 100, 0x80, 60, 0 };
+    if (!midi_send(output.client, output.port, notes, sizeof notes)) return false;
+    snd_seq_nonblock(sender, 1);
+    int received_notes = 0;
+    double deadline = monotonic_ms() + OUTPUT_TIMEOUT_MS;
+    while (received_notes < 2 && monotonic_ms() < deadline) {
+        snd_seq_event_t *event;
+        if (snd_seq_event_input(sender, &event) < 0 || !event) {
+            struct timespec wait = { 0, 1000000L };
+            nanosleep(&wait, NULL);
+            continue;
+        }
+        int expected = received_notes == 0 ? SND_SEQ_EVENT_NOTEON : SND_SEQ_EVENT_NOTEOFF;
+        if (event->type == expected && event->data.note.note == 60) received_notes++;
+    }
+    printf("midi test: midi_send gave %d of 2 notes\n", received_notes);
+    return received_notes == 2;
+}
+
 int main(void) {
     if (access("/dev/snd/seq", R_OK | W_OK) != 0) {
         printf("midi test: skipped, no ALSA sequencer\n");
         return 0;
     }
-    // The port exists before midi_start, which connects to every readable port.
-    if (snd_seq_open(&sender, "default", SND_SEQ_OPEN_OUTPUT, 0) < 0) return 1;
+    // The port exists before midi_start, which connects to every readable port. It is also writable, for
+    // check_output(), and its name is unique, so that parallel runs find their own port.
+    if (snd_seq_open(&sender, "default", SND_SEQ_OPEN_DUPLEX, 0) < 0) return 1;
     snd_seq_set_client_name(sender, "hydra-native midi test");
-    sender_client = snd_seq_client_id(sender);
-    sender_port = snd_seq_create_simple_port(sender, "clock", SND_SEQ_PORT_CAP_READ | SND_SEQ_PORT_CAP_SUBS_READ,
+    char name[64];
+    snprintf(name, sizeof name, "clock %d", (int)getpid());
+    sender_port = snd_seq_create_simple_port(sender, name,
+                                             SND_SEQ_PORT_CAP_READ | SND_SEQ_PORT_CAP_SUBS_READ |
+                                                 SND_SEQ_PORT_CAP_WRITE | SND_SEQ_PORT_CAP_SUBS_WRITE,
                                              SND_SEQ_PORT_TYPE_MIDI_GENERIC | SND_SEQ_PORT_TYPE_APPLICATION);
     if (sender_port < 0 || !midi_start()) return 1;
+    if (!find_port(midi_inputs, name, &input) || !find_port(midi_outputs, name, &output)) {
+        printf("midi test: FAIL, the port \"%s\" is not in the inputs and outputs\n", name);
+        return 1;
+    }
     send_clock();
     double deadline = monotonic_ms() + (BEATS + 2) * 60000.0 / TEMPO_BPM;
     while (received < CLOCKS && monotonic_ms() < deadline) {
@@ -94,7 +139,6 @@ int main(void) {
         poll_time = monotonic_ms();
         midi_poll(poll_time, receive);
     }
-    snd_seq_close(sender);
     if (received < CLOCKS) {
         printf("midi test: FAIL, received %d of %d clocks\n", received, CLOCKS);
         return 1;
@@ -106,7 +150,9 @@ int main(void) {
     bool ordered = latest_lag >= 0 && latest_lag <= POLL_INTERVAL_MS * 2;
     printf("midi test: largest error %.3f BPM (limit %.1f), largest lag of a poll %.1f ms\n", error,
            MAX_TEMPO_ERROR_BPM, latest_lag);
-    if (error > MAX_TEMPO_ERROR_BPM || !ordered) {
+    bool sent = check_output();
+    snd_seq_close(sender);
+    if (error > MAX_TEMPO_ERROR_BPM || !ordered || !sent) {
         printf("midi test: FAIL\n");
         return 1;
     }
