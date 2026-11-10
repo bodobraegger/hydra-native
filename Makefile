@@ -40,10 +40,24 @@ build/hydra-bundle.js: js/*.js package.json node_modules/hydra-synth/package.jso
 	node_modules/.bin/esbuild js/main.js --bundle --format=iife --outfile=$@ \
 		--alias:regl=./js/regl-shim.js --alias:raf-loop=./js/raf-loop-shim.js --alias:meyda=./js/meyda-shim.js
 
-check: all
+build/editor-test: test/editor_test.c src/editor.c src/editor.h
+	@mkdir -p build
+	$(CC) -O1 -g -Wall -Wextra -fsanitize=address,undefined -o $@ test/editor_test.c src/editor.c
+
+build/ui-test: test/ui_test.c src/ui.c src/keymap.c src/editor.c src/*.h
+	@mkdir -p build
+	$(CC) -O1 -g -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -fsanitize=address,undefined \
+		$(shell pkg-config --cflags sdl2) -o $@ test/ui_test.c src/ui.c src/keymap.c src/editor.c \
+		$(shell pkg-config --libs sdl2) -lm
+
+test: build/editor-test build/ui-test
+	build/editor-test
+	build/ui-test
+
+check: all test
 	build/hydra-native --hidden --no-vsync test/check.js
 
 clean:
 	rm -rf build
 
-.PHONY: all check clean
+.PHONY: all test check clean
