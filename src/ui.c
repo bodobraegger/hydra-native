@@ -4,6 +4,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <math.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -45,34 +46,90 @@ struct theme {
     uint32_t bar_background, error, info, toolbar, popup_background, popup_selected, help_background, help_keys;
     uint32_t bookmark, match, match_active, match_text, ghost;
     uint32_t brackets[3]; // bracket pair colors by nesting depth, like VS Code
+    uint32_t whitespace; // the dots and arrows of rendered whitespace
 };
 
-static const struct theme themes[] = {
+static const struct theme builtin_themes[] = {
     { "hydra", 0x000000B8u, 0x3D6FD6C0u, 0xFFFFFF70u, 0xFFFFFF55u, 0xFFFFFFFFu, 0xF2F2F2FFu, 0xFF7AC6FFu, 0xFFB86CFFu,
       0xB5E655FFu, 0xA0A0A0FFu, 0x6FDCF2FFu, 0x000000D8u, 0xFF6B6BFFu, 0xE6E6E6FFu, 0x000000B8u, 0x101010F0u,
       0x3D6FD6FFu, 0x000000E0u, 0x6FDCF2FFu, 0x6FDCF2FFu, 0xFFFF00FFu, 0xFF9632FFu, 0x000000FFu, 0xF2F2F280u,
-      { 0xFFD700FFu, 0xDA70D6FFu, 0x179FFFFFu } },
+      { 0xFFD700FFu, 0xDA70D6FFu, 0x179FFFFFu }, 0xFFFFFF48u },
     { "contrast", 0x000000FFu, 0x0050FFFFu, 0xFFFFFFA0u, 0xFFFFFF90u, 0xFFFF00FFu, 0xFFFFFFFFu, 0xFF5FFFFFu, 0xFFAF00FFu,
       0x5FFF5FFFu, 0xBCBCBCFFu, 0x5FFFFFFFu, 0x000000FFu, 0xFF3030FFu, 0xFFFFFFFFu, 0x000000FFu, 0x000000FFu,
       0x0050FFFFu, 0x000000F0u, 0x5FFFFFFFu, 0x5FFFFFFFu, 0xFFFF00FFu, 0xFF9632FFu, 0x000000FFu, 0xFFFFFF90u,
-      { 0xFFFF00FFu, 0xFF5FFFFFu, 0x5FAFFFFFu } },
+      { 0xFFFF00FFu, 0xFF5FFFFFu, 0x5FAFFFFFu }, 0xFFFFFF70u },
     { "solarized", 0x002B36D0u, 0x268BD2A0u, 0xEEE8D570u, 0x93A1A160u, 0xEEE8D5FFu, 0x93A1A1FFu, 0x859900FFu, 0xD33682FFu,
       0x2AA198FFu, 0x586E75FFu, 0x268BD2FFu, 0x002B36E8u, 0xDC322FFFu, 0xEEE8D5FFu, 0x073642D0u, 0x073642F0u,
       0x268BD2FFu, 0x002B36F0u, 0xB58900FFu, 0xB58900FFu, 0xB58900FFu, 0xCB4B16FFu, 0x002B36FFu, 0x93A1A180u,
-      { 0xB58900FFu, 0x6C71C4FFu, 0x2AA198FFu } },
+      { 0xB58900FFu, 0x6C71C4FFu, 0x2AA198FFu }, 0x586E75A0u },
     { "paper", 0xFFFFFFD8u, 0xA8C7FAD0u, 0x00000040u, 0x00000040u, 0x000000FFu, 0x1F1F1FFFu, 0xA626A4FFu, 0x986801FFu,
       0x50A14FFFu, 0x8A8A8AFFu, 0x4078F2FFu, 0xFFFFFFE8u, 0xCA1243FFu, 0x1F1F1FFFu, 0xFFFFFFD8u, 0xF5F5F5F8u,
       0xA8C7FAFFu, 0xFFFFFFF0u, 0x4078F2FFu, 0x4078F2FFu, 0xFFFF00FFu, 0xFF9632FFu, 0x000000FFu, 0x1F1F1F70u,
-      { 0x986801FFu, 0xA626A4FFu, 0x4078F2FFu } },
+      { 0x986801FFu, 0xA626A4FFu, 0x4078F2FFu }, 0x00000038u },
 };
-#define THEME_COUNT (sizeof themes / sizeof themes[0])
+#define BUILTIN_THEME_COUNT (sizeof builtin_themes / sizeof builtin_themes[0])
 
-static const struct theme *theme = &themes[0];
+// The built-in themes, then the "themes" of the settings file.
+static struct theme themes[BUILTIN_THEME_COUNT + MAX_CUSTOM_THEMES];
+static size_t theme_count;
+static const struct theme *theme = &builtin_themes[0];
 
 static const struct theme *find_theme(const char *name) {
-    for (size_t i = 0; i < THEME_COUNT; i++)
+    for (size_t i = 0; i < theme_count; i++)
         if (!strcmp(themes[i].name, name)) return &themes[i];
     return NULL;
+}
+
+// The color names of a custom theme in the settings file.
+static const struct {
+    const char *name;
+    size_t offset;
+} theme_color_names[] = {
+#define THEME_COLOR(json, field) { json, offsetof(struct theme, field) }
+    THEME_COLOR("lineBackground", line_background), THEME_COLOR("selection", selection), THEME_COLOR("flash", flash),
+    THEME_COLOR("bracket", bracket), THEME_COLOR("cursor", cursor), THEME_COLOR("text", text), THEME_COLOR("keyword", keyword),
+    THEME_COLOR("number", number), THEME_COLOR("string", string), THEME_COLOR("comment", comment),
+    THEME_COLOR("function", function), THEME_COLOR("barBackground", bar_background), THEME_COLOR("error", error),
+    THEME_COLOR("info", info), THEME_COLOR("toolbar", toolbar), THEME_COLOR("popupBackground", popup_background),
+    THEME_COLOR("popupSelected", popup_selected), THEME_COLOR("helpBackground", help_background),
+    THEME_COLOR("helpKeys", help_keys), THEME_COLOR("bookmark", bookmark), THEME_COLOR("match", match),
+    THEME_COLOR("matchActive", match_active), THEME_COLOR("matchText", match_text), THEME_COLOR("ghost", ghost),
+    THEME_COLOR("whitespace", whitespace),
+#undef THEME_COLOR
+};
+
+// "#rrggbb" or "#rrggbbaa" as RGBA; false for other text.
+static bool parse_color(const char *text, uint32_t *color) {
+    size_t length = strlen(text);
+    if (text[0] != '#' || (length != 7 && length != 9) || strspn(text + 1, "0123456789abcdefABCDEF") != length - 1) return false;
+    *color = (uint32_t)strtoul(text + 1, NULL, 16);
+    if (length == 7) *color = *color << 8 | 0xFF;
+    return true;
+}
+
+// Builds the list of themes; problems go into `error` (the first one).
+static void load_themes(const struct settings *settings, char *error, size_t size) {
+    memcpy(themes, builtin_themes, sizeof builtin_themes);
+    theme_count = BUILTIN_THEME_COUNT;
+    for (size_t i = 0; i < settings->theme_count; i++) {
+        const struct custom_theme *custom = &settings->themes[i];
+        const struct theme *base = custom->base[0] ? find_theme(custom->base) : &builtin_themes[0];
+        struct theme *built = &themes[theme_count];
+        *built = base ? *base : builtin_themes[0];
+        built->name = custom->name;
+        size_t bracket = 0;
+        for (size_t k = 0; k < custom->color_count; k++) {
+            const struct settings_pair *pair = &custom->colors[k];
+            uint32_t color, *target = NULL;
+            if (!strcmp(pair->key, "brackets")) target = bracket < 3 ? &built->brackets[bracket++] : NULL;
+            for (size_t n = 0; n < sizeof theme_color_names / sizeof theme_color_names[0] && !target; n++)
+                if (!strcmp(theme_color_names[n].name, pair->key)) target = (uint32_t *)((char *)built + theme_color_names[n].offset);
+            if (target && parse_color(pair->value, &color)) *target = color;
+            else if (!error[0]) snprintf(error, size, "theme %s: %s \"%s\" is no known color", custom->name, pair->key, pair->value);
+        }
+        if (!find_theme(custom->name)) theme_count++;
+        else if (!error[0]) snprintf(error, size, "theme %s: the name is taken", custom->name);
+    }
 }
 
 // The text of clear() in the web editor.
@@ -564,7 +621,9 @@ static void accept_prompt(int direction) {
 
 // Writes the settings file after a change of the settings menu or of the font size.
 static void save_settings(void) {
-    if (settings_file && !settings_save(&stored_settings, settings_file)) ui_show_message("cannot save the settings file", true);
+    char error[SETTINGS_TEXT];
+    if (settings_file && !settings_save(&stored_settings, settings_file, error, sizeof error))
+        ui_show_message(error, true); // a file that does not parse stays as it is
 }
 
 static void change_font_size(float step) {
@@ -768,7 +827,7 @@ static void run_command_body(enum command command, bool extend) {
         info_scroll = 0;
         return;
     case COMMAND_NEXT_THEME: {
-        set_theme(&themes[(size_t)(theme - themes + 1) % THEME_COUNT]);
+        set_theme(&themes[(size_t)(theme - themes + 1) % theme_count]);
         char text[96];
         snprintf(text, sizeof text, "theme %s", theme->name);
         ui_show_message(text, false);
@@ -1324,11 +1383,11 @@ static void draw_settings(void) {
     if (!font_choices_loaded) load_font_choices();
     float label_x = left + char_width, value_x = left + 15 * char_width, y = top + line_height / 2;
     char action[32];
-    const char *labels[] = { "theme", "autocomplete", "trigger", "font size", "font" };
+    const char *labels[] = { "theme", "autocomplete", "trigger", "line wrap", "font size", "font" };
     for (size_t row = 0; row < sizeof labels / sizeof labels[0]; row++)
         overlay_text(label_x, y + (float)row * 1.5f * line_height, labels[row], strlen(labels[row]), 0, 14, NULL, theme->help_keys);
     float x = value_x;
-    for (size_t i = 0; i < THEME_COUNT; i++) {
+    for (size_t i = 0; i < theme_count; i++) {
         snprintf(action, sizeof action, "theme %zu", i);
         x = panel_label(x, y, themes[i].name, theme == &themes[i], action);
     }
@@ -1338,6 +1397,9 @@ static void draw_settings(void) {
     y += 1.5f * line_height;
     x = panel_label(value_x, y, "Ctrl+Space", active_settings.autocomplete_trigger == AUTOCOMPLETE_MANUAL, "trigger 0");
     panel_label(x, y, "while typing", active_settings.autocomplete_trigger == AUTOCOMPLETE_TYPING, "trigger 1");
+    y += 1.5f * line_height;
+    x = panel_label(value_x, y, "on", wrap, "wrap 1");
+    panel_label(x, y, "off", !wrap, "wrap 0");
     y += 1.5f * line_height;
     char size[16];
     snprintf(size, sizeof size, "%.0f px", overlay_font_size());
@@ -1356,10 +1418,14 @@ static void draw_settings(void) {
 
 static void run_settings_action(const char *action) {
     size_t index = (size_t)atol(strchr(action, ' ') + 1);
-    if (!strncmp(action, "theme ", 6) && index < THEME_COUNT) set_theme(&themes[index]);
+    if (!strncmp(action, "theme ", 6) && index < theme_count) set_theme(&themes[index]);
     else if (!strncmp(action, "style ", 6)) set_autocomplete((enum autocomplete_style)index, active_settings.autocomplete_trigger);
     else if (!strncmp(action, "trigger ", 8)) set_autocomplete(active_settings.autocomplete_style, (enum autocomplete_trigger)index);
-    else if (!strcmp(action, "size -")) change_font_size(-FONT_SIZE_STEP);
+    else if (!strncmp(action, "wrap ", 5)) {
+        wrap = stored_settings.word_wrap = active_settings.word_wrap = index != 0;
+        layout.valid = false;
+        save_settings();
+    } else if (!strcmp(action, "size -")) change_font_size(-FONT_SIZE_STEP);
     else if (!strcmp(action, "size +")) change_font_size(FONT_SIZE_STEP);
     else if (!strncmp(action, "font ", 5) && index < font_choice_count) set_font(font_choices[index].file);
 }
@@ -1388,7 +1454,7 @@ static bool settings_click(float x, float y) {
 static void draw_help(int width, int height) {
     overlay_rect(0, 0, (float)width, (float)height, theme->help_background);
     float line_height = overlay_line_height(), char_width = overlay_char_width();
-    const char *title = "hydra-native: live coding with hydra-synth. F1 or Escape closes this help.";
+    const char *title = "hydra-native: live coding with hydra-synth. F1 or Escape closes this help. [name]: for \"keybindings\" in settings.json";
     overlay_text(MARGIN, MARGIN, title, strlen(title), 0, visible_columns(), NULL, theme->text);
     size_t rows = (size_t)(((float)height - 3 * MARGIN - line_height) / line_height);
     if (rows == 0) rows = 1;
@@ -1402,7 +1468,9 @@ static void draw_help(int width, int height) {
         float x = MARGIN + (float)((entry / rows) * column_width) * char_width;
         float y = MARGIN + line_height * (1.5f + (float)(entry % rows));
         overlay_text(x, y, keys, strlen(keys), 0, keys_width - 1, NULL, theme->help_keys);
-        const char *description = command_description(command);
+        // The description with the command name for the "keybindings" of the settings file.
+        char description[160];
+        snprintf(description, sizeof description, "%s [%s]", command_description(command), command_name(command));
         overlay_text(x + (float)keys_width * char_width, y, description, strlen(description), 0,
                      column_width - keys_width - 1, NULL, theme->text);
     }
@@ -1918,11 +1986,21 @@ bool ui_init(const struct settings *stored, const struct settings *active, const
     stored_settings = *stored;
     active_settings = *active;
     settings_file = settings_path ? strdup(settings_path) : NULL;
+    char error[SETTINGS_TEXT] = "";
+    load_themes(&active_settings, error, sizeof error);
     theme = find_theme(active->theme);
     if (!theme) {
-        fprintf(stderr, "no theme %s, using %s\n", active->theme, themes[0].name);
+        if (!error[0]) snprintf(error, sizeof error, "no theme %s, using %s", active->theme, themes[0].name);
         theme = &themes[0];
     }
+    // The "keybindings" of the settings file: command name to key, over the table of src/keymap.c.
+    for (size_t i = 0; i < active->keybinding_count; i++) {
+        char problem[SETTINGS_TEXT];
+        if (!keymap_bind(active->keybindings[i].key, active->keybindings[i].value, problem, sizeof problem) && !error[0])
+            snprintf(error, sizeof error, "%s", problem);
+    }
+    if (error[0]) ui_show_message(error, true);
+    wrap = active->word_wrap;
     editor_init(&editor);
     if (path) {
         file_path = strdup(path);

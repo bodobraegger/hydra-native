@@ -2,9 +2,13 @@
 // The order matters: the first matching binding wins.
 #include "keymap.h"
 
+#include <ctype.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <strings.h>
 
-static const struct key_binding keymap[] = {
+static const struct key_binding default_keymap[] = {
     // while the autocomplete list is open
     { SDLK_DOWN, 0, COMMAND_COMPLETION_NEXT, .context = CONTEXT_COMPLETION },
     { SDLK_UP, 0, COMMAND_COMPLETION_PREVIOUS, .context = CONTEXT_COMPLETION },
@@ -164,10 +168,108 @@ static unsigned binding_modifiers(SDL_Keymod modifiers) {
            (modifiers & KMOD_LALT ? KEY_ALT : 0);
 }
 
+// The table in use: the default table with the "keybindings" of the settings file on top.
+static struct key_binding *keymap;
+static size_t keymap_count;
+static bool rebound[COMMAND_COUNT];
+
+static void ensure_keymap(void) {
+    if (keymap) return;
+    keymap_count = sizeof default_keymap / sizeof default_keymap[0];
+    keymap = malloc(sizeof default_keymap);
+    memcpy(keymap, default_keymap, sizeof default_keymap);
+}
+
+const char *command_name(enum command command) {
+    static char names[COMMAND_COUNT][48];
+    static const char *const upper[] = {
+#define COMMAND_NAME(name, description) #name,
+        COMMANDS(COMMAND_NAME)
+#undef COMMAND_NAME
+    };
+    if (command >= COMMAND_COUNT) return "";
+    if (!names[command][0])
+        for (size_t i = 0; upper[command][i] && i + 1 < sizeof names[0]; i++) names[command][i] = (char)tolower((unsigned char)upper[command][i]);
+    return names[command];
+}
+
+// One key of a binding, such as "Ctrl+Shift+Enter" or "F3"; false for an unknown name.
+static bool parse_key(const char *text, unsigned *modifiers, SDL_Keycode *key) {
+    char part[64];
+    *modifiers = 0;
+    *key = SDLK_UNKNOWN;
+    for (const char *start = text; *start;) {
+        size_t length = strcspn(start, "+");
+        if (length == 0 && start[0] == '+') length = 1; // "Ctrl++" is Ctrl and the plus key
+        snprintf(part, sizeof part, "%.*s", (int)length, start);
+        start += length;
+        if (*start == '+' && start[1]) start++;
+        if (!strcasecmp(part, "ctrl") || !strcasecmp(part, "control")) *modifiers |= KEY_CTRL;
+        else if (!strcasecmp(part, "shift")) *modifiers |= KEY_SHIFT;
+        else if (!strcasecmp(part, "alt")) *modifiers |= KEY_ALT;
+        else if (!strcasecmp(part, "enter")) *key = SDLK_RETURN;
+        else if (!strcasecmp(part, "esc")) *key = SDLK_ESCAPE;
+        else if (strlen(part) == 1) *key = (SDL_Keycode)tolower((unsigned char)part[0]);
+        else if ((*key = SDL_GetKeyFromName(part)) == SDLK_UNKNOWN) return false;
+    }
+    return *key != SDLK_UNKNOWN;
+}
+
+bool keymap_bind(const char *name, const char *keys, char *error, size_t size) {
+    ensure_keymap();
+    enum command command = COMMAND_COUNT;
+    for (int i = 0; i < COMMAND_COUNT; i++)
+        if (!strcmp(command_name((enum command)i), name)) command = (enum command)i;
+    if (command == COMMAND_COUNT) {
+        snprintf(error, size, "keybindings: no command %s (F1 lists the commands)", name);
+        return false;
+    }
+    // The first binding of a command replaces its default keys; the context of the defaults stays.
+    struct key_binding template = { .command = command };
+    bool have_template = false;
+    for (size_t i = 0; i < keymap_count;) {
+        if (keymap[i].command != command) {
+            i++;
+            continue;
+        }
+        if (!have_template) template = keymap[i];
+        have_template = true;
+        if (rebound[command]) {
+            i++;
+            continue;
+        }
+        memmove(&keymap[i], &keymap[i + 1], (keymap_count - i - 1) * sizeof *keymap);
+        keymap_count--;
+    }
+    rebound[command] = true;
+    if (!keys[0]) return true; // "" unbinds
+    // "Ctrl+K Ctrl+U": a two-key command with Ctrl and a key first.
+    char first[64] = "", second[64];
+    const char *space = strchr(keys, ' ');
+    if (space) snprintf(first, sizeof first, "%.*s", (int)(space - keys), keys);
+    snprintf(second, sizeof second, "%s", space ? space + 1 : keys);
+    unsigned prefix_modifiers = 0;
+    SDL_Keycode prefix = 0;
+    struct key_binding binding = template;
+    binding.prefix = 0;
+    binding.shift_extends = false;
+    if ((first[0] && (!parse_key(first, &prefix_modifiers, &prefix) || prefix_modifiers != KEY_CTRL)) ||
+        !parse_key(second, &binding.modifiers, &binding.key)) {
+        snprintf(error, size, "keybindings: cannot read the key \"%s\" of %s", keys, name);
+        return false;
+    }
+    binding.prefix = prefix;
+    keymap = realloc(keymap, (keymap_count + 1) * sizeof *keymap);
+    memmove(keymap + 1, keymap, keymap_count++ * sizeof *keymap); // first, so that it wins over other defaults
+    keymap[0] = binding;
+    return true;
+}
+
 const struct key_binding *keymap_lookup(SDL_Keycode key, SDL_Keymod modifiers, enum key_context context,
                                         SDL_Keycode prefix, bool *extend) {
+    ensure_keymap();
     unsigned pressed = binding_modifiers(modifiers);
-    for (size_t i = 0; i < sizeof keymap / sizeof keymap[0]; i++) {
+    for (size_t i = 0; i < keymap_count; i++) {
         const struct key_binding *binding = &keymap[i];
         if (binding->context != CONTEXT_ANY && binding->context != context) continue;
         if (binding->prefix != prefix) continue;
@@ -198,7 +300,8 @@ const char *command_description(enum command command) {
 void command_keys(enum command command, char *text, size_t size) {
     size_t used = 0;
     text[0] = '\0';
-    for (size_t i = 0; i < sizeof keymap / sizeof keymap[0] && used + 1 < size; i++) {
+    ensure_keymap();
+    for (size_t i = 0; i < keymap_count && used + 1 < size; i++) {
         const struct key_binding *binding = &keymap[i];
         if (binding->command != command) continue;
         char chord[32] = "";

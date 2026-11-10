@@ -118,11 +118,11 @@ build/editor-test: test/editor_test.c src/editor.c src/editor.h src/bidi.c src/b
 	$(CC) -O1 -g -Wall -Wextra -Wno-unused-parameter -fsanitize=address,undefined -I$(SHEENBIDI_DIR)/Headers -o $@ \
 		test/editor_test.c src/editor.c src/bidi.c build/sheenbidi.o
 
-build/ui-test: test/ui_test.c src/ui.c src/keymap.c src/editor.c src/bidi.c src/settings.c src/*.h build/sheenbidi.o
+build/ui-test: test/ui_test.c src/ui.c src/keymap.c src/editor.c src/bidi.c src/settings.c src/*.h build/sheenbidi.o $(QUICKJS_OBJECTS)
 	@mkdir -p build
 	$(CC) -O1 -g -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -fsanitize=address,undefined \
-		$(shell pkg-config --cflags sdl2) -I$(SHEENBIDI_DIR)/Headers -o $@ test/ui_test.c src/ui.c src/keymap.c src/editor.c src/bidi.c src/settings.c build/sheenbidi.o \
-		$(shell pkg-config --libs sdl2) -lm
+		$(shell pkg-config --cflags sdl2) -I$(SHEENBIDI_DIR)/Headers -I$(QUICKJS_DIR) -o $@ test/ui_test.c src/ui.c src/keymap.c \
+		src/editor.c src/bidi.c src/settings.c build/sheenbidi.o $(QUICKJS_OBJECTS) $(shell pkg-config --libs sdl2) -lm -ldl -lpthread
 
 build/audio-test: test/audio_test.c src/audio_processing.c src/audio_processing.h src/analog_agc.c src/analog_agc.h
 	@mkdir -p build
@@ -136,8 +136,8 @@ test: build/editor-test build/ui-test build/audio-test $(if $(WEBRTC_APM_LIBRARY
 	python3 test/gallery_test.py
 
 check: all test
-	build/hydra-native --hidden --no-vsync --no-analog-agc test/check.js
-	python3 test/fetch_test.py
+	XDG_CONFIG_HOME=$(CURDIR)/build/test-config build/hydra-native --hidden --no-vsync --no-analog-agc test/check.js
+	XDG_CONFIG_HOME=$(CURDIR)/build/test-config python3 test/fetch_test.py
 
 clean:
 	rm -rf build

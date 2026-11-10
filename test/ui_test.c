@@ -141,17 +141,23 @@ int main(void) {
     EXPECT(mkdtemp(config) != NULL);
     setenv("XDG_CONFIG_HOME", config, 1);
     EXPECT(settings_path(settings_file, sizeof settings_file));
-    EXPECT_STRING(settings_file + strlen(config), "/hydra-native/settings");
+    EXPECT_STRING(settings_file + strlen(config), "/hydra-native/settings.json");
+    char error[SETTINGS_TEXT];
+    // An empty settings object writes the directory and the file.
     struct settings stored;
     settings_defaults(&stored);
-    stored.font_size = 24;
-    snprintf(stored.theme, sizeof stored.theme, "solarized");
-    EXPECT(settings_save(&stored, settings_file));
+    EXPECT(settings_save(&stored, settings_file, error, sizeof error));
+    write_file(settings_file, "{\n  \"fontSize\": 24,\n  \"theme\": \"mine\",\n  \"galleryServer\": \"http://127.0.0.1:9\",\n"
+                              "  \"themes\": { \"mine\": { \"base\": \"solarized\", \"text\": \"#ff0000\" } },\n"
+                              "  \"keybindings\": { \"join_lines\": \"Ctrl+Alt+J\" },\n"
+                              "  \"somethingElse\": { \"kept\": [1, 2] }\n}\n");
     struct settings loaded;
     settings_defaults(&loaded);
-    EXPECT(settings_load(&loaded, settings_file));
-    EXPECT(loaded.font_size == 24 && !strcmp(loaded.theme, "solarized") && loaded.autocomplete_style == AUTOCOMPLETE_LIST &&
-           loaded.autocomplete_trigger == AUTOCOMPLETE_MANUAL);
+    EXPECT(settings_load(&loaded, settings_file, error, sizeof error));
+    EXPECT(loaded.font_size == 24 && !strcmp(loaded.theme, "mine") && loaded.autocomplete_style == AUTOCOMPLETE_LIST &&
+           loaded.autocomplete_trigger == AUTOCOMPLETE_MANUAL && loaded.render_whitespace == WHITESPACE_ALL);
+    EXPECT_STRING(loaded.gallery_server, "http://127.0.0.1:9");
+    EXPECT(loaded.theme_count == 1 && !strcmp(loaded.themes[0].base, "solarized") && loaded.keybinding_count == 1);
     struct settings active = loaded;
     snprintf(active.theme, sizeof active.theme, "contrast"); // like --theme contrast for one run
     static const struct ui_host host = { evaluate, nothing, never, nothing, call, nothing, share, set_title };
@@ -310,20 +316,42 @@ int main(void) {
     key(SDLK_RETURN, 0);
     EXPECT_STRING(shared_name, "my name");
 
+    // The "keybindings" of the file: Ctrl+Alt+J joins lines, and Ctrl+J (its default key) does nothing now.
+    key(SDLK_a, KMOD_LCTRL);
+    type("osc()\n.out()");
+    key(SDLK_HOME, KMOD_LCTRL);
+    key(SDLK_j, KMOD_LCTRL);
+    key(SDLK_RETURN, KMOD_LCTRL | KMOD_LALT);
+    EXPECT_STRING(evaluated, "osc()\n.out()");
+    key(SDLK_j, KMOD_LCTRL | KMOD_LALT);
+    key(SDLK_RETURN, KMOD_LCTRL | KMOD_LALT);
+    EXPECT_STRING(evaluated, "osc() .out()");
+
     // The settings menu saves at once: the next theme after "contrast" (the theme of this run) is "solarized"; the
-    // stored font size stays, the option of the run is not saved.
+    // stored font size stays, the option of the run is not saved, and the other keys of the file stay.
     key(SDLK_p, KMOD_LCTRL | KMOD_LSHIFT);
     type("next color theme");
     key(SDLK_RETURN, 0);
     settings_defaults(&loaded);
-    EXPECT(settings_load(&loaded, settings_file));
+    EXPECT(settings_load(&loaded, settings_file, error, sizeof error));
     EXPECT_STRING(loaded.theme, "solarized");
-    EXPECT(loaded.font_size == 24);
+    EXPECT(loaded.font_size == 24 && loaded.theme_count == 1 && loaded.keybinding_count == 1);
+    FILE *saved = fopen(settings_file, "r");
+    char content[4096] = "";
+    if (saved) {
+        content[fread(content, 1, sizeof content - 1, saved)] = '\0';
+        fclose(saved);
+    }
+    EXPECT_CONTAINS(content, "\"somethingElse\"");
+    EXPECT_CONTAINS(content, "\"galleryServer\": \"http://127.0.0.1:9\"");
+    char temporary[300];
+    snprintf(temporary, sizeof temporary, "%s.tmp", settings_file);
+    EXPECT(access(temporary, F_OK) != 0); // written through a temporary file and rename()
     key(SDLK_p, KMOD_LCTRL | KMOD_LSHIFT);
     type("autocomplete as a list or as ghost");
     key(SDLK_RETURN, 0);
     settings_defaults(&loaded);
-    settings_load(&loaded, settings_file);
+    settings_load(&loaded, settings_file, error, sizeof error);
     EXPECT(loaded.autocomplete_style == AUTOCOMPLETE_GHOST);
 
     // Ghost text (the style is "ghost" now): Tab accepts the rest of the best candidate.
@@ -389,8 +417,21 @@ int main(void) {
     key(SDLK_RETURN, KMOD_LCTRL);
     EXPECT_STRING(evaluated, "noise");
     settings_defaults(&loaded);
-    settings_load(&loaded, settings_file);
+    settings_load(&loaded, settings_file, error, sizeof error);
     EXPECT(loaded.autocomplete_style == AUTOCOMPLETE_LIST && loaded.autocomplete_trigger == AUTOCOMPLETE_TYPING);
+
+    // A file that does not parse: the defaults stay, the error names the line, and nothing overwrites the file.
+    write_file(settings_file, "{\n  \"theme\": \"paper\",\n  broken\n}\n");
+    settings_defaults(&loaded);
+    EXPECT(!settings_load(&loaded, settings_file, error, sizeof error));
+    fprintf(stderr, "settings error: %s\n", error);
+    EXPECT_CONTAINS(error, "line 3");
+    EXPECT_STRING(loaded.theme, "hydra");
+    EXPECT(!settings_save(&loaded, settings_file, error, sizeof error));
+    saved = fopen(settings_file, "r");
+    content[fread(content, 1, sizeof content - 1, saved)] = '\0';
+    fclose(saved);
+    EXPECT_CONTAINS(content, "broken");
 
     unlink(settings_file);
     *strrchr(settings_file, '/') = '\0';

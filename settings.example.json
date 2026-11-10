@@ -1,0 +1,36 @@
+{
+  "font": "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+  "fontSize": 20,
+  "theme": "night",
+  "renderWhitespace": "all",
+  "autocompleteStyle": "list",
+  "autocompleteTrigger": "manual",
+  "wordWrap": true,
+  "codeVisible": true,
+  "fullscreen": false,
+  "vsync": true,
+  "watch": false,
+  "windowWidth": 1280,
+  "windowHeight": 720,
+  "audioSource": "",
+  "analogAgc": true,
+  "language": "",
+  "galleryServer": "",
+  "l10nUrl": "",
+  "socket": "",
+  "themes": {
+    "night": {
+      "base": "hydra",
+      "lineBackground": "#000000c0",
+      "keyword": "#ff79c6",
+      "string": "#f1fa8c",
+      "whitespace": "#ffffff30",
+      "brackets": ["#ffd700", "#da70d6", "#179fff"]
+    }
+  },
+  "keybindings": {
+    "toggle_comment": ["Ctrl+/", "Ctrl+Alt+C"],
+    "format": "Ctrl+Shift+F",
+    "toggle_wrap": ""
+  }
+}

@@ -63,11 +63,56 @@ The window title shows the hydra.ojack.xyz URL of the code after each run of all
 the web editor does. Ctrl+Shift+L copies that URL, and Ctrl+Shift+O opens the URL in the clipboard.
 PLAN.md compares every feature with the web editor.
 
-The "settings" entry of the toolbar (Ctrl+,) chooses the color theme (hydra, contrast, solarized, paper), the
-autocomplete style and trigger, the font size and the font from the installed monospace fonts (fc-list). Each
-choice applies at once and goes into ~/.config/hydra-native/settings (or $XDG_CONFIG_HOME/hydra-native/settings),
-a file of key=value lines: font, font_size, theme, autocomplete_style (list or ghost) and autocomplete_trigger
-(manual or typing). hydra-native reads it at the start; --font, --font-size and --theme override it for one run.
+The "settings" entry of the toolbar (Ctrl+,) chooses the color theme, the autocomplete style and trigger, the
+rendering of whitespace, line wrap, the font size and a font from the installed monospace fonts (fc-list). Each
+choice applies at once and goes into the settings file.
+
+### Settings file
+
+All settings live in one JSON file: ~/.config/hydra-native/settings.json, or
+$XDG_CONFIG_HOME/hydra-native/settings.json. settings.example.json shows every key. hydra-native reads the file at
+the start, and command line options override it for one run. The settings menu writes the file atomically (a
+temporary file, then rename), and keys that hydra-native does not know stay in it. When the file is no valid
+JSON, the defaults apply, the error bar shows the error with its line, and nothing overwrites the file.
+
+| Key                 | Default          | Option               | Meaning                                  |
+| ------------------- | ---------------- | -------------------- | ---------------------------------------- |
+| font                | DejaVu Sans Mono | --font PATH          | monospace font file                      |
+| fontSize            | 20               | --font-size PIXELS   | font size of the overlay                 |
+| theme               | "hydra"          | --theme NAME         | built-in or custom theme                 |
+| renderWhitespace    | "all"            | settings menu        | none, boundary, selection, trailing, all |
+| autocompleteStyle   | "list"           | settings menu        | list or ghost                            |
+| autocompleteTrigger | "manual"         | settings menu        | manual (Ctrl+Space) or typing            |
+| wordWrap            | true             | settings menu, Alt+Z | soft wrap of long lines                  |
+| codeVisible         | true             | --hide-code          | show the code at the start               |
+| fullscreen          | false            | --fullscreen         | start in fullscreen                      |
+| vsync               | true             | --no-vsync           | wait for the display refresh             |
+| watch               | false            | --watch              | reload the sketch on changes             |
+| windowWidth         | 1280             | --size WxH           | window width                             |
+| windowHeight        | 720              | --size WxH           | window height                            |
+| audioSource         | "" (default)     | --audio SOURCE       | audio source for `a`                     |
+| analogAgc           | true             | --no-analog-agc      | analog gain control                      |
+| language            | "" ($LANG)       | --lang CODE          | language of the info panel               |
+| galleryServer       | "" (none)        | --gallery-server URL | gallery server                           |
+| l10nUrl             | "" (l10n)        | --l10n-url URL       | editor.json of a language                |
+| socket              | "" (runtime dir) | --socket PATH        | the code socket                          |
+| themes              | {}               |                      | custom themes, see below                 |
+| keybindings         | {}               |                      | keys of commands, see below              |
+
+"all" is the default of renderWhitespace because Pulsar showed invisible characters (showInvisibles) in the
+setup that hydra-native follows. --hidden, --screenshot, --bench and --send act on one run and are no settings.
+Options switch a boolean only in one direction; a setting of true for fullscreen, for example, needs the file.
+
+A custom theme in "themes" has a name, an optional "base" (a built-in theme, "hydra" by default) and colors as
+"#rrggbb" or "#rrggbbaa": lineBackground, selection, flash, bracket, cursor, text, keyword, number, string,
+comment, function, barBackground, error, info, toolbar, popupBackground, popupSelected, helpBackground,
+helpKeys, bookmark, match, matchActive, matchText, ghost, whitespace and "brackets" (a list of three colors).
+The built-in themes stay available by name.
+
+"keybindings" maps a command name to a key, such as "Ctrl+Shift+Enter", a two-key command such as
+"Ctrl+K Ctrl+U", a list of keys, or "" to unbind it, like keybindings.json of VS Code. The keys replace the
+default keys of that command and win over other commands with the same key. F1 shows each command with its
+name in brackets and its keys after these changes.
 
 The editor has multiple cursors, find and replace, go to line, a command palette and autocomplete of hydra
 names and of the words of the file. Autocomplete opens with Ctrl+Space, or while typing with the trigger "while

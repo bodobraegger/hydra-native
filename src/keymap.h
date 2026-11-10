@@ -158,5 +158,9 @@ struct key_binding {
 const struct key_binding *keymap_lookup(SDL_Keycode key, SDL_Keymod modifiers, enum key_context context,
                                         SDL_Keycode prefix, bool *extend);
 const char *command_description(enum command command);
+const char *command_name(enum command command); // lowercase, as in the "keybindings" of the settings file
+// Binds a command to a key such as "Ctrl+Shift+Enter" or "Ctrl+K Ctrl+U" ("" unbinds); the first call for a
+// command replaces its default keys. False with a message in `error` for an unknown command or key.
+bool keymap_bind(const char *command, const char *keys, char *error, size_t size);
 // Writes the keys of a command, such as "Ctrl+Enter, Shift+Enter", or "" when it has none.
 void command_keys(enum command command, char *text, size_t size);
