@@ -12,6 +12,7 @@
 #include "stb_truetype.h"
 
 #include "hb.h" // HarfBuzz 14.6.0 (MIT, see THIRD_PARTY.md) shapes the text of panels and prompts
+#include <SheenBidi/SheenBidi.h> // SheenBidi 2.9.0 (Apache-2.0, see THIRD_PARTY.md) orders mixed directions
 
 #define ATLAS_SIZE 2048
 // The last two rows of the atlas stay white; rectangles sample them, so text and rectangles share one shader.
@@ -365,46 +366,23 @@ size_t overlay_text_columns(const char *text, size_t length) {
 
 // ---------------------------------------------------------------- shaped text with bidi
 
-enum bidi_class { BIDI_LEFT, BIDI_RIGHT, BIDI_NUMBER, BIDI_NEUTRAL };
-
-static enum bidi_class bidi_class(int c) {
-    if ((c >= 0x0590 && c <= 0x08FF) || (c >= 0xFB1D && c <= 0xFDFF) || (c >= 0xFE70 && c <= 0xFEFF)) {
-        if ((c >= 0x0660 && c <= 0x0669) || (c >= 0x06F0 && c <= 0x06F9)) return BIDI_NUMBER;
-        return BIDI_RIGHT;
-    }
-    if (c >= '0' && c <= '9') return BIDI_NUMBER;
-    if (c < 0x80 && !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))) return BIDI_NEUTRAL;
-    if ((c >= 0x2000 && c <= 0x206F) || (c >= 0x3000 && c <= 0x303F) || c == 0xA0) return BIDI_NEUTRAL;
-    return BIDI_LEFT;
-}
-
 #define MAX_SHAPED 2048
 
-// Embedding levels for a subset of the Unicode bidi algorithm (UAX #9): strong letters, numbers inside
-// right-to-left text (level 2 in such a paragraph), and neutrals between strong characters of one direction.
+// Embedding levels of the full Unicode bidi algorithm (UAX #9, with explicit embeddings and isolates) from
+// SheenBidi; the levels of the line include rule L1 for the white space at the end.
 static void bidi_levels(const int *codepoints, int count, int paragraph, unsigned char *levels) {
-    enum bidi_class classes[MAX_SHAPED];
-    for (int i = 0; i < count; i++) classes[i] = bidi_class(codepoints[i]);
-    int previous_strong = paragraph; // 0 left, 1 right
-    for (int i = 0; i < count; i++) {
-        switch (classes[i]) {
-        case BIDI_LEFT: levels[i] = paragraph ? 2 : 0; previous_strong = 0; break;
-        case BIDI_RIGHT: levels[i] = 1; previous_strong = 1; break;
-        case BIDI_NUMBER: levels[i] = paragraph || previous_strong ? 2 : 0; break;
-        case BIDI_NEUTRAL: levels[i] = 255; break; // resolved below
-        }
-    }
-    for (int i = 0; i < count;) {
-        if (levels[i] != 255) { i++; continue; }
-        int end = i;
-        while (end < count && levels[end] == 255) end++;
-        // Numbers count as right-to-left for the neutrals between them (rule N1).
-        int before = i > 0 ? (classes[i - 1] == BIDI_LEFT ? 0 : 1) : paragraph;
-        int after = end < count ? (classes[end] == BIDI_LEFT ? 0 : 1) : paragraph;
-        unsigned char level = before == after ? (before ? 1 : (paragraph ? 2 : 0)) : (unsigned char)paragraph;
-        for (int k = i; k < end; k++) levels[k] = level;
-        i = end;
-    }
+    SBCodepointSequence sequence = { SBStringEncodingUTF32, codepoints, (SBUInteger)count };
+    SBAlgorithmRef algorithm = SBAlgorithmCreate(&sequence);
+    SBParagraphRef bidi_paragraph = SBAlgorithmCreateParagraph(algorithm, 0, (SBUInteger)count, (SBLevel)paragraph);
+    SBUInteger length = SBParagraphGetLength(bidi_paragraph);
+    SBLineRef line = SBParagraphCreateLine(bidi_paragraph, 0, length);
+    const SBRun *runs = SBLineGetRunsPtr(line);
+    for (int i = 0; i < count; i++) levels[i] = (unsigned char)paragraph; // text after a paragraph separator
+    for (SBUInteger r = 0; r < SBLineGetRunCount(line); r++)
+        for (SBUInteger k = runs[r].offset; k < runs[r].offset + runs[r].length; k++) levels[k] = runs[r].level;
+    SBLineRelease(line);
+    SBParagraphRelease(bidi_paragraph);
+    SBAlgorithmRelease(algorithm);
 }
 
 struct shaped_glyph {

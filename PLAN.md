@@ -128,24 +128,24 @@ gallery and signalling server (hydra-synth/hydra-server) and from the CodeMirror
 
 ### Evaluation, overlay, toolbar and panels
 
-| Feature                          | hydra-native                        | Identical                         |
-| -------------------------------- | ----------------------------------- | --------------------------------- |
-| eval line, block, all; flash     | the same keys, also Ctrl+Alt+Enter  | yes                               |
-| error line                       | also shader errors                  | yes                               |
-| hide code, format, comment       | the same keys                       | yes                               |
-| screencap with code              | PNG and js in ~/Downloads           | yes                               |
-| clear all, random example        | toolbar, keys                       | yes                               |
-| mutator, undo, change a function | toolbar with Shift and Ctrl         | yes                               |
-| start without a sketch           | random example and info             | yes                               |
-| info panel, tooltips, languages  | 9 languages, cached offline         | yes                               |
-| Arabic text                      | HarfBuzz shaping and a bidi subset  | bidi is a subset of UAX #9        |
-| emoji                            | monochrome Noto Emoji               | the browser shows color emoji     |
-| extensions panel                 | categories, thumbnails, +, examples | yes                               |
-| save to URL                      | Ctrl+Shift+L, URL to the clipboard  | no address bar, so the clipboard  |
-| open a sketch URL, sketch_id     | argument; /sketchById of the server | yes                               |
-| share to the gallery             | prompt, /sketch, /image             | yes (with --gallery-server)       |
-| line wrapping, selections, tabs  | wrap, multiple cursors, tab width 4 | yes                               |
-| IME composition                  | underlined at the cursor            | no candidate window of the system |
+| Feature                          | hydra-native                         | Identical                         |
+| -------------------------------- | ------------------------------------ | --------------------------------- |
+| eval line, block, all; flash     | the same keys, also Ctrl+Alt+Enter   | yes                               |
+| error line                       | also shader errors                   | yes                               |
+| hide code, format, comment       | the same keys                        | yes                               |
+| screencap with code              | PNG and js in ~/Downloads            | yes                               |
+| clear all, random example        | toolbar, keys                        | yes                               |
+| mutator, undo, change a function | toolbar with Shift and Ctrl          | yes                               |
+| start without a sketch           | random example and info              | yes                               |
+| info panel, tooltips, languages  | 9 languages, cached offline          | yes                               |
+| Arabic text                      | HarfBuzz shaping, SheenBidi (UAX #9) | yes                               |
+| emoji                            | monochrome Noto Emoji                | the browser shows color emoji     |
+| extensions panel                 | categories, thumbnails, +, examples  | yes                               |
+| save to URL                      | Ctrl+Shift+L, URL to the clipboard   | no address bar, so the clipboard  |
+| open a sketch URL, sketch_id     | argument; /sketchById of the server  | yes                               |
+| share to the gallery             | prompt, /sketch, /image              | yes (with --gallery-server)       |
+| line wrapping, selections, tabs  | wrap, multiple cursors, tab width 4  | yes                               |
+| IME composition                  | underlined at the cursor             | no candidate window of the system |
 
 ### Keys of the CodeMirror 5 sublime keymap
 

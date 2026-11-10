@@ -17,6 +17,9 @@ a distributed hydra-native binary with its bundle falls under the AGPL-3.0.
 - stb_image.h 2.30 by Sean Barrett, public domain or MIT license, same commit. Thumbnails (src/thumbnails.c).
 - HarfBuzz 14.6.0, "Old MIT" license. https://github.com/harfbuzz/harfbuzz
   Text shaping of panels and prompts (src/overlay.c); built from the amalgamated src/harfbuzz.cc.
+- SheenBidi 2.9.0 by Muhammad Tayyab Akram, Apache-2.0 license. https://github.com/Tehreer/SheenBidi
+  The Unicode bidi algorithm (UAX #9) for the text of panels and prompts (src/overlay.c); built from
+  Source/SheenBidi.c with SB_CONFIG_UNITY.
 - plutovg 1.3.3 by Samuel Ugochukwu, MIT license. https://github.com/sammycage/plutovg
   2D canvas (src/canvas2d.c). Its files plutovg-ft-*.c come from FreeType and are under the FreeType License (FTL);
   plutovg contains its own copy of stb_truetype.
