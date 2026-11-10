@@ -1,8 +1,8 @@
 # Porting hydra-native to macOS and Windows
 
 hydra-native runs on Linux. This file lists what still ties it to Linux, module by module, and the library that
-replaces each part on macOS and Windows. The libraries are the ones that we agreed on: ANGLE, miniaudio or SDL3
-audio, libremidi, libcurl and quickjs-ng. Video files, recording and the webRTC patch bay keep their child
+replaces each part on macOS and Windows. The libraries are the ones that we agreed on: ANGLE, miniaudio,
+libremidi, libcurl and quickjs-ng. Video files, recording and the webRTC patch bay keep their child
 processes (ffmpeg, Node.js) on all three systems; "Media on macOS and Windows" below gives the reasons.
 
 ## Status of the groundwork
@@ -11,6 +11,9 @@ processes (ffmpeg, Node.js) on all three systems; "Media on macOS and Windows" b
   (src/capture_macos.m, ScreenCaptureKit) and Windows (src/capture_windows.cpp, Windows.Graphics.Capture).
 - Child processes with pipes, process groups and job objects have one interface, src/process.h, with a POSIX
   backend (src/process_posix.c) and a Windows backend (src/process_windows.c).
+- The audio input (src/audio_input.h) and MIDI (src/midi.h) have one interface each, with backends for Linux
+  and for macOS and Windows. On macOS and Windows, CMake compiles them as the object library hydra-audio-midi,
+  without a program yet, and builds the WebRTC audio processing as build/libhydra-webrtc-apm.
 - Gallery sharing runs in JS (`__shareSketch` with fetch), so it needs no platform code.
 - No Python runs at run time. Python is only for some tests.
 - The build uses CMake (CMakeLists.txt) with SDL3 from the system; `make` is a thin wrapper. CMake downloads
@@ -19,28 +22,71 @@ processes (ffmpeg, Node.js) on all three systems; "Media on macOS and Windows" b
 
 ## By module
 
-| Part                           | Linux now                           | macOS and Windows                           |
-| ------------------------------ | ----------------------------------- | ------------------------------------------- |
-| window, input, clipboard, IME  | SDL3                                | SDL3 (the same code on all three)           |
-| GLES 3 context                 | EGL with Mesa                       | ANGLE (Metal, Direct3D 11)                  |
-| curl processes                 | SDL_Process, memfd for the body     | SDL_Process, a pipe or file for the body    |
-| program folder, downloads      | SDL_GetBasePath, SDL_GetUserFolder  | the same                                    |
-| settings file                  | XDG_CONFIG_HOME/hydra-native        | SDL_GetPrefPath                             |
-| downloads (fetch, loadScript)  | curl processes (src/fetch.c)        | libcurl in the process                      |
-| JavaScript                     | QuickJS                             | quickjs-ng (also builds with MSVC)          |
-| audio input and `a`            | PulseAudio simple API (src/audio.c) | miniaudio or SDL3 audio                     |
-| WebRTC audio processing        | system libwebrtc-audio-processing-1 | the same library, built and bundled         |
-| analog gain control            | PulseAudio source volume            | Core Audio, WASAPI endpoint volume          |
-| MIDI                           | ALSA sequencer (src/midi.c)         | libremidi                                   |
-| media child processes          | posix_spawn, process group          | posix_spawn; CreateProcess, job object      |
-| camera                         | gst-launch-1.0 process              | SDL3 camera API                             |
-| initVideo, initImage, recorder | ffmpeg processes                    | ffmpeg processes (ffmpeg in PATH)           |
-| screen capture                 | portal and Mutter (src/capture.h)   | ScreenCaptureKit, Windows.Graphics.Capture  |
-| webRTC patch bay               | node, @roamhq/wrtc, Unix socket     | the same; a named pipe on Windows           |
-| fonts                          | fontconfig (fc-match, fc-list)      | CoreText, DirectWrite, or bundled fonts     |
-| code socket (--send)           | Unix socket                         | Unix socket on macOS, named pipe on Windows |
-| opening URLs                   | SDL_OpenURL                         | the same                                    |
-| signals at exit                | SIGINT, SIGTERM                     | SDL_EVENT_QUIT, console control handler     |
+| Part                           | Linux now                            | macOS and Windows                           |
+| ------------------------------ | ------------------------------------ | ------------------------------------------- |
+| window, input, clipboard, IME  | SDL3                                 | SDL3 (the same code on all three)           |
+| GLES 3 context                 | EGL with Mesa                        | ANGLE (Metal, Direct3D 11)                  |
+| curl processes                 | SDL_Process, memfd for the body      | SDL_Process, a pipe or file for the body    |
+| program folder, downloads      | SDL_GetBasePath, SDL_GetUserFolder   | the same                                    |
+| settings file                  | XDG_CONFIG_HOME/hydra-native         | SDL_GetPrefPath                             |
+| downloads (fetch, loadScript)  | curl processes (src/fetch.c)         | libcurl in the process                      |
+| JavaScript                     | QuickJS                              | quickjs-ng (also builds with MSVC)          |
+| audio input and `a`            | PulseAudio (src/audio_input_pulse.c) | miniaudio (src/audio_input_miniaudio.c)     |
+| WebRTC audio processing        | system libwebrtc-audio-processing-1  | version 1.3, built from source by CMake     |
+| analog gain control            | PulseAudio source volume             | Core Audio, IAudioEndpointVolume            |
+| MIDI                           | ALSA sequencer (src/midi.c)          | libremidi (src/midi_libremidi.cc)           |
+| media child processes          | posix_spawn, process group           | posix_spawn; CreateProcess, job object      |
+| camera                         | gst-launch-1.0 process               | SDL3 camera API                             |
+| initVideo, initImage, recorder | ffmpeg processes                     | ffmpeg processes (ffmpeg in PATH)           |
+| screen capture                 | portal and Mutter (src/capture.h)    | ScreenCaptureKit, Windows.Graphics.Capture  |
+| webRTC patch bay               | node, @roamhq/wrtc, Unix socket      | the same; a named pipe on Windows           |
+| fonts                          | fontconfig (fc-match, fc-list)       | CoreText, DirectWrite, or bundled fonts     |
+| code socket (--send)           | Unix socket                          | Unix socket on macOS, named pipe on Windows |
+| opening URLs                   | SDL_OpenURL                          | the same                                    |
+| signals at exit                | SIGINT, SIGTERM                      | SDL_EVENT_QUIT, console control handler     |
+
+## Audio input and MIDI
+
+The audio input has one interface, src/audio_input.h: 10 ms frames of mono samples at 48 kHz, and the volume of
+the capture device as a `struct source_volume` (src/analog_agc.h) for the analog gain control. Linux keeps the
+simple API of PulseAudio (src/audio_input_pulse.c), because it takes the source names of PulseAudio and PipeWire,
+also @DEFAULT_MONITOR@ for the system output, and it reads 10 ms fragments without a ring buffer between.
+macOS and Windows use miniaudio 0.11.25 (src/audio_input_miniaudio.c). miniaudio is one file in the public
+domain, and it has the WASAPI loopback, which the audio capture of SDL3 does not have. It also gives the device
+ID that the volume control needs. `--audio TEXT` selects the first input whose name contains TEXT; without a
+match, hydra-native lists the inputs.
+
+The system output (`--audio @DEFAULT_MONITOR@`):
+
+- Linux: the monitor source of the default sink in PulseAudio or PipeWire.
+- Windows: the WASAPI loopback of the default output.
+- macOS has no loopback capture in Core Audio. Install a virtual loopback device such as BlackHole, make it the
+  output (or part of a multi-output device in Audio MIDI Setup), and give its name: `--audio BlackHole`. Two
+  other ways are not done: the audio of ScreenCaptureKit (macOS 13 and newer) and the process taps of Core Audio
+  (AudioHardwareCreateProcessTap, macOS 14.2 and newer). Both need the permission for screen and audio recording.
+
+The analog gain control sets the volume of the input device on every system, and restores the saved volume at
+the end; `--no-analog-agc` turns it off. macOS: kAudioDevicePropertyVolumeScalar in the input scope, of the main
+element when it is settable, else of each channel (as Chrome does). Windows: the master volume level scalar of
+IAudioEndpointVolume. The system output keeps its volume. src/audio_volume.h selects the code of the system.
+
+WebRTC audio processing: macOS and Windows build the sources of webrtc-audio-processing 1.3 with
+cmake/webrtc-audio-processing.cmake, which follows the meson.build files of the release (meson is not needed).
+Abseil is used only through its headers. On Linux, `cmake -DHYDRA_WEBRTC_APM_FROM_SOURCE=ON` builds the same
+sources, and audio-test gives the same numbers as with the system library. src/audio_processing.c stays the
+fallback when the library is missing.
+
+MIDI has one interface, src/midi.h. Linux keeps the ALSA sequencer (src/midi.c), with the arrival time of each
+event in the kernel. macOS and Windows use libremidi 5.4.3 (src/midi_libremidi.cc) with CoreMIDI and WinMM,
+because libremidi reports port changes through its observer and gives the time stamps of the system (the host
+time of a CoreMIDI packet, the time of the WinMM driver); RtMidi has neither. A message gets the time stamp of the
+system when it is plausible, else the time of the callback. midi_poll() converts it to the clock of
+performance.now(), which the caller passes. hydra-native opens every input, also inputs that appear later, and
+opens an output on its first message.
+
+On Linux, `cmake -DHYDRA_MINIAUDIO_LIBREMIDI=ON` builds the miniaudio and libremidi code (with PulseAudio and the
+ALSA sequencer) to test it: midi-test passes with it. The code for Core Audio, WASAPI, IAudioEndpointVolume,
+CoreMIDI and WinMM is not tried on a Mac or a Windows PC yet.
 
 ## Notes per platform
 
@@ -55,7 +101,8 @@ share one stream API. test/process_test.c checks the interface with copies of it
 in XDG_CONFIG_HOME on Linux, because SDL_GetPrefPath gives the data folder (XDG_DATA_HOME) there.
 
 macOS: ANGLE on Metal gives GLES 3. ScreenCaptureKit needs the screen recording permission, and the camera
-needs the camera permission in Info.plist. The analog gain control sets the input volume through Core Audio.
+needs the camera permission in Info.plist. The microphone needs NSMicrophoneUsageDescription in Info.plist; a
+program started from a terminal uses the microphone permission of the terminal.
 
 Blend mode difference (the autocomplete list, the signature help, and the code with "codeBackgroundBlend" or
 "codeTextBlend" set to "difference", src/overlay.c): with GL_KHR_blend_equation_advanced, GL_DIFFERENCE_KHR
@@ -67,7 +114,9 @@ the code of the artrio sketch, both paths cost about 0.8 ms per frame more than 
 runs: 239 fps normal, 200 fps extension, 202 fps shader), and the overlay CPU time grows from 0.2 to 0.35 ms.
 
 Windows: ANGLE on Direct3D 11 gives GLES 3. Windows.Graphics.Capture needs Windows 10 1903 or newer. quickjs-ng
-replaces QuickJS, which does not build with MSVC. The code socket becomes a named pipe.
+replaces QuickJS, which does not build with MSVC. The code socket becomes a named pipe. The microphone needs
+"Let desktop apps access your microphone" in the privacy settings. WinMM opens a MIDI device for one program at a
+time, so a device that another program uses is in the list but sends nothing.
 
 The camera: macOS and Windows use the SDL3 camera API (`video_open_camera` in src/video.c). Linux stays with
 GStreamer, because SDL 3.4.2 was slower in a measurement there. The integrated camera of this machine sends MJPEG

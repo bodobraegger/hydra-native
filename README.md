@@ -260,8 +260,9 @@ feOffset, feBlend, feComposite, feFlood, feMerge, feMorphology, feTurbulence and
 `fetch()` and `XMLHttpRequest` read files and send requests with curl, so p5 `loadFont` and `loadJSON` work.
 Requests follow the CORS and mixed-content rules of a page at https://hydra.ojack.xyz, so a server that the web
 editor cannot read fails here too. `vidRecorder.start()` and `vidRecorder.stop()` record the visuals to a WebM file
-(VP9, 25 fps) in ~/Downloads. `navigator.requestMIDIAccess()` gives MIDI input and output through ALSA. The
-`timeStamp` of a MIDI message is its arrival time in the kernel, in the time of `performance.now()`.
+(VP9, 25 fps) in ~/Downloads. `navigator.requestMIDIAccess()` gives MIDI input and output through the ALSA
+sequencer (libremidi on macOS and Windows, see PORTING.md). The `timeStamp` of a MIDI message is its arrival time
+in the kernel, in the time of `performance.now()`.
 
 With `--gallery-server URL`, `pb` joins the room 'iclc' of the signalling server at that URL, as the web editor
 does with its server, and publishes the output of hydra-native. `pb.list()` shows the peers, and
@@ -273,8 +274,8 @@ of hydra-server.
 The audio object `a` is the one of hydra-synth (`a.show()`, `a.setBins()`, `a.setSmooth()`, `a.fft`).
 Like getUserMedia() in Chrome, hydra-native processes the input with the WebRTC audio processing: a high-pass
 filter, echo cancellation, noise suppression (level high) and the adaptive digital gain control of AGC2. It uses
-the system library libwebrtc-audio-processing-1.so.3, which PipeWire installs. Without that library,
-src/audio_processing.c does a similar noise suppression and gain control.
+the system library libwebrtc-audio-processing-1.so.3, which PipeWire installs (macOS and Windows build it from
+source). Without that library, src/audio_processing.c does a similar noise suppression and gain control.
 
 Also like Chrome on Linux, the analog gain control of that library changes the volume of the capture source in
 PulseAudio or PipeWire: up for a quiet voice, down when the signal clips. hydra-native saves the volume when the
