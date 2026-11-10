@@ -1335,25 +1335,87 @@ long editor_matching_bracket(const struct editor *editor, size_t offset) {
 }
 
 // The next match at or after `from` (or before it, backwards), wrapping around; -1 when there is none.
-static long find_from(const struct editor *editor, const char *needle, size_t length, size_t from, int direction) {
-    if (length == 0 || length > editor->length) return -1;
-    size_t positions = editor->length - length + 1;
+// The base letters of U+00C0 to U+017F, or a space where the letter has no accent to drop.
+static const char latin_base_letters[] =
+    "aaaaaa ceeeeiiii nooooo ouuuuy  aaaaaa ceeeeiiii nooooo ouuuuy yaaaaaaccccccccddddeeeeeeeeeegggggggghhhhiiiiii"
+    "iiii  jjkk llllllllllnnnnnn   oooooo  rrrrrrssssssssttttttuuuuuuuuuuuuwwyyyzzzzzz ";
+
+// Folds a code point as the find bar of the browser compares it: without case, and without the accents of
+// Latin letters ("e" finds "É").
+static int fold(int codepoint) {
+    if (codepoint < 0x80) return tolower(codepoint);
+    if (codepoint >= 0xC0 && codepoint < 0x180) {
+        char base = latin_base_letters[codepoint - 0xC0];
+        if (base != ' ') return base;
+        if (codepoint < 0xDF && codepoint != 0xD7) return codepoint + 0x20; // Æ, Ð, Þ
+        if (codepoint == 0x132 || codepoint == 0x14A || codepoint == 0x152) return codepoint + 1; // Ĳ, Ŋ, Œ
+    }
+    if ((codepoint >= 0x391 && codepoint <= 0x3AB) || (codepoint >= 0x410 && codepoint <= 0x42F)) return codepoint + 0x20;
+    if (codepoint >= 0x400 && codepoint <= 0x40F) return codepoint + 0x50;
+    return codepoint;
+}
+
+static bool is_combining_mark(int codepoint) { return codepoint >= 0x300 && codepoint <= 0x36F; }
+
+// The length in bytes of the match of `needle` at `at`, or 0. Without case, combining accents after a letter
+// belong to the match.
+static size_t match_at(const struct editor *editor, size_t at, const char *needle, size_t length, bool ignore_case) {
+    if (!ignore_case) return at + length <= editor->length && memcmp(editor->text + at, needle, length) == 0 ? length : 0;
+    const unsigned char *text = (const unsigned char *)editor->text;
+    size_t position = at, size;
+    if ((text[at] & 0xC0) == 0x80 || is_combining_mark(unicode_decode(text + at, editor->length - at, &size))) return 0;
+    for (size_t index = 0; index < length;) {
+        int wanted = unicode_decode((const unsigned char *)needle + index, length - index, &size);
+        index += size;
+        if (is_combining_mark(wanted)) continue;
+        if (position >= editor->length) return 0;
+        int found = unicode_decode(text + position, editor->length - position, &size);
+        if (fold(found) != fold(wanted)) return 0;
+        position += size;
+        while (position < editor->length && is_combining_mark(unicode_decode(text + position, editor->length - position, &size)))
+            position += size;
+    }
+    return position - at;
+}
+
+// The start of the first match from `from` on (or before `from` for a negative direction), around the end.
+static long find_from(const struct editor *editor, const char *needle, size_t length, bool ignore_case, size_t from,
+                      int direction, size_t *match_length) {
+    if (length == 0 || editor->length == 0) return -1;
+    size_t positions = editor->length;
     for (size_t step = 0; step < positions; step++) {
         size_t i = direction > 0 ? (from + step) % positions : (from + positions - 1 - step % positions) % positions;
-        if (memcmp(editor->text + i, needle, length) == 0) return (long)i;
+        if ((*match_length = match_at(editor, i, needle, length, ignore_case))) return (long)i;
     }
     return -1;
 }
 
-bool editor_find(struct editor *editor, const char *needle, size_t length, int direction) {
-    size_t start, end;
+bool editor_find(struct editor *editor, const char *needle, size_t length, bool ignore_case, int direction) {
+    size_t start, end, match_length;
     editor_selection(editor, &start, &end);
-    long match = find_from(editor, needle, length, direction > 0 ? end : start, direction);
+    long match = find_from(editor, needle, length, ignore_case, direction > 0 ? end : start, direction, &match_length);
     if (match < 0) return false;
     editor_collapse(editor);
     editor_set_cursor(editor, (size_t)match, false);
-    editor_set_cursor(editor, (size_t)match + length, true);
+    editor_set_cursor(editor, (size_t)match + match_length, true);
     return true;
+}
+
+size_t editor_find_all(const struct editor *editor, const char *needle, size_t length, bool ignore_case,
+                       struct editor_range **matches) {
+    size_t count = 0, capacity = 0;
+    *matches = NULL;
+    for (size_t i = 0; length && i < editor->length;) {
+        size_t match_length = match_at(editor, i, needle, length, ignore_case);
+        if (!match_length) {
+            i++;
+            continue;
+        }
+        if (count == capacity) *matches = realloc(*matches, (capacity = capacity ? capacity * 2 : 16) * sizeof **matches);
+        (*matches)[count++] = (struct editor_range){ i, i + match_length };
+        i += match_length;
+    }
+    return count;
 }
 
 static bool is_selected_range(const struct editor *editor, size_t start, size_t end) {
@@ -1376,30 +1438,31 @@ void editor_select_next_occurrence(struct editor *editor) {
     size_t count = editor_selections(editor, &list);
     size_t from = selection_end(&list[count - 1]);
     free(list);
-    long match = find_from(editor, needle, length, from, 1);
+    size_t match_length;
+    long match = find_from(editor, needle, length, false, from, 1, &match_length);
     for (size_t tries = 0; match >= 0 && tries < editor->length; tries++) {
         if (!is_selected_range(editor, (size_t)match, (size_t)match + length)) {
             add_selection(editor, (size_t)match, (size_t)match + length);
             break;
         }
-        match = find_from(editor, needle, length, (size_t)match + 1, 1);
+        match = find_from(editor, needle, length, false, (size_t)match + 1, 1, &match_length);
         if (match >= 0 && (size_t)match == start) break; // every match is selected
     }
     free(needle);
 }
 
 size_t editor_replace_all(struct editor *editor, const char *needle, size_t needle_length, const char *replacement,
-                          size_t replacement_length) {
+                          size_t replacement_length, bool ignore_case) {
     if (needle_length == 0) return 0;
     size_t count = 0, capacity = editor->length + 1, used = 0;
     char *text = malloc(capacity);
     for (size_t i = 0; i < editor->length;) {
-        bool match = i + needle_length <= editor->length && memcmp(editor->text + i, needle, needle_length) == 0;
-        size_t piece = match ? replacement_length : 1;
+        size_t match_length = match_at(editor, i, needle, needle_length, ignore_case);
+        size_t piece = match_length ? replacement_length : 1;
         if (used + piece + 1 > capacity) text = realloc(text, capacity = (used + piece + 1) * 2);
-        if (match) {
+        if (match_length) {
             memcpy(text + used, replacement, replacement_length);
-            i += needle_length;
+            i += match_length;
             count++;
         } else {
             text[used] = editor->text[i++];
@@ -1412,17 +1475,17 @@ size_t editor_replace_all(struct editor *editor, const char *needle, size_t need
 }
 
 bool editor_replace_next(struct editor *editor, const char *needle, size_t needle_length, const char *replacement,
-                         size_t replacement_length) {
+                         size_t replacement_length, bool ignore_case) {
     size_t start, end;
     editor_selection(editor, &start, &end);
-    bool replaced = needle_length && end - start == needle_length && memcmp(editor->text + start, needle, needle_length) == 0;
+    bool replaced = needle_length && end > start && match_at(editor, start, needle, needle_length, ignore_case) == end - start;
     if (replaced) {
         editor_collapse(editor);
         begin_edit(editor, EDIT_OTHER);
         replace(editor, start, end, replacement, replacement_length);
         editor->cursor = editor->anchor = start + replacement_length;
     }
-    editor_find(editor, needle, needle_length, 1);
+    editor_find(editor, needle, needle_length, ignore_case, 1);
     return replaced;
 }
 
@@ -1520,7 +1583,7 @@ void editor_find_under(struct editor *editor, int direction) {
     editor_selection(editor, &start, &end);
     if (start == end) return;
     char *needle = strndup(editor->text + start, end - start);
-    editor_find(editor, needle, end - start, direction);
+    editor_find(editor, needle, end - start, false, direction);
     free(needle);
 }
 

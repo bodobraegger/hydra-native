@@ -53,6 +53,9 @@
 #define COLOR_HELP_BACKGROUND 0x000000E0u
 #define COLOR_HELP_KEYS 0x6FDCF2FFu
 #define COLOR_BOOKMARK 0x6FDCF2FFu
+#define COLOR_MATCH 0xFFFF00FFu // the find highlights of Chrome: yellow, the active match orange, black text
+#define COLOR_MATCH_ACTIVE 0xFF9632FFu
+#define COLOR_MATCH_TEXT 0x000000FFu
 // Bracket pair colors by nesting depth, like VS Code.
 static const uint32_t bracket_colors[] = { 0xFFD700FFu, 0xDA70D6FFu, 0x179FFFFFu };
 // The text of clear() in the web editor.
@@ -122,8 +125,12 @@ static struct {
     char query[MAX_PROMPT];
     char replacement[MAX_PROMPT];
     int field; // 0 query, 1 replacement
+    bool query_selected; // the next typed text replaces the query, as in the find bar of the browser
     size_t palette_index;
 } prompt;
+static char last_find_query[MAX_PROMPT];
+static struct editor_range *matches; // all matches of the find query while find or replace is open
+static size_t match_count, active_match; // active_match is match_count when no match is selected
 
 static struct {
     bool open;
@@ -423,12 +430,13 @@ static enum command palette_command(size_t index) {
 static void open_prompt(enum prompt_kind kind) {
     close_completion();
     if (kind == PROMPT_FIND || kind == PROMPT_REPLACE) {
-        // Start with the selected text, as editors do.
+        // Start with the selected text, else with the last query, selected so that typing replaces it.
         size_t start, end;
         editor_selection(&editor, &start, &end);
-        prompt.query[0] = '\0';
+        snprintf(prompt.query, sizeof prompt.query, "%s", last_find_query);
         if (end > start && end - start < MAX_PROMPT && !memchr(editor.text + start, '\n', end - start))
             snprintf(prompt.query, sizeof prompt.query, "%.*s", (int)(end - start), editor.text + start);
+        prompt.query_selected = prompt.query[0] != '\0';
         prompt.field = 0;
     } else {
         prompt.query[0] = '\0';
@@ -439,9 +447,35 @@ static void open_prompt(enum prompt_kind kind) {
 
 static char *prompt_field(void) { return prompt.kind == PROMPT_REPLACE && prompt.field == 1 ? prompt.replacement : prompt.query; }
 
+static bool find_open(void) { return prompt.kind == PROMPT_FIND || prompt.kind == PROMPT_REPLACE; }
+
 static void find(int direction) {
     if (!prompt.query[0]) return;
-    if (!editor_find(&editor, prompt.query, strlen(prompt.query), direction)) ui_show_message("not found", false);
+    snprintf(last_find_query, sizeof last_find_query, "%s", prompt.query);
+    editor_find(&editor, prompt.query, strlen(prompt.query), true, direction);
+}
+
+// F3 and Shift+F3 open the find bar with the last query, as in the browser.
+static void find_again(int direction) {
+    if (!find_open()) {
+        prompt.kind = PROMPT_FIND;
+        prompt.field = 0;
+        prompt.query_selected = false;
+        snprintf(prompt.query, sizeof prompt.query, "%s", last_find_query);
+    }
+    find(direction);
+}
+
+static void update_matches(void) {
+    free(matches);
+    matches = NULL;
+    match_count = 0;
+    if (find_open() && prompt.query[0]) // ponytail: searches the whole text each frame, fine for sketch-sized code
+        match_count = editor_find_all(&editor, prompt.query, strlen(prompt.query), true, &matches);
+    size_t start, end;
+    editor_selection(&editor, &start, &end);
+    for (active_match = 0; active_match < match_count; active_match++)
+        if (matches[active_match].start == start && matches[active_match].end == end) break;
 }
 
 // Searches again from the start of the selection, so that typing extends the current match.
@@ -464,7 +498,7 @@ static void accept_prompt(int direction) {
     case PROMPT_FIND: find(direction); break;
     case PROMPT_REPLACE:
         if (prompt.field == 0) find(direction);
-        else editor_replace_next(&editor, prompt.query, strlen(prompt.query), prompt.replacement, strlen(prompt.replacement));
+        else editor_replace_next(&editor, prompt.query, strlen(prompt.query), prompt.replacement, strlen(prompt.replacement), true);
         break;
     case PROMPT_GO_TO_LINE: {
         long line = atol(prompt.query);
@@ -546,6 +580,8 @@ static void escape(void) {
 
 static void prompt_backspace(void) {
     char *field = prompt_field();
+    if (prompt.query_selected && field == prompt.query) field[0] = '\0';
+    prompt.query_selected = false;
     size_t length = strlen(field);
     while (length > 0 && (field[--length] & 0xC0) == 0x80) {}
     field[length] = '\0';
@@ -615,8 +651,8 @@ static void run_command(enum command command, bool extend) {
     case COMMAND_REPLACE: open_prompt(PROMPT_REPLACE); break;
     case COMMAND_GO_TO_LINE: open_prompt(PROMPT_GO_TO_LINE); break;
     case COMMAND_COMMAND_PALETTE: open_prompt(PROMPT_PALETTE); return;
-    case COMMAND_FIND_NEXT: find(1); break;
-    case COMMAND_FIND_PREVIOUS: find(-1); break;
+    case COMMAND_FIND_NEXT: find_again(1); break;
+    case COMMAND_FIND_PREVIOUS: find_again(-1); break;
     case COMMAND_FONT_BIGGER: change_font_size(FONT_SIZE_STEP); break;
     case COMMAND_FONT_SMALLER: change_font_size(-FONT_SIZE_STEP); break;
     case COMMAND_NEWLINE: editor_insert_newline(&editor); break;
@@ -691,7 +727,7 @@ static void run_command(enum command command, bool extend) {
     case COMMAND_PROMPT_DOWN: if (prompt.palette_index > 0) prompt.palette_index--; return;
     case COMMAND_PROMPT_BACKSPACE: prompt_backspace(); break;
     case COMMAND_REPLACE_ALL: {
-        size_t count = editor_replace_all(&editor, prompt.query, strlen(prompt.query), prompt.replacement, strlen(prompt.replacement));
+        size_t count = editor_replace_all(&editor, prompt.query, strlen(prompt.query), prompt.replacement, strlen(prompt.replacement), true);
         char text[64];
         snprintf(text, sizeof text, "%zu replaced", count);
         ui_show_message(text, false);
@@ -757,6 +793,8 @@ void ui_text_input(const char *text) {
     if (help_visible) return;
     if (prompt.kind != PROMPT_NONE) {
         char *field = prompt_field();
+        if (prompt.query_selected && field == prompt.query) field[0] = '\0';
+        prompt.query_selected = false;
         size_t length = strlen(field);
         snprintf(field + length, MAX_PROMPT - length, "%s", text);
         prompt_changed();
@@ -1279,9 +1317,20 @@ static void column_rect(float y, size_t from, size_t to, uint32_t color) {
     overlay_rect(x, y, (float)(to - from) * overlay_char_width(), overlay_line_height(), color);
 }
 
-static void draw_bar(int width, int height, const char *text, uint32_t color) {
+static size_t text_columns(const char *text) {
+    size_t columns = 0, length = strlen(text), consumed;
+    for (size_t i = 0; i < length; i += consumed)
+        columns += (size_t)unicode_columns(unicode_decode((const unsigned char *)text + i, length - i, &consumed));
+    return columns;
+}
+
+// The bar at the bottom; the columns [selected_from, selected_to) of the text get the selection color.
+static void draw_bar(int width, int height, const char *text, uint32_t color, size_t selected_from, size_t selected_to) {
     float y = (float)height - bar_height();
     overlay_rect(0, y, (float)width, bar_height(), COLOR_BAR_BACKGROUND);
+    if (selected_to > selected_from)
+        overlay_rect(MARGIN + (float)selected_from * overlay_char_width(), y + BAR_PADDING,
+                     (float)(selected_to - selected_from) * overlay_char_width(), overlay_line_height(), COLOR_SELECTION);
     overlay_text(MARGIN, y + BAR_PADDING, text, strlen(text), 0, visible_columns(), NULL, color);
 }
 
@@ -1307,6 +1356,13 @@ static void draw_row(size_t line, size_t row_start, size_t row_end, size_t inden
         size_t from = indent + (start > row_start ? columns_between(row_start, start) : 0);
         size_t to = indent + (end > row_end ? row_columns + (last_row ? 1 : 0) : columns_between(row_start, end));
         column_rect(y, from, to, COLOR_SELECTION);
+    }
+    for (size_t i = 0; i < match_count; i++) {
+        size_t start = matches[i].start, end = matches[i].end;
+        if (start >= row_end || end <= row_start) continue;
+        size_t from = indent + (start > row_start ? columns_between(row_start, start) : 0);
+        size_t to = indent + (end > row_end ? row_columns : columns_between(row_start, end));
+        column_rect(y, from, to, i == active_match ? COLOR_MATCH_ACTIVE : COLOR_MATCH);
     }
     long positions[2] = { bracket, bracket_self };
     for (int k = 0; k < 2; k++) {
@@ -1349,6 +1405,9 @@ static void draw_code(void) {
             colors = realloc(colors, colors_capacity * sizeof *colors);
         }
         highlight_line(&state, editor.text + line_start, line_end - line_start, colors);
+        for (size_t i = 0; i < match_count; i++)
+            for (size_t k = matches[i].start; k < matches[i].end; k++)
+                if (k >= line_start && k < line_end) colors[k - line_start] = COLOR_MATCH_TEXT;
         size_t row_count = editor_wrap_rows(&editor, line, starts, MAX_ROWS_PER_LINE);
         if (row_count > MAX_ROWS_PER_LINE) row_count = MAX_ROWS_PER_LINE;
         size_t indent = editor_row_indent(&editor, line);
@@ -1382,8 +1441,7 @@ static void draw_code(void) {
         if (row >= scroll_row && row < scroll_row + rows) {
             float left = MARGIN + (float)(x - scroll_column) * overlay_char_width();
             float top = MARGIN + (float)(row - scroll_row) * line_height;
-            size_t length = strlen(composition), columns = 0;
-            for (size_t k = 0; k < length; k++) columns += (composition[k] & 0xC0) != 0x80;
+            size_t length = strlen(composition), columns = text_columns(composition);
             overlay_rect(left, top, (float)columns * overlay_char_width(), line_height, COLOR_POPUP_BACKGROUND);
             overlay_text(left, top, composition, length, 0, columns, NULL, COLOR_TEXT);
             overlay_rect(left, top + line_height - 2, (float)columns * overlay_char_width(), 2, COLOR_TEXT);
@@ -1413,12 +1471,18 @@ static void draw_completion(void) {
 }
 
 static void draw_prompt(int width, int height) {
-    char text[2 * MAX_PROMPT + 128];
+    char text[2 * MAX_PROMPT + 128], count[48] = "";
+    uint32_t color = COLOR_INFO;
+    if (find_open() && prompt.query[0]) {
+        // The match count of the find bar: "0/0" in red when nothing matches.
+        snprintf(count, sizeof count, "   %zu/%zu", active_match < match_count ? active_match + 1 : 0, match_count);
+        if (!match_count) color = COLOR_ERROR;
+    }
     switch (prompt.kind) {
-    case PROMPT_FIND: snprintf(text, sizeof text, "find: %s   (Enter: next, Shift+Enter: previous)", prompt.query); break;
+    case PROMPT_FIND: snprintf(text, sizeof text, "find: %s%s   (Enter: next, Shift+Enter: previous)", prompt.query, count); break;
     case PROMPT_REPLACE:
-        snprintf(text, sizeof text, "find: %s%s   replace: %s%s   (Tab: field, Enter, Ctrl+Alt+Enter: all)", prompt.query,
-                 prompt.field == 0 ? "_" : "", prompt.replacement, prompt.field == 1 ? "_" : "");
+        snprintf(text, sizeof text, "find: %s%s%s   replace: %s%s   (Tab: field, Enter, Ctrl+Alt+Enter: all)", prompt.query,
+                 prompt.field == 0 ? "_" : "", count, prompt.replacement, prompt.field == 1 ? "_" : "");
         break;
     case PROMPT_GO_TO_LINE: snprintf(text, sizeof text, "go to line: %s", prompt.query); break;
     case PROMPT_SHARE: {
@@ -1451,7 +1515,9 @@ static void draw_prompt(int width, int height) {
     }
     case PROMPT_NONE: return;
     }
-    draw_bar(width, height, text, COLOR_INFO);
+    size_t selected_from = text_columns("find: "), selected_to = selected_from + text_columns(prompt.query);
+    if (!prompt.query_selected) selected_to = selected_from;
+    draw_bar(width, height, text, color, selected_from, selected_to);
 }
 
 void ui_draw(int width, int height, double now_ms) {
@@ -1466,6 +1532,7 @@ void ui_draw(int width, int height, double now_ms) {
         overlay_end(width, height);
         return;
     }
+    update_matches();
     draw_code();
     if (info_visible) draw_info();
     if (extensions_visible) draw_extensions();
@@ -1473,7 +1540,7 @@ void ui_draw(int width, int height, double now_ms) {
     draw_completion();
     if (prompt.kind != PROMPT_NONE) draw_prompt(width, height);
     else if (message[0] && (message_is_error || now < message_until))
-        draw_bar(width, height, message, message_is_error ? COLOR_ERROR : COLOR_INFO);
+        draw_bar(width, height, message, message_is_error ? COLOR_ERROR : COLOR_INFO, 0, 0);
     overlay_end(width, height);
 }
 

@@ -170,16 +170,39 @@ static void test_search_and_brackets(void) {
 
     load(&editor, "a b a b a");
     editor_collapse(&editor);
-    EXPECT(editor_find(&editor, "a", 1, 1) && editor.anchor == 0); // a match at the cursor counts
-    EXPECT(editor_find(&editor, "a", 1, 1) && editor.anchor == 4);
-    EXPECT(editor_find(&editor, "a", 1, -1) && editor.anchor == 0);
-    EXPECT(editor_replace_next(&editor, "a", 1, "xy", 2)); // replaces the selected "a", selects the next
+    EXPECT(editor_find(&editor, "a", 1, false, 1) && editor.anchor == 0); // a match at the cursor counts
+    EXPECT(editor_find(&editor, "a", 1, false, 1) && editor.anchor == 4);
+    EXPECT(editor_find(&editor, "a", 1, false, -1) && editor.anchor == 0);
+    EXPECT(editor_replace_next(&editor, "a", 1, "xy", 2, false)); // replaces the selected "a", selects the next
     EXPECT_TEXT(&editor, "xy b a b a");
     EXPECT(editor.anchor == 5);
-    EXPECT(editor_replace_all(&editor, "a", 1, "c", 1) == 2);
+    EXPECT(editor_replace_all(&editor, "a", 1, "c", 1, false) == 2);
     EXPECT_TEXT(&editor, "xy b c b c");
     editor_undo(&editor);
     EXPECT_TEXT(&editor, "xy b a b a");
+
+    // The find bar of the browser: no case, no accents, combining accents belong to the match, no overlaps.
+    load(&editor, "Osc \xC3\x89t\xC3\xA9 e\xCC\x81 OSC aaa");
+    struct editor_range *matches;
+    size_t count = editor_find_all(&editor, "osc", 3, true, &matches);
+    EXPECT(count == 2 && matches[0].start == 0 && matches[1].start == 14);
+    free(matches);
+    count = editor_find_all(&editor, "ete", 3, true, &matches); // "Été"
+    EXPECT(count == 1 && matches[0].start == 4 && matches[0].end == 9);
+    free(matches);
+    count = editor_find_all(&editor, "e", 1, true, &matches); // "É", "é" and "e" with U+0301
+    EXPECT(count == 3 && matches[2].start == 10 && matches[2].end == 13);
+    free(matches);
+    count = editor_find_all(&editor, "aa", 2, true, &matches);
+    EXPECT(count == 1);
+    free(matches);
+    EXPECT(editor_find_all(&editor, "osc", 3, false, &matches) == 0);
+    free(matches);
+    editor_collapse(&editor);
+    editor_set_cursor(&editor, 0, false);
+    EXPECT(editor_find(&editor, "osc", 3, true, -1) && editor.anchor == 14); // around the start
+    EXPECT(editor_replace_all(&editor, "\xC3\xA9T\xC3\x89", 5, "x", 1, true) == 1);
+    EXPECT_TEXT(&editor, "Osc x e\xCC\x81 OSC aaa");
 
     load(&editor, "osc(shape(4), 0.5)");
     editor_set_cursor(&editor, 11, false);

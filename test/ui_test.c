@@ -21,6 +21,14 @@ static char next_error[256];
         }                                                                                                  \
     } while (0)
 
+#define EXPECT_CONTAINS(actual, part)                                                                     \
+    do {                                                                                                  \
+        if (!strstr(actual, part)) {                                                                      \
+            fprintf(stderr, "%s:%d: got \"%s\", expected \"%s\" in it\n", __FILE__, __LINE__, actual, part); \
+            failures++;                                                                                   \
+        }                                                                                                 \
+    } while (0)
+
 // ---------------------------------------------------------------- stubs
 
 bool overlay_init(const char *font_path, const char *emoji_font_path, float font_size) { return true; }
@@ -30,8 +38,11 @@ float overlay_char_width(void) { return 10; }
 float overlay_line_height(void) { return 20; }
 void overlay_begin(void) {}
 void overlay_rect(float x, float y, float width, float height, uint32_t color) {}
+static char bar_text[512]; // the last drawn text that starts with "find: "
 void overlay_text(float x, float y, const char *text, size_t length, size_t first_column, size_t max_columns,
-                  const uint32_t *colors, uint32_t color) {}
+                  const uint32_t *colors, uint32_t color) {
+    if (length > 6 && !strncmp(text, "find: ", 6)) snprintf(bar_text, sizeof bar_text, "%.*s", (int)length, text);
+}
 void overlay_end(int width, int height) {}
 int overlay_columns(int codepoint) { return 1; }
 void overlay_image(float x, float y, float width, float height, unsigned texture) {}
@@ -196,6 +207,34 @@ int main(void) {
     key(SDLK_ESCAPE, 0);
     key(SDLK_RETURN, KMOD_LCTRL); // evaluates the selected match
     EXPECT_STRING(evaluated, "noise");
+
+    // The find bar of the browser: no case, a count of the matches, Enter and Shift+Enter around the end,
+    // Escape keeps the match selected, F3 opens it again with the last query.
+    key(SDLK_HOME, KMOD_LCTRL);
+    key(SDLK_f, KMOD_LCTRL);
+    type("SHAPE(");
+    ui_draw(800, 600, 0);
+    EXPECT_CONTAINS(bar_text, "   1/2");
+    key(SDLK_RETURN, 0);
+    key(SDLK_RETURN, 0);
+    ui_draw(800, 600, 0);
+    EXPECT_CONTAINS(bar_text, "   1/2");
+    key(SDLK_RETURN, KMOD_LSHIFT);
+    key(SDLK_ESCAPE, 0);
+    key(SDLK_RETURN, KMOD_LCTRL);
+    EXPECT_STRING(evaluated, "shape(");
+    key(SDLK_F3, 0);
+    key(SDLK_ESCAPE, 0);
+    key(SDLK_RIGHT, 0);
+    type("9");
+    key(SDLK_RETURN, KMOD_LCTRL | KMOD_LALT);
+    EXPECT_STRING(evaluated, "shape(91).out()\nshape(2).out()\nnoise().out()");
+    key(SDLK_z, KMOD_LCTRL);
+    key(SDLK_f, KMOD_LCTRL);
+    type("xyz");
+    ui_draw(800, 600, 0);
+    EXPECT_CONTAINS(bar_text, "   0/0");
+    key(SDLK_ESCAPE, 0);
     key(SDLK_p, KMOD_LCTRL | KMOD_LSHIFT);
     type("evaluate all");
     key(SDLK_RETURN, 0);

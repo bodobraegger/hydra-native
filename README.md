@@ -61,7 +61,8 @@ The extensions panel lists the catalog of hydra-synth/hydra-extensions; "+" adds
 Ctrl+Shift+L copies the hydra.ojack.xyz URL of the code. PLAN.md compares every feature with the web editor.
 
 The editor has multiple cursors, find and replace, go to line, a command palette and autocomplete of hydra
-names and of the words of the file. Typing an opening bracket or quote adds the closing one.
+names and of the words of the file. Typing an opening bracket or quote adds the closing one. Find works like
+the find bar of a browser: it ignores case and accents, highlights all matches and shows their count.
 
 ## Send code from an editor
 
