@@ -15,6 +15,9 @@ struct ui_host {
     // Calls a global JS function with one string; returns its string result (malloc'd) or NULL after an error.
     char *(*call)(const char *function, const char *argument);
     void (*screencap)(void); // saves the next frame (without the code) and the code
+    // Shares the code with the gallery server under `name`, after a screenshot of the next frame; false
+    // when no gallery server is set. The result arrives in ui_share_done().
+    bool (*share)(const char *code, const char *name);
 };
 
 // `file_path` may be NULL (no file) or a path that does not exist yet (Ctrl+S creates it).
@@ -29,6 +32,8 @@ void ui_draw(int width, int height, double now_ms);
 void ui_set_visible(bool visible);
 void ui_set_code(const char *code); // shows code that has no file (a sketch URL)
 void ui_show_info(void);
+void ui_enable_gallery(void); // shows the "share" button, as the web editor does with a gallery server
+void ui_share_done(bool ok, const char *output); // the URL of the shared sketch, or the error
 void ui_show_random_example(void); // like the web editor at a start without a sketch
 void ui_show_message(const char *text, bool error);
 void ui_console_message(const char *text); // console.warn and console.error output

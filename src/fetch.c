@@ -1,4 +1,5 @@
-// Downloads for loadScript(url): curl runs as a child process, the main loop reads its output without blocking.
+// Child processes whose output the main loop reads without blocking: downloads with curl (loadScript, languages,
+// extensions, thumbnails) and helpers such as tools/gallery_share.py.
 #define _GNU_SOURCE
 #include <errno.h>
 #include <fcntl.h>
@@ -23,7 +24,7 @@ struct fetch {
 
 static struct fetch *fetches[MAX_FETCHES];
 
-int fetch_start(const char *url) {
+int process_start(char *const argv[]) {
     int id = 0;
     while (id < MAX_FETCHES && fetches[id]) id++;
     int pipe_fds[2];
@@ -31,7 +32,7 @@ int fetch_start(const char *url) {
     pid_t pid = fork();
     if (pid == 0) {
         dup2(pipe_fds[1], STDOUT_FILENO);
-        execlp("curl", "curl", "-fsSL", "--max-time", FETCH_TIMEOUT_SECONDS, "--", url, (char *)NULL);
+        execvp(argv[0], argv);
         _exit(127);
     }
     close(pipe_fds[1]);
@@ -45,6 +46,11 @@ int fetch_start(const char *url) {
     fetch->fd = pipe_fds[0];
     fetches[id] = fetch;
     return id;
+}
+
+int fetch_start(const char *url) {
+    char *argv[] = { "curl", "-fsSL", "--max-time", FETCH_TIMEOUT_SECONDS, "--", (char *)url, NULL };
+    return process_start(argv);
 }
 
 void fetch_poll(void (*done)(int id, bool ok, const char *data, size_t length)) {

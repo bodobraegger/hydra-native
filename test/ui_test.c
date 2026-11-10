@@ -58,6 +58,12 @@ static char *call(const char *function, const char *argument) {
     return text;
 }
 
+static char shared_name[64];
+static bool share(const char *code, const char *name) {
+    snprintf(shared_name, sizeof shared_name, "%s", name);
+    return true;
+}
+
 static void nothing(void) {}
 static bool never(void) { return false; }
 
@@ -102,7 +108,7 @@ int main(void) {
     int fd = mkstemp(path);
     close(fd);
     write_file(path, "osc(10)\n  .out()\n\nnoise().out()");
-    static const struct ui_host host = { evaluate, nothing, never, nothing, call, nothing };
+    static const struct ui_host host = { evaluate, nothing, never, nothing, call, nothing, share };
     ui_init("unused.ttf", 20, path, &host);
     ui_draw(800, 600, 0);
 
@@ -215,6 +221,12 @@ int main(void) {
     key(SDLK_u, KMOD_LCTRL);
     key(SDLK_RETURN, KMOD_LCTRL | KMOD_LALT);
     EXPECT_STRING(evaluated, "NOISE");
+
+    // Ctrl+Shift+G evaluates, asks for a name like the confirmation prompt of the web editor, then shares.
+    key(SDLK_g, KMOD_LCTRL | KMOD_LSHIFT);
+    type("my name");
+    key(SDLK_RETURN, 0);
+    EXPECT_STRING(shared_name, "my name");
 
     unlink(path);
     if (failures) {

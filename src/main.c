@@ -50,6 +50,7 @@ struct options {
     const char *screenshot_path;
     const char *language;
     const char *l10n_url;
+    const char *gallery_server;
     float font_size;
     int window_width;
     int window_height;
@@ -64,6 +65,7 @@ struct options {
 
 static JSRuntime *runtime;
 static JSContext *js;
+static char executable_path_directory[PATH_MAX];
 static SDL_Window *window;
 static bool quit_requested;
 static int exit_code;
@@ -439,8 +441,48 @@ static JSValue js_fetch_start(JSContext *ctx, JSValueConst this, int argc, JSVal
     return JS_NewInt32(ctx, id);
 }
 
+// Sharing: the screenshot comes from the next frame, then tools/gallery_share.py sends the requests.
+static const char *gallery_server;
+static struct {
+    bool waiting_for_frame;
+    int process;
+    char code_path[PATH_MAX];
+    char image_path[PATH_MAX];
+    char name[256];
+} share = { .process = -1 };
+
+static bool start_share(const char *code, const char *name) {
+    if (!gallery_server || share.process >= 0 || share.waiting_for_frame) return false;
+    const char *directory = getenv("XDG_RUNTIME_DIR");
+    snprintf(share.code_path, sizeof share.code_path, "%s/hydra-native-share.js", directory ? directory : "/tmp");
+    snprintf(share.image_path, sizeof share.image_path, "%s/hydra-native-share.png", directory ? directory : "/tmp");
+    snprintf(share.name, sizeof share.name, "%s", name);
+    FILE *file = fopen(share.code_path, "wb");
+    if (!file) return false;
+    fputs(code, file);
+    fclose(file);
+    share.waiting_for_frame = true;
+    return true;
+}
+
+static bool write_png(const char *path, int width, int height);
+
+static void continue_share(int width, int height) {
+    share.waiting_for_frame = false;
+    char script[PATH_MAX + 64];
+    snprintf(script, sizeof script, "%s/../tools/gallery_share.py", executable_path_directory);
+    char *argv[] = { "python3", script, (char *)gallery_server, share.code_path, share.image_path, share.name, NULL };
+    share.process = write_png(share.image_path, width, height) ? process_start(argv) : -1;
+    if (share.process < 0) ui_share_done(false, "cannot write the screenshot");
+}
+
 static void fetch_done(int id, bool ok, const char *data, size_t length) {
     if (thumbnails_fetch_done(id, ok, data, length)) return;
+    if (id == share.process) {
+        share.process = -1;
+        ui_share_done(ok, data);
+        return;
+    }
     JSValue arguments[3] = { JS_NewInt32(js, id), JS_NewBool(js, ok), JS_NewStringLen(js, data, length) };
     call_global("__fetchDone", 3, arguments);
 }
@@ -840,6 +882,7 @@ static void usage(void) {
             "  --hide-code        start with the code overlay hidden (Ctrl+Shift+H shows it)\n"
             "  --lang CODE        language of the info panel (ja es ar id pt-br ch ko fr de; default: $LANG)\n"
             "  --l10n-url URL     load the language of --lang from this editor.json\n"
+            "  --gallery-server URL  the hydra gallery server for Ctrl+Shift+G (VITE_SERVER_URL of the web editor)\n"
             "  --size WxH         window size (default %dx%d)\n"
             "  --fullscreen       start in fullscreen\n"
             "  --audio SOURCE     PulseAudio/PipeWire source for `a`, e.g. @DEFAULT_MONITOR@\n"
@@ -864,6 +907,7 @@ static bool parse_options(int argc, char **argv, struct options *options) {
         else if (!strcmp(argument, "--fullscreen")) options->fullscreen = true;
         else if (!strcmp(argument, "--hide-code")) options->hide_code = true;
         else if (!strcmp(argument, "--lang") && has_value) options->language = argv[++i];
+        else if (!strcmp(argument, "--gallery-server") && has_value) options->gallery_server = argv[++i];
         else if (!strcmp(argument, "--l10n-url") && has_value) options->l10n_url = argv[++i];
         else if (!strcmp(argument, "--screenshot") && has_value) options->screenshot_path = argv[++i];
         else if (!strcmp(argument, "--font") && has_value) options->font_path = argv[++i];
@@ -1066,6 +1110,7 @@ int main(int argc, char **argv) {
 
     signal(SIGPIPE, SIG_IGN);
     audio_device_option = options.audio_device;
+    gallery_server = options.gallery_server;
     if (!create_window(&options)) return 1;
 
     runtime = JS_NewRuntime();
@@ -1077,6 +1122,7 @@ int main(int argc, char **argv) {
     canvas2d_install(js, native);
     char directory[PATH_MAX];
     if (!executable_directory(directory, sizeof directory)) return 1;
+    snprintf(executable_path_directory, sizeof executable_path_directory, "%s", directory);
     JS_SetPropertyStr(js, native, "directory", JS_NewString(js, directory));
     JS_SetPropertyStr(js, native, "language", options.language ? JS_NewString(js, options.language) : JS_NULL);
     JS_SetPropertyStr(js, native, "l10nUrl", options.l10n_url ? JS_NewString(js, options.l10n_url) : JS_NULL);
@@ -1114,6 +1160,7 @@ int main(int argc, char **argv) {
         .quit = request_quit,
         .call = call_text_function,
         .screencap = request_screencap,
+        .share = start_share,
     };
     if (!ui_init(options.font_path, options.font_size, sketch, &host)) return 1;
     if (url_code) {
@@ -1126,6 +1173,7 @@ int main(int argc, char **argv) {
         ui_show_random_example();
         ui_show_info();
     }
+    if (gallery_server) ui_enable_gallery();
     if (options.hide_code) ui_set_visible(false);
     const char *watched = options.watch ? sketch : NULL;
     long long watched_time = watched ? modification_time(watched) : 0;
@@ -1160,6 +1208,7 @@ int main(int argc, char **argv) {
         int drawable_width, drawable_height;
         SDL_GL_GetDrawableSize(window, &drawable_width, &drawable_height);
         recorder_frame(now);
+        if (share.waiting_for_frame) continue_share(drawable_width, drawable_height);
         if (screencap_requested) {
             screencap_requested = false;
             save_screencap(drawable_width, drawable_height);

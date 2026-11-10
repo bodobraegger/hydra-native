@@ -64,7 +64,18 @@ static const char *const keywords[] = {
     "case", "default", "try", "catch", "throw",
 };
 
-enum prompt_kind { PROMPT_NONE, PROMPT_FIND, PROMPT_REPLACE, PROMPT_GO_TO_LINE, PROMPT_PALETTE };
+enum prompt_kind { PROMPT_NONE, PROMPT_FIND, PROMPT_REPLACE, PROMPT_GO_TO_LINE, PROMPT_PALETTE, PROMPT_SHARE };
+
+// The prompt() text of showConfirmation() in gallery-store.js of the web editor.
+static const char *const share_confirmation[] = {
+    "HYDRA SKETCH GALLERY",
+    "///////////////////////////////////////",
+    "\xF0\x9F\x8E\xA8 Add your sketch to the gallery of hydra sketches at https://botsin.space/@hydra.",
+    "\xE2\x9C\x8D\xEF\xB8\x8F Type your name, mastodon handle, or a short description below, and then press 'OK' to share.",
+    "\xE2\x80\xBC\xEF\xB8\x8F Make sure you are ready to share - there is no undo button!",
+    "\xF0\x9F\x92\x96 Thank you for sharing! You are also warmly invited to join the the live coding server on the "
+    "fediverse at https://social.toplap.org/.",
+};
 
 static struct ui_host host;
 static struct editor editor;
@@ -461,6 +472,11 @@ static void accept_prompt(int direction) {
         prompt.kind = PROMPT_NONE;
         break;
     }
+    case PROMPT_SHARE:
+        prompt.kind = PROMPT_NONE;
+        if (!host.share(editor.text, prompt.query)) ui_show_message("no gallery server: start with --gallery-server URL", true);
+        else ui_show_message("sharing with the gallery...", false);
+        break;
     case PROMPT_PALETTE: {
         enum command command = palette_command(prompt.palette_index);
         prompt.kind = PROMPT_NONE;
@@ -565,6 +581,14 @@ static void run_command(enum command command, bool extend) {
     case COMMAND_FORMAT: format_code(); break;
     case COMMAND_SCREENCAP: host.screencap(); break;
     case COMMAND_SAVE_TO_URL: save_to_url(); break;
+    case COMMAND_GALLERY_SHARE: {
+        // Like 'gallery:shareSketch': evaluate first, and ask only when the code runs.
+        char *error = evaluate_code(editor.text, editor.length, "<editor>");
+        show_result("", error);
+        if (!error) open_prompt(PROMPT_SHARE);
+        free(error);
+        return;
+    }
     case COMMAND_CLEAR_ALL: clear_all(); break;
     case COMMAND_SHOW_EXAMPLE:
         clear_all();
@@ -760,14 +784,19 @@ static const struct toolbar_item toolbar[] = {
     { "extensions", "toolbar.load-extension", COMMAND_TOGGLE_EXTENSIONS, COMMAND_TOGGLE_EXTENSIONS, COMMAND_TOGGLE_EXTENSIONS },
     { "example", "toolbar.shuffle", COMMAND_SHOW_EXAMPLE, COMMAND_SHOW_EXAMPLE, COMMAND_SHOW_EXAMPLE },
     { "mutate", "toolbar.random", COMMAND_MUTATE, COMMAND_MUTATE_UNDO, COMMAND_MUTATE_TRANSFORM },
+    { "share", "toolbar.upload", COMMAND_GALLERY_SHARE, COMMAND_GALLERY_SHARE, COMMAND_GALLERY_SHARE },
     { "?", "toolbar.show-info", COMMAND_TOGGLE_INFO, COMMAND_TOGGLE_HELP, COMMAND_TOGGLE_HELP },
 };
 #define TOOLBAR_COUNT (sizeof toolbar / sizeof toolbar[0])
+static bool gallery_enabled; // the web editor shows "share" only with a gallery server
+
+static bool toolbar_shown(size_t index) { return gallery_enabled || toolbar[index].command != COMMAND_GALLERY_SHARE; }
 
 // The right-aligned boxes of the toolbar; returns the x of item `index`, and its width in `width`.
 static float toolbar_x(size_t index, float *width) {
     float x = (float)last_width - MARGIN;
     for (size_t i = TOOLBAR_COUNT; i-- > index;) {
+        if (!toolbar_shown(i)) continue;
         *width = ((float)strlen(toolbar[i].label) + 1) * overlay_char_width();
         x -= *width + TEXT_PADDING;
     }
@@ -777,6 +806,7 @@ static float toolbar_x(size_t index, float *width) {
 static bool toolbar_click(float x, float y, SDL_Keymod modifiers) {
     if (y < MARGIN || y > MARGIN + overlay_line_height()) return false;
     for (size_t i = 0; i < TOOLBAR_COUNT; i++) {
+        if (!toolbar_shown(i)) continue;
         float width, left = toolbar_x(i, &width);
         if (x < left || x > left + width) continue;
         const struct toolbar_item *item = &toolbar[i];
@@ -789,6 +819,7 @@ static bool toolbar_click(float x, float y, SDL_Keymod modifiers) {
 
 static void draw_toolbar(void) {
     for (size_t i = 0; i < TOOLBAR_COUNT; i++) {
+        if (!toolbar_shown(i)) continue;
         float width, x = toolbar_x(i, &width);
         overlay_rect(x, MARGIN, width, overlay_line_height(), COLOR_TOOLBAR);
         overlay_text(x + overlay_char_width() / 2, MARGIN, toolbar[i].label, strlen(toolbar[i].label), 0, 64, NULL,
@@ -1348,6 +1379,17 @@ static void draw_prompt(int width, int height) {
                  prompt.field == 0 ? "_" : "", prompt.replacement, prompt.field == 1 ? "_" : "");
         break;
     case PROMPT_GO_TO_LINE: snprintf(text, sizeof text, "go to line: %s", prompt.query); break;
+    case PROMPT_SHARE: {
+        float line_height = overlay_line_height(), y = (float)height - bar_height();
+        size_t lines = sizeof share_confirmation / sizeof share_confirmation[0], columns = visible_columns();
+        float top = y - (float)(lines + 1) * line_height;
+        overlay_rect(0, top, (float)width, (float)(lines + 1) * line_height, COLOR_POPUP_BACKGROUND);
+        for (size_t i = 0; i < lines; i++)
+            overlay_text(MARGIN, top + (float)i * line_height + line_height / 2, share_confirmation[i],
+                         strlen(share_confirmation[i]), 0, columns, NULL, COLOR_TEXT);
+        snprintf(text, sizeof text, "name: %s   (Enter: OK, Escape: cancel)", prompt.query);
+        break;
+    }
     case PROMPT_PALETTE: {
         snprintf(text, sizeof text, "> %s", prompt.query);
         float line_height = overlay_line_height(), y = (float)height - bar_height();
@@ -1397,6 +1439,22 @@ void ui_draw(int width, int height, double now_ms) {
 void ui_set_visible(bool show) { visible = show; }
 
 void ui_show_info(void) { info_visible = true; }
+
+void ui_enable_gallery(void) { gallery_enabled = true; }
+
+void ui_share_done(bool ok, const char *output) {
+    char text[MAX_MESSAGE];
+    if (ok) {
+        size_t length = strcspn(output, "\n");
+        char *url = strndup(output, length);
+        SDL_SetClipboardText(url);
+        snprintf(text, sizeof text, "shared: %s (copied)", url);
+        free(url);
+    } else {
+        snprintf(text, sizeof text, "sharing failed: %s", output[0] ? output : "no answer from the gallery server");
+    }
+    ui_show_message(text, !ok);
+}
 
 void ui_show_random_example(void) {
     if (replace_with("__randomExample", "no example")) {

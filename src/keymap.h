@@ -25,6 +25,7 @@
     X(FORMAT, "format code (js-beautify)") \
     X(SCREENCAP, "save a screenshot and the code") \
     X(SAVE_TO_URL, "copy the hydra.ojack.xyz URL of the code") \
+    X(GALLERY_SHARE, "share the sketch with the gallery") \
     X(CLEAR_ALL, "clear all: hush, speed 1, empty code") \
     X(SHOW_EXAMPLE, "show a random example") \
     X(MUTATE, "randomize a number (mutator)") \

@@ -17,8 +17,10 @@ void video_close_all(void);
 bool audio_start(const char *device);
 bool audio_features(float specific[BARK_BAND_COUNT], float *total);
 
-// Downloads with curl; fetch_poll calls `done` once per finished download.
+// Downloads with curl, and other child processes; fetch_poll calls `done` once per finished process with its
+// output and whether it exited with status 0.
 int fetch_start(const char *url);
+int process_start(char *const argv[]);
 void fetch_poll(void (*done)(int id, bool ok, const char *data, size_t length));
 
 // Recording of the hydra output to a WebM file through ffmpeg (vidRecorder).
