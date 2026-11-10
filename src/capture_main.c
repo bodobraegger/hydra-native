@@ -1,5 +1,5 @@
 // hydra-native-capture: the screen capture of src/capture.h as a video source command for src/video.c (js/sources.js
-// starts it). It writes RGBA frames to stdout.
+// starts it). It writes RGBA frames to stdout. On macOS, the mode `audio` writes the system audio instead.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,7 +10,8 @@ static const char *const usage =
     "usage: hydra-native-capture picker WIDTH HEIGHT [--dry-run]   (the dialog of the system, initScreen)\n"
     "       hydra-native-capture monitor INDEX WIDTH HEIGHT\n"
     "       hydra-native-capture area X Y AREA_WIDTH AREA_HEIGHT WIDTH HEIGHT\n"
-    "       hydra-native-capture window DELAY_SECONDS WIDTH HEIGHT   (the window that has the focus after the delay)\n";
+    "       hydra-native-capture window DELAY_SECONDS WIDTH HEIGHT   (the window that has the focus after the delay)\n"
+    "       hydra-native-capture audio   (macOS: the system audio, mono float samples at 48 kHz)\n";
 
 int main(int argc, char **argv) {
     struct capture_request request = { 0 };
@@ -20,6 +21,14 @@ int main(int argc, char **argv) {
         count--;
     }
     const char *mode = count > 1 ? argv[1] : "";
+    if (!strcmp(mode, "audio") && count == 2) {
+#ifdef __APPLE__
+        return capture_system_audio(fileno(stdout));
+#else
+        fputs("capture: the capture of the system audio is only on macOS\n", stderr);
+        return 1;
+#endif
+    }
     int needed = !strcmp(mode, "picker") ? 4 : !strcmp(mode, "monitor") || !strcmp(mode, "window") ? 5 : !strcmp(mode, "area") ? 8 : 0;
     if (!needed || count != needed) {
         fputs(usage, stderr);

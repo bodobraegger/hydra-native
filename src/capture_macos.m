@@ -1,7 +1,8 @@
 // The macOS backend of src/capture.h with ScreenCaptureKit (macOS 12.3 or newer). initScreen uses the system
 // picker SCContentSharingPicker (macOS 14 or newer); monitor, area and window capture use SCShareableContent and
 // need the Screen Recording permission. ScreenCaptureKit scales the content to width x height (keeping its aspect
-// ratio) and delivers BGRA frames, which vImage turns into RGBA for the output.
+// ratio) and delivers BGRA frames, which vImage turns into RGBA for the output. capture_system_audio() uses the
+// audio of a stream of the main display (macOS 13 or newer) and writes it as mono samples.
 #import <Accelerate/Accelerate.h>
 #import <AppKit/AppKit.h>
 #import <CoreMedia/CoreMedia.h>
@@ -180,14 +181,18 @@ static void capture_content(const struct capture_request *request, SCShareableCo
     start_stream([[SCContentFilter alloc] initWithDisplay:display excludingWindows:@[]], area);
 }
 
+// Ends the helper with a hint when the Screen Recording permission is missing, which also covers the audio.
+static void require_permission(void) {
+    if (CGPreflightScreenCaptureAccess()) return;
+    CGRequestScreenCaptureAccess(); // shows the prompt of the system once
+    fprintf(stderr, "capture: allow Screen Recording for hydra-native in System Settings, Privacy & Security, "
+                    "then start the capture again\n");
+    finish(1);
+}
+
 API_AVAILABLE(macos(12.3))
 static void capture_without_picker(const struct capture_request *request) {
-    if (!CGPreflightScreenCaptureAccess()) {
-        CGRequestScreenCaptureAccess(); // shows the prompt of the system once
-        fprintf(stderr, "capture: allow Screen Recording for hydra-native in System Settings, Privacy & Security, "
-                        "then start the capture again\n");
-        finish(1);
-    }
+    require_permission();
     struct capture_request copy = *request;
     dispatch_time_t start = dispatch_time(DISPATCH_TIME_NOW, (int64_t)(request->delay_seconds * NSEC_PER_SEC));
     dispatch_after(start, dispatch_get_main_queue(), ^{
@@ -229,6 +234,110 @@ int capture_run(const struct capture_request *request, int output) {
             capture_without_picker(request);
         } else {
             fprintf(stderr, "capture: screen capture needs macOS 12.3 or newer\n");
+            return 1;
+        }
+        [NSApp run]; // finish() ends the process
+    }
+    return 0;
+}
+
+// ---------------------------------------------------------------- the system audio
+
+API_AVAILABLE(macos(13.0))
+@interface AudioOutput : NSObject <SCStreamOutput, SCStreamDelegate>
+@end
+
+@implementation AudioOutput
+// The mean of the channels of each frame, interleaved or one buffer per channel, as 32-bit floats.
+- (void)stream:(SCStream *)stream didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer ofType:(SCStreamOutputType)type {
+    if (type != SCStreamOutputTypeAudio || !CMSampleBufferIsValid(sampleBuffer)) return;
+    const AudioStreamBasicDescription *format =
+        CMAudioFormatDescriptionGetStreamBasicDescription(CMSampleBufferGetFormatDescription(sampleBuffer));
+    if (!format || !(format->mFormatFlags & kAudioFormatFlagIsFloat) || format->mBitsPerChannel != 32 ||
+        format->mChannelsPerFrame == 0)
+        return;
+    size_t list_size = 0;
+    CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(sampleBuffer, &list_size, NULL, 0, NULL, NULL, 0, NULL);
+    AudioBufferList *list = malloc(list_size);
+    CMBlockBufferRef block = NULL;
+    OSStatus status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
+        sampleBuffer, NULL, list, list_size, NULL, NULL, kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment, &block);
+    UInt32 channels = format->mChannelsPerFrame;
+    bool planar = format->mFormatFlags & kAudioFormatFlagIsNonInterleaved;
+    size_t frames = (size_t)CMSampleBufferGetNumSamples(sampleBuffer);
+    float *mono = status == noErr && (!planar || list->mNumberBuffers >= channels) ? malloc(frames * sizeof(float)) : NULL;
+    for (size_t i = 0; mono && i < frames; i++) {
+        float sum = 0;
+        for (UInt32 channel = 0; channel < channels; channel++)
+            sum += planar ? ((const float *)list->mBuffers[channel].mData)[i]
+                          : ((const float *)list->mBuffers[0].mData)[i * channels + channel];
+        mono[i] = sum / (float)channels;
+    }
+    bool written = !mono || stream_write_all(output_stream, mono, frames * sizeof(float));
+    free(mono);
+    free(list);
+    if (block) CFRelease(block);
+    if (!written) finish(0);
+}
+
+- (void)stream:(SCStream *)stream didStopWithError:(NSError *)error {
+    fprintf(stderr, "capture: the audio stream stopped: %s\n", error.localizedDescription.UTF8String);
+    finish(1);
+}
+@end
+
+API_AVAILABLE(macos(13.0))
+static void start_audio_stream(SCShareableContent *content) {
+    SCDisplay *display = content.displays.firstObject;
+    if (!display) {
+        fprintf(stderr, "capture: no display\n");
+        finish(1);
+    }
+    SCStreamConfiguration *configuration = [[SCStreamConfiguration alloc] init];
+    configuration.capturesAudio = YES;
+    configuration.excludesCurrentProcessAudio = YES;
+    configuration.sampleRate = CAPTURE_AUDIO_SAMPLE_RATE;
+    configuration.channelCount = 1;
+    // The stream has no screen output; the smallest frames, once a second, keep its video work low.
+    configuration.width = 2;
+    configuration.height = 2;
+    configuration.minimumFrameInterval = CMTimeMake(1, 1);
+    AudioOutput *output = [[AudioOutput alloc] init];
+    SCContentFilter *filter = [[SCContentFilter alloc] initWithDisplay:display excludingWindows:@[]];
+    SCStream *stream = [[SCStream alloc] initWithFilter:filter configuration:configuration delegate:output];
+    NSError *error = nil;
+    dispatch_queue_t queue = dispatch_queue_create("hydra-native-capture audio", DISPATCH_QUEUE_SERIAL);
+    if (![stream addStreamOutput:output type:SCStreamOutputTypeAudio sampleHandlerQueue:queue error:&error]) {
+        fprintf(stderr, "capture: %s\n", error.localizedDescription.UTF8String);
+        finish(1);
+    }
+    capture_stream = stream;
+    capture_output = output;
+    [stream startCaptureWithCompletionHandler:^(NSError *start_error) {
+        if (start_error) {
+            fprintf(stderr, "capture: %s\n", start_error.localizedDescription.UTF8String);
+            finish(1);
+        }
+    }];
+}
+
+int capture_system_audio(int output) {
+    output_stream = output;
+    @autoreleasepool {
+        [NSApplication sharedApplication];
+        [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
+        if (@available(macOS 13.0, *)) {
+            require_permission();
+            [SCShareableContent getShareableContentExcludingDesktopWindows:YES onScreenWindowsOnly:YES
+                                                         completionHandler:^(SCShareableContent *content, NSError *error) {
+                if (!content) {
+                    fprintf(stderr, "capture: %s\n", error.localizedDescription.UTF8String);
+                    finish(1);
+                }
+                start_audio_stream(content);
+            }];
+        } else {
+            fprintf(stderr, "capture: the capture of the system audio needs macOS 13 or newer\n");
             return 1;
         }
         [NSApp run]; // finish() ends the process

@@ -86,10 +86,11 @@ The system output (`--audio @DEFAULT_MONITOR@`):
 
 - Linux: the monitor source of the default sink in PulseAudio or PipeWire.
 - Windows: not available.
-- macOS has no loopback capture in Core Audio. Install a virtual loopback device such as BlackHole, make it the
-  output (or part of a multi-output device in Audio MIDI Setup), and give its name: `--audio BlackHole`. Two
-  other ways are not done: the audio of ScreenCaptureKit (macOS 13 and newer) and the process taps of Core Audio
-  (AudioHardwareCreateProcessTap, macOS 14.2 and newer). Both need the permission for screen and audio recording.
+- macOS 13 and newer: the audio of ScreenCaptureKit. src/audio_input_sdl.c starts `hydra-native-capture audio`
+  (src/capture_macos.m), which opens an SCStream of the main display with capturesAudio, 48 kHz and one channel,
+  and writes the mixed samples to a pipe. The stream excludes the audio of the helper itself. It needs the Screen
+  Recording permission, as the screen capture does, and no microphone permission. ScreenCaptureKit fits the helper,
+  which runs ScreenCaptureKit already; the process taps of Core Audio would need macOS 14.2.
 
 hydra-native does not change the volume of the capture device, which Chrome does on Linux with the analog gain
 control of the WebRTC audio processing.

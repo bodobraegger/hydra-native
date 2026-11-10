@@ -25,3 +25,9 @@ struct capture_request {
 
 // Captures until the source ends or the process gets SIGINT or SIGTERM; returns 0, or 1 with a message on stderr.
 int capture_run(const struct capture_request *request, int output);
+
+#define CAPTURE_AUDIO_SAMPLE_RATE 48000 // the AUDIO_SAMPLE_RATE of src/audio_processing.h
+// macOS only: writes the audio that the system plays (without this process) to `output` as mono 32-bit float
+// samples at CAPTURE_AUDIO_SAMPLE_RATE, for `--audio @DEFAULT_MONITOR@` (src/audio_input_sdl.c). Returns like
+// capture_run.
+int capture_system_audio(int output);
