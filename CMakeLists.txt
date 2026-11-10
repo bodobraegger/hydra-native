@@ -134,7 +134,7 @@ target_link_libraries(hydra-native PRIVATE quickjs plutovg harfbuzz sheenbidi SD
 set_target_properties(hydra-native PROPERTIES LINKER_LANGUAGE CXX)
 
 # The screen capture of initScreen, initMonitor, initArea and initWindow (src/capture.h), a video source command.
-add_executable(hydra-native-capture src/capture_main.c src/capture_linux.c)
+add_executable(hydra-native-capture src/capture_main.c src/capture_linux.c ${PROCESS_SOURCE})
 target_compile_options(hydra-native-capture PRIVATE ${WARNINGS})
 target_link_libraries(hydra-native-capture PRIVATE PkgConfig::GIO)
 

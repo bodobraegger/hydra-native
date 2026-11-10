@@ -3,13 +3,13 @@
 // long as the D-Bus connection of this process. gst-launch-1.0 reads the PipeWire stream and writes the frames.
 #define _GNU_SOURCE
 #include "capture.h"
+#include "process.h"
 
 #include <fcntl.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/wait.h>
 #include <unistd.h>
 
 #include <gio/gio.h>
@@ -33,10 +33,11 @@
 #define PORTAL_CURSOR_EMBEDDED 2u
 #define PORTAL_RESPONSE_SUCCESS 0u
 #define DRY_RUN_NODE 42u
+#define PIPELINE_CHECK_MS 200
 
 static GDBusConnection *bus;
 static GMainLoop *loop;
-static pid_t pipeline = -1;
+static struct process *pipeline;
 static int exit_status;
 
 static gboolean quit_loop(gpointer data) {
@@ -45,38 +46,46 @@ static gboolean quit_loop(gpointer data) {
 }
 
 // gst-launch-1.0 with pipewiresrc for `node` (through the PipeWire remote `fd` of the portal, or -1 for the
-// default remote) writes RGBA frames of the requested size to `output`.
-static pid_t start_pipeline(int output, int fd, uint32_t node, int width, int height, bool dry_run) {
-    char fd_argument[32] = "", path[32], caps[96];
+// default remote) writes RGBA frames of the requested size to `output`. Both descriptors pass to the child.
+static struct process *start_pipeline(int output, int fd, uint32_t node, int width, int height, bool dry_run) {
+    char fd_argument[32] = "", path[32], caps[96], sink[32];
     if (fd >= 0) snprintf(fd_argument, sizeof fd_argument, "fd=%d", fd);
     snprintf(path, sizeof path, "path=%u", node);
     snprintf(caps, sizeof caps, "video/x-raw,format=RGBA,width=%d,height=%d", width, height);
-    char *argv[] = { "gst-launch-1.0", "-q", "pipewiresrc", path, "always-copy=true", "!", "videoconvert", "!", "videoscale", "!",
-                     caps, "!", "fdsink", "fd=1", "sync=false", NULL, NULL };
+    snprintf(sink, sizeof sink, "fd=%d", output);
+    const char *argv[] = { "gst-launch-1.0", "-q", "pipewiresrc", path, "always-copy=true", "!", "videoconvert", "!", "videoscale", "!",
+                           caps, "!", "fdsink", sink, "sync=false", NULL, NULL };
     if (fd >= 0) { // the fd goes right after pipewiresrc
         memmove(argv + 4, argv + 3, sizeof(char *) * 13); // the words from pipewiresrc on, with the NULL
         argv[3] = fd_argument;
     }
     if (dry_run) {
         printf("run");
-        for (char **word = argv; *word; word++) printf(" %s", *word);
+        for (const char **word = argv; *word; word++) printf(" %s", *word);
         printf("\n");
-        return -1;
+        return NULL;
     }
-    pid_t pid = fork();
-    if (pid == 0) {
-        dup2(output, STDOUT_FILENO);
-        if (fd >= 0) fcntl(fd, F_SETFD, 0); // GDBus received it with close-on-exec
-        execvp(argv[0], argv);
-        _exit(127);
-    }
-    return pid;
+    if (fd >= 0) fcntl(fd, F_SETFD, 0); // GDBus received it with close-on-exec
+    fcntl(output, F_SETFD, 0);
+    return process_start(argv, NULL, NULL);
 }
 
-static void pipeline_ended(GPid pid, gint status, gpointer data) {
-    pipeline = -1;
-    g_spawn_close_pid(pid);
+// Ends the main loop when gst-launch-1.0 ended.
+static gboolean check_pipeline(gpointer data) {
+    if (process_wait(pipeline, 0) == PROCESS_RUNNING) return G_SOURCE_CONTINUE;
     g_main_loop_quit(loop);
+    return G_SOURCE_REMOVE;
+}
+
+static bool watch_pipeline(void) {
+    if (!pipeline) return false;
+    g_timeout_add(PIPELINE_CHECK_MS, check_pipeline, NULL);
+    return true;
+}
+
+static void stop_pipeline(void) {
+    process_free(pipeline);
+    pipeline = NULL;
 }
 
 static GVariant *call(const char *name, const char *path, const char *interface, const char *method, GVariant *arguments,
@@ -104,8 +113,7 @@ static void mutter_stream_added(GDBusConnection *connection, const char *sender,
     g_variant_get(parameters, "(u)", &node);
     fprintf(stderr, "capture: pipewire node %u\n", node);
     pipeline = start_pipeline(mutter.output, -1, node, mutter.width, mutter.height, false);
-    if (pipeline > 0) g_child_watch_add(pipeline, pipeline_ended, NULL);
-    else g_main_loop_quit(loop);
+    if (!watch_pipeline()) g_main_loop_quit(loop);
 }
 
 static void mutter_closed(GDBusConnection *connection, const char *sender, const char *path, const char *interface,
@@ -181,10 +189,7 @@ static int run_mutter(const struct capture_request *request, int output) {
         g_variant_unref(reply);
         g_main_loop_run(loop);
     }
-    if (pipeline > 0) {
-        kill(pipeline, SIGTERM);
-        waitpid(pipeline, NULL, 0);
-    }
+    stop_pipeline();
     GVariant *stopped = call(MUTTER_BUS_NAME, session, MUTTER_SESSION_INTERFACE, "Stop", NULL, NULL);
     if (stopped) g_variant_unref(stopped);
     g_free(stream);
@@ -329,13 +334,9 @@ static int run_portal(const struct capture_request *request, int output) {
     if (fd < 0) return 1;
     pipeline = start_pipeline(output, fd, node, request->width, request->height, request->dry_run);
     if (request->dry_run) return 0;
-    if (pipeline <= 0) return 1;
-    g_child_watch_add(pipeline, pipeline_ended, NULL);
+    if (!watch_pipeline()) return 1;
     g_main_loop_run(loop);
-    if (pipeline > 0) {
-        kill(pipeline, SIGTERM);
-        waitpid(pipeline, NULL, 0);
-    }
+    stop_pipeline();
     close(fd);
     return exit_status;
 }

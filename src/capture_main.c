@@ -3,7 +3,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 
 #include "capture.h"
 
@@ -47,5 +46,5 @@ int main(int argc, char **argv) {
         fputs(usage, stderr);
         return 2;
     }
-    return capture_run(&request, STDOUT_FILENO);
+    return capture_run(&request, fileno(stdout));
 }
