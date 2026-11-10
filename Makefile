@@ -10,6 +10,12 @@ PLUTOVG_SOURCES := $(addprefix $(PLUTOVG_DIR)/source/,plutovg-blend.c plutovg-ca
 PLUTOVG_OBJECTS := $(patsubst $(PLUTOVG_DIR)/source/%.c,build/plutovg/%.o,$(PLUTOVG_SOURCES))
 HARFBUZZ_VERSION := 14.6.0
 HARFBUZZ_DIR := vendor/harfbuzz
+# The audio processing of Chrome from the system (not downloaded); only its headers come from upstream.
+WEBRTC_APM_LIBRARY := $(firstword $(wildcard /usr/lib/*/libwebrtc-audio-processing-1.so.3 /usr/lib/libwebrtc-audio-processing-1.so.3))
+WEBRTC_APM_VERSION := 1.3
+WEBRTC_APM_DIR := vendor/webrtc-audio-processing
+ABSEIL_VERSION := 20230125.1
+ABSEIL_DIR := vendor/abseil-cpp
 SHEENBIDI_VERSION := 2.9.0
 SHEENBIDI_DIR := vendor/sheenbidi
 EMOJI_FONT_COMMIT := 8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5
@@ -19,7 +25,7 @@ OBJECTS := build/main.o build/canvas2d.o build/webgl.o build/video.o build/audio
 CFLAGS := -O2 -g -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -I$(QUICKJS_DIR) -Ivendor/stb -I$(PLUTOVG_DIR)/include -DPLUTOVG_BUILD_STATIC -I$(HARFBUZZ_DIR)/src -I$(SHEENBIDI_DIR)/Headers $(shell pkg-config --cflags sdl2)
 LDLIBS := $(shell pkg-config --libs sdl2 glesv2 libpulse-simple alsa) -lm -ldl -lpthread
 
-all: build/hydra-native build/hydra-bundle.js build/p5.min.js vendor/fonts/NotoEmoji.ttf
+all: build/hydra-native build/hydra-bundle.js build/p5.min.js vendor/fonts/NotoEmoji.ttf $(if $(WEBRTC_APM_LIBRARY),build/libhydra-webrtc-apm.so)
 
 $(QUICKJS_DIR)/quickjs.c:
 	mkdir -p vendor
@@ -40,6 +46,23 @@ $(HARFBUZZ_DIR)/src/harfbuzz.cc:
 build/harfbuzz.o: $(HARFBUZZ_DIR)/src/harfbuzz.cc
 	@mkdir -p build
 	$(CXX) -O2 -w -fno-exceptions -fno-rtti -c $< -o $@
+
+$(WEBRTC_APM_DIR)/webrtc/modules/audio_processing/include/audio_processing.h:
+	mkdir -p vendor
+	curl -fsSL https://freedesktop.org/software/pulseaudio/webrtc-audio-processing/webrtc-audio-processing-$(WEBRTC_APM_VERSION).tar.xz | tar -xJ -C vendor
+	mv vendor/webrtc-audio-processing-$(WEBRTC_APM_VERSION) $(WEBRTC_APM_DIR)
+	touch $@
+
+$(ABSEIL_DIR)/absl/types/optional.h:
+	mkdir -p vendor
+	curl -fsSL https://github.com/abseil/abseil-cpp/archive/$(ABSEIL_VERSION).tar.gz | tar -xz -C vendor
+	mv vendor/abseil-cpp-$(ABSEIL_VERSION) $(ABSEIL_DIR)
+	touch $@
+
+# C++17 makes absl::optional the std::optional that the system library uses.
+build/libhydra-webrtc-apm.so: src/webrtc_apm.cc src/webrtc_apm.h $(WEBRTC_APM_DIR)/webrtc/modules/audio_processing/include/audio_processing.h $(ABSEIL_DIR)/absl/types/optional.h
+	@mkdir -p build
+	$(CXX) -std=c++17 -O2 -fPIC -shared -w -DWEBRTC_POSIX -DWEBRTC_LINUX -I$(WEBRTC_APM_DIR)/webrtc -I$(ABSEIL_DIR) -o $@ $< $(WEBRTC_APM_LIBRARY)
 
 $(SHEENBIDI_DIR)/Source/SheenBidi.c:
 	mkdir -p vendor
@@ -102,9 +125,9 @@ build/ui-test: test/ui_test.c src/ui.c src/keymap.c src/editor.c src/*.h
 
 build/audio-test: test/audio_test.c src/audio_processing.c src/audio_processing.h
 	@mkdir -p build
-	$(CC) -O1 -g -Wall -Wextra -fsanitize=address,undefined -o $@ test/audio_test.c src/audio_processing.c -lm
+	$(CC) -O1 -g -Wall -Wextra -fsanitize=address,undefined -o $@ test/audio_test.c src/audio_processing.c -lm -ldl
 
-test: build/editor-test build/ui-test build/audio-test
+test: build/editor-test build/ui-test build/audio-test $(if $(WEBRTC_APM_LIBRARY),build/libhydra-webrtc-apm.so)
 	build/editor-test
 	build/ui-test
 	build/audio-test

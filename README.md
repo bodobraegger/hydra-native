@@ -149,9 +149,10 @@ WebGL canvases with `drawImage`. `canvas.getContext('webgl')` gives a WebGL 1 co
 (VP9, 25 fps) in ~/Downloads. `navigator.requestMIDIAccess()` gives MIDI input and output through ALSA.
 
 The audio object `a` is the one of hydra-synth (`a.show()`, `a.setBins()`, `a.setSmooth()`, `a.fft`).
-Like getUserMedia() of a browser, hydra-native applies noise suppression and automatic gain control to the input
-(src/audio_processing.c). These follow the rules of the WebRTC audio processing in Chrome, but they are own code,
-so the values can differ a little. Echo cancellation is not necessary, because hydra plays no sound.
+Like getUserMedia() in Chrome, hydra-native processes the input with the WebRTC audio processing: a high-pass
+filter, echo cancellation, noise suppression (level high) and the adaptive digital gain control of AGC2. It uses
+the system library libwebrtc-audio-processing-1.so.3, which PipeWire installs. Without that library,
+src/audio_processing.c does a similar noise suppression and gain control.
 Thus `a.setScale()` and `a.setCutoff()` can need other values than in the browser.
 
 ## Benchmark

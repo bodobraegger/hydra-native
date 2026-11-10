@@ -1,5 +1,6 @@
 // Checks the gain control and noise suppression of src/audio_processing.c with a tone that starts and stops
 // over a quiet noise, like speech. Run with `make test`.
+#include <dlfcn.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -49,6 +50,38 @@ static void run(struct audio_processor *processor, float seconds, float level_db
     }
 }
 
+// The WebRTC audio processing of the system (build/libhydra-webrtc-apm.so): a quiet tone becomes louder.
+static void check_webrtc_processing(void) {
+    void *library = dlopen("build/libhydra-webrtc-apm.so", RTLD_NOW);
+    if (!library) {
+        fprintf(stderr, "no build/libhydra-webrtc-apm.so (%s), skipped\n", dlerror());
+        return;
+    }
+    void *(*create)(int) = (void *(*)(int))dlsym(library, "webrtc_apm_create");
+    bool (*process)(void *, float *, int) = (bool (*)(void *, float *, int))dlsym(library, "webrtc_apm_process");
+    void *apm = create(AUDIO_SAMPLE_RATE);
+    const int frame = AUDIO_SAMPLE_RATE / 100;
+    float amplitude = sqrtf(2.0f) * powf(10.0f, -46.0f / 20.0f), samples[AUDIO_SAMPLE_RATE / 100];
+    double input = 0, output = 0;
+    long index = 0;
+    for (int f = 0; f < 2000; f++) { // 20 s of speech-like bursts
+        bool on = (f / 50) % 2 == 0;
+        for (int i = 0; i < frame; i++, index++)
+            samples[i] = noise_sample() + (on ? amplitude * sinf(2.0f * (float)M_PI * 440.0f * (float)index / AUDIO_SAMPLE_RATE) : 0);
+        double before = 0;
+        for (int i = 0; i < frame; i++) before += samples[i] * samples[i];
+        EXPECT(process(apm, samples, AUDIO_SAMPLE_RATE), "ProcessStream failed");
+        if (f >= 1800 && on) {
+            input += before;
+            for (int i = 0; i < frame; i++) output += samples[i] * samples[i];
+        }
+    }
+    ((void (*)(void *))dlsym(library, "webrtc_apm_destroy"))(apm);
+    double gain_db = 10 * log10(output / input);
+    fprintf(stderr, "WebRTC processing: gain %.1f dB on a -46 dBFS tone after 18 s\n", gain_db);
+    EXPECT(gain_db > 6, "the AGC2 of the system library gives %.1f dB", gain_db);
+}
+
 int main(void) {
     struct audio_processor processor = { 0 };
     float tone = 0, noise = 0;
@@ -76,6 +109,7 @@ int main(void) {
                     (sqrtf(2.0f) * powf(10.0f, -10.0f / 20.0f));
     EXPECT(tone <= limited * 1.05f, "tone %.1f, limit %.1f", tone, limited);
 
+    check_webrtc_processing();
     if (failures) {
         fprintf(stderr, "audio_test: %d failures\n", failures);
         return 1;

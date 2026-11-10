@@ -17,6 +17,13 @@ a distributed hydra-native binary with its bundle falls under the AGPL-3.0.
 - stb_image.h 2.30 by Sean Barrett, public domain or MIT license, same commit. Thumbnails (src/thumbnails.c).
 - HarfBuzz 14.6.0, "Old MIT" license. https://github.com/harfbuzz/harfbuzz
   Text shaping of panels and prompts (src/overlay.c); built from the amalgamated src/harfbuzz.cc.
+- webrtc-audio-processing 1.3 (freedesktop.org, from the WebRTC code of Chrome), BSD-3-Clause license.
+  https://gitlab.freedesktop.org/pulseaudio/webrtc-audio-processing
+  The system library libwebrtc-audio-processing-1.so.3 (installed with PipeWire, not downloaded) processes the
+  microphone. `make` downloads the release tarball only for its headers, and src/webrtc_apm.cc links the
+  library into build/libhydra-webrtc-apm.so, which src/audio.c opens at run time.
+- Abseil 20230125.1 (the version of the abseil-cpp.wrap of webrtc-audio-processing 1.3), Apache-2.0 license.
+  https://github.com/abseil/abseil-cpp. Headers only, for the headers of webrtc-audio-processing.
 - SheenBidi 2.9.0 by Muhammad Tayyab Akram, Apache-2.0 license. https://github.com/Tehreer/SheenBidi
   The Unicode bidi algorithm (UAX #9) for the text of panels and prompts (src/overlay.c); built from
   Source/SheenBidi.c with SB_CONFIG_UNITY.
