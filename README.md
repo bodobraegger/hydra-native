@@ -4,7 +4,6 @@ hydra-native runs Hydra sketches in a native window without a browser.
 It runs the hydra-synth code in the QuickJS engine. A small regl replacement draws with OpenGL ES through SDL3.
 A code editor in C draws the sketch over the visuals, like the editor of hydra.ojack.xyz.
 Video comes from child processes (GStreamer, ffmpeg, the Mutter ScreenCast API) and audio comes from PulseAudio or PipeWire.
-See [PLAN.md](PLAN.md) for the measurements, the design and the open work.
 
 ## Build
 
@@ -87,7 +86,6 @@ languages of the web editor (from hydra-synth/l10n, cached in ~/.cache/hydra-nat
 The extensions panel lists the catalog of hydra-synth/hydra-extensions; "+" adds the load code to the top.
 The window title shows the hydra.ojack.xyz URL of the code after each run of all code, as the address bar of
 the web editor does. Ctrl+Shift+L copies that URL, and Ctrl+Shift+O opens the URL in the clipboard.
-PLAN.md compares every feature with the web editor.
 
 The "settings" entry of the toolbar (Ctrl+,) chooses the open file and its reload on change, the color theme,
 the autocomplete style with its trigger and the signature help, the code display (background opacity and blend,
