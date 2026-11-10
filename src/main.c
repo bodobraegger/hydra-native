@@ -1148,7 +1148,7 @@ static bool create_window(const struct options *options) {
     if (active_settings.fullscreen) flags |= SDL_WINDOW_FULLSCREEN;
     window = window_create("hydra-native", options->width, options->height, flags, active_settings.vsync);
     if (!window) return false;
-    programs_start(window);
+    programs_start();
     const SDL_DisplayMode *mode = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(window));
     if (mode && mode->refresh_rate > 0) frame_period_ms = 1000.0 / mode->refresh_rate;
     SDL_StartTextInput(window);

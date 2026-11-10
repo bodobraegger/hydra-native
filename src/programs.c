@@ -1,7 +1,9 @@
 // Shader programs of the hydra passes, compiled without stopping the frames. programs_start() picks one method:
-// - thread: a second GL context, shared with the first one, compiles and links on a thread of its own. Mesa needs
-//   this: it offers GL_KHR_parallel_shader_compile, but its glLinkProgram links on the calling thread anyway
-//   (about 100 ms for one large hydra pass on Intel iris).
+// - thread: a second EGL context, shared with the first one and without a surface, compiles and links on a thread
+//   of its own. Mesa needs this: it offers GL_KHR_parallel_shader_compile, but its glLinkProgram links on the
+//   calling thread anyway (about 100 ms for one large hydra pass on Intel iris). The thread uses EGL only: SDL
+//   allows its window and GL functions only on the main thread, and a second SDL context would also reset the
+//   swap interval of the window.
 // - parallel: GL_KHR_parallel_shader_compile, the driver compiles on threads of its own. ANGLE does so; there a
 //   second context would share one lock with the first.
 // - blocking: neither one is available, so the first status query waits for the link.
@@ -14,6 +16,7 @@
 #include <string.h>
 
 #include <SDL3/SDL.h>
+#include <SDL3/SDL_egl.h>
 
 #ifndef GL_COMPLETION_STATUS_KHR
 #define GL_COMPLETION_STATUS_KHR 0x91B1
@@ -35,8 +38,10 @@ struct job {
 };
 
 static struct {
-    SDL_Window *window; // hidden; SDL_GL_MakeCurrent() without a window does nothing on Wayland
-    SDL_GLContext context;
+    EGLDisplay display;
+    EGLContext context;
+    EGLBoolean (*make_current)(EGLDisplay, EGLSurface, EGLSurface, EGLContext);
+    EGLBoolean (*destroy_context)(EGLDisplay, EGLContext);
     pthread_t id;
     pthread_mutex_t mutex;
     pthread_cond_t changed;
@@ -96,7 +101,7 @@ static struct job *next_job(void) {
 
 // The newest waiting job first: after several evals in a row, the last one is the one that the outputs wait for.
 static void *compile_jobs(void *unused) {
-    SDL_GL_MakeCurrent(thread.window, thread.context);
+    thread.make_current(thread.display, EGL_NO_SURFACE, EGL_NO_SURFACE, thread.context);
     pthread_mutex_lock(&thread.mutex);
     while (!thread.stopping) {
         struct job *job = next_job();
@@ -117,32 +122,41 @@ static void *compile_jobs(void *unused) {
         pthread_cond_broadcast(&thread.changed);
     }
     pthread_mutex_unlock(&thread.mutex);
-    SDL_GL_MakeCurrent(NULL, NULL);
+    thread.make_current(thread.display, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
     return NULL;
 }
 
-static bool start_thread(SDL_Window *window) {
-    thread.window = SDL_CreateWindow("hydra-native shaders", 1, 1, SDL_WINDOW_OPENGL | SDL_WINDOW_HIDDEN);
-    if (!thread.window) return false;
-    SDL_GLContext main_context = SDL_GL_GetCurrentContext();
-    SDL_GL_SetAttribute(SDL_GL_SHARE_WITH_CURRENT_CONTEXT, 1);
-    thread.context = SDL_GL_CreateContext(thread.window); // also makes it current
-    SDL_GL_SetAttribute(SDL_GL_SHARE_WITH_CURRENT_CONTEXT, 0);
-    SDL_GL_MakeCurrent(window, main_context);
-    if (thread.context && pthread_create(&thread.id, NULL, compile_jobs, NULL) == 0) return true;
-    if (thread.context) SDL_GL_DestroyContext(thread.context);
-    SDL_DestroyWindow(thread.window);
+// Needs EGL (not GLX on X11) and EGL_KHR_surfaceless_context.
+static bool start_thread(void) {
+    const char *(*query_string)(EGLDisplay, EGLint) = (void *)SDL_EGL_GetProcAddress("eglQueryString");
+    EGLContext (*current_context)(void) = (void *)SDL_EGL_GetProcAddress("eglGetCurrentContext");
+    EGLContext (*create_context)(EGLDisplay, EGLConfig, EGLContext, const EGLint *) =
+        (void *)SDL_EGL_GetProcAddress("eglCreateContext");
+    thread.make_current = (void *)SDL_EGL_GetProcAddress("eglMakeCurrent");
+    thread.destroy_context = (void *)SDL_EGL_GetProcAddress("eglDestroyContext");
+    thread.display = SDL_EGL_GetCurrentDisplay();
+    EGLConfig config = SDL_EGL_GetCurrentConfig();
+    if (!thread.display || !config || !query_string || !current_context || !create_context || !thread.make_current ||
+        !thread.destroy_context)
+        return false;
+    const char *extensions = query_string(thread.display, EGL_EXTENSIONS);
+    if (!extensions || !strstr(extensions, "EGL_KHR_surfaceless_context")) return false;
+    static const EGLint attributes[] = { EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE };
+    thread.context = create_context(thread.display, config, current_context(), attributes);
+    if (thread.context == EGL_NO_CONTEXT) return false;
+    if (pthread_create(&thread.id, NULL, compile_jobs, NULL) == 0) return true;
+    thread.destroy_context(thread.display, thread.context);
     return false;
 }
 
-void programs_start(SDL_Window *window) {
+void programs_start(void) {
     const char *forced = getenv("HYDRA_SHADER_COMPILE"); // one of method_names, to compare the methods
     bool parallel = SDL_GL_ExtensionSupported("GL_KHR_parallel_shader_compile");
     bool mesa = strstr((const char *)glGetString(GL_VERSION), "Mesa") != NULL;
     if (forced) {
-        if (!strcmp(forced, "thread") && start_thread(window)) method = METHOD_THREAD;
+        if (!strcmp(forced, "thread") && start_thread()) method = METHOD_THREAD;
         else method = !strcmp(forced, "parallel") && parallel ? METHOD_PARALLEL : METHOD_BLOCKING;
-    } else if (mesa && start_thread(window)) method = METHOD_THREAD;
+    } else if (mesa && start_thread()) method = METHOD_THREAD;
     else method = parallel ? METHOD_PARALLEL : METHOD_BLOCKING;
     void (*max_threads)(GLuint) = (void (*)(GLuint))SDL_GL_GetProcAddress("glMaxShaderCompilerThreadsKHR");
     if (method == METHOD_PARALLEL && max_threads) max_threads(ALL_COMPILER_THREADS);
@@ -155,8 +169,7 @@ void programs_stop(void) {
     pthread_cond_broadcast(&thread.changed);
     pthread_mutex_unlock(&thread.mutex);
     pthread_join(thread.id, NULL);
-    SDL_GL_DestroyContext(thread.context);
-    SDL_DestroyWindow(thread.window);
+    thread.destroy_context(thread.display, thread.context);
     method = METHOD_BLOCKING;
 }
 

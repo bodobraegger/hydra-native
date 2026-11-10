@@ -61,10 +61,9 @@ void patch_bay_stop(void);
 // Shader programs that compile without stopping the frames (src/programs.c). program_create() returns at once;
 // program_status() is PROGRAM_COMPILING until the program is ready, unless `wait` is true. PROGRAM_FAILED deletes
 // the program and sets `*error` to the malloc'd log.
-struct SDL_Window;
 enum program_status { PROGRAM_FAILED, PROGRAM_COMPILING, PROGRAM_LINKED };
-void programs_start(struct SDL_Window *window); // after the GL context exists
-void programs_stop(void);                       // before the window closes
-const char *programs_method(void);              // "thread", "parallel" or "blocking"
+void programs_start(void);          // after the GL context exists
+void programs_stop(void);           // before the window closes
+const char *programs_method(void);  // "thread", "parallel" or "blocking"
 GLuint program_create(const char *vertex_source, const char *fragment_source);
 enum program_status program_status(GLuint program, bool wait, char **error);
