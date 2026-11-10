@@ -23,6 +23,7 @@
 
 #include "canvas2d.h"
 #include "webgl.h"
+#include "window.h"
 #include "midi.h"
 #include "native.h"
 #include "process.h"
@@ -34,7 +35,6 @@
 #include "quickjs.h"
 
 #define BUNDLE_FILE_NAME "hydra-bundle.js"
-#define APP_ID "hydra-native" // the Wayland app id and the X11 class, the name of assets/hydra-native.desktop
 #define WINDOW_ICON_FILE "../assets/icon/hicolor/48x48/apps/hydra-native.png"
 #define SOCKET_FILE_NAME "hydra-native.sock"
 #define WATCH_INTERVAL_MS 250
@@ -1122,25 +1122,12 @@ static bool parse_options(int argc, char **argv, struct options *options, struct
 }
 
 static bool create_window(const struct options *options) {
-    SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "wayland,x11");
-    SDL_SetAppMetadata("hydra-native", NULL, APP_ID);
-    if (!SDL_Init(SDL_INIT_VIDEO)) {
-        fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
-        return false;
-    }
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
-    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 0);
-    SDL_WindowFlags flags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
+    SDL_WindowFlags flags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
     if (options->hidden) flags |= SDL_WINDOW_HIDDEN;
     if (active_settings.fullscreen) flags |= SDL_WINDOW_FULLSCREEN;
-    window = SDL_CreateWindow("hydra-native", active_settings.window_width, active_settings.window_height, flags);
-    if (!window || !SDL_GL_CreateContext(window)) {
-        fprintf(stderr, "window: %s\n", SDL_GetError());
-        return false;
-    }
-    SDL_GL_SetSwapInterval(active_settings.vsync ? 1 : 0);
+    window = window_create("hydra-native", active_settings.window_width, active_settings.window_height, flags,
+                           active_settings.vsync);
+    if (!window) return false;
     programs_start(window);
     const SDL_DisplayMode *mode = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(window));
     if (mode && mode->refresh_rate > 0) frame_period_ms = 1000.0 / mode->refresh_rate;

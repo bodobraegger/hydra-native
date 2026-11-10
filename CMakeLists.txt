@@ -64,9 +64,14 @@ function(vendor_archive name url sha256 marker)
   file(REMOVE_RECURSE ${extract})
   file(ARCHIVE_EXTRACT INPUT ${download} DESTINATION ${extract})
   file(GLOB top LIST_DIRECTORIES true ${extract}/*)
+  list(LENGTH top count)
   file(REMOVE_RECURSE ${VENDOR}/${name})
-  file(RENAME ${top} ${VENDOR}/${name})
-  file(REMOVE_RECURSE ${extract})
+  if(count EQUAL 1 AND IS_DIRECTORY ${top})
+    file(RENAME ${top} ${VENDOR}/${name})
+    file(REMOVE_RECURSE ${extract})
+  else() # an archive without one top folder
+    file(RENAME ${extract} ${VENDOR}/${name})
+  endif()
 endfunction()
 
 # Downloads `url` to vendor/<path>, unless it is there already.
@@ -99,21 +104,63 @@ set(EMOJI_FONT_URL ${GITHUB_RAW}/google/fonts/${EMOJI_FONT_COMMIT}/ofl/notoemoji
 vendor_file(fonts/NotoEmoji.ttf ${EMOJI_FONT_URL}/NotoEmoji%5Bwght%5D.ttf de6c18832938afc99caf132b39d6a30a19bac7f2e812e28db2535b4608d27551)
 vendor_file(fonts/NotoEmoji-OFL.txt ${EMOJI_FONT_URL}/OFL.txt 500bb1ccf43df7bbb522112f9133a52b16e1c35e809632f5d8609b179152de5b)
 
-# ---------------------------------------------------------------- system libraries
+# ---------------------------------------------------------------- window and OpenGL ES
 
-find_package(SDL3 REQUIRED CONFIG)
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(SYSTEM REQUIRED IMPORTED_TARGET glesv2 libpulse-simple libpulse alsa)
-pkg_check_modules(GIO REQUIRED IMPORTED_TARGET gio-unix-2.0)
-find_library(WEBRTC_APM_LIBRARY NAMES libwebrtc-audio-processing-1.so.3)
+# Linux uses SDL3 and the GLES driver of the system (Mesa). macOS and Windows use ANGLE: GLES on Metal and on
+# Direct3D 11, as prebuilt libraries of jeremyfa/build-angle, which builds the pinned upstream commit with the
+# public GitHub Actions workflow of that repository (see PORTING.md). The program loads them from its folder.
+set(ANGLE_RELEASE https://github.com/jeremyfa/build-angle/releases/download/angle-9684da7)
+set(SDL3_VERSION 3.4.2)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  set(HYDRA_LINUX TRUE)
+  find_package(SDL3 REQUIRED CONFIG)
+  find_package(PkgConfig REQUIRED)
+  pkg_check_modules(GLES REQUIRED IMPORTED_TARGET glesv2)
+  add_library(gles INTERFACE)
+  target_link_libraries(gles INTERFACE PkgConfig::GLES)
+else()
+  if(APPLE)
+    vendor_archive(angle ${ANGLE_RELEASE}/angle-mac-universal.zip
+      8049dd6cc27c8e13827785ad3aae89b0709f020ecc230ac9dfeca79833cf186b lib/libGLESv2.dylib)
+    set(ANGLE_RUNTIME ${VENDOR}/angle/lib/libEGL.dylib ${VENDOR}/angle/lib/libGLESv2.dylib)
+    set(ANGLE_GLES ${VENDOR}/angle/lib/libGLESv2.dylib)
+    find_package(SDL3 REQUIRED CONFIG) # Homebrew: brew install sdl3
+  elseif(WIN32)
+    vendor_archive(angle ${ANGLE_RELEASE}/angle-windows-x64.zip
+      b5be74ac235ff45b60c03f6bd1434df1dfbcf82fcc0742e92124a7e35fd30283 lib/libGLESv2.lib)
+    file(GLOB ANGLE_RUNTIME ${VENDOR}/angle/bin/*.dll)
+    set(ANGLE_GLES ${VENDOR}/angle/lib/libGLESv2.lib)
+    # The development package of the SDL project for Visual C++, with its CMake configuration.
+    vendor_archive(sdl3-vc https://github.com/libsdl-org/SDL/releases/download/release-${SDL3_VERSION}/SDL3-devel-${SDL3_VERSION}-VC.zip
+      fd4c60400634df13a86b69432b22b32f23bccd6a2f4c6a34b42b471c65eb4fd2 cmake/SDL3Config.cmake)
+    find_package(SDL3 REQUIRED CONFIG PATHS ${VENDOR}/sdl3-vc/cmake NO_DEFAULT_PATH)
+    list(APPEND ANGLE_RUNTIME ${VENDOR}/sdl3-vc/lib/x64/SDL3.dll)
+  else()
+    message(FATAL_ERROR "hydra-native builds on Linux, macOS and Windows")
+  endif()
+  add_library(gles INTERFACE)
+  target_include_directories(gles INTERFACE ${VENDOR}/angle/include)
+  target_link_libraries(gles INTERFACE ${ANGLE_GLES})
+  # The libraries go next to the programs, where src/window.c and the dynamic linker find them.
+  file(COPY ${ANGLE_RUNTIME} DESTINATION ${CMAKE_BINARY_DIR})
+  set(CMAKE_BUILD_RPATH "@executable_path")
+endif()
 
 # ---------------------------------------------------------------- vendored libraries
 
+if(MSVC)
+  set(QUIET /O2 /w) # QuickJS does not build with MSVC; quickjs-ng replaces it there (PORTING.md)
+else()
+  set(QUIET -O2 -w)
+endif()
+
+if(NOT MSVC)
 add_library(quickjs STATIC ${VENDOR}/quickjs/quickjs.c ${VENDOR}/quickjs/dtoa.c ${VENDOR}/quickjs/libregexp.c
   ${VENDOR}/quickjs/libunicode.c ${VENDOR}/quickjs/cutils.c ${VENDOR}/quickjs/quickjs-libc.c)
 target_compile_definitions(quickjs PRIVATE _GNU_SOURCE CONFIG_VERSION="${QUICKJS_VERSION}")
-target_compile_options(quickjs PRIVATE -O2 -w)
+target_compile_options(quickjs PRIVATE ${QUIET})
 target_include_directories(quickjs PUBLIC ${VENDOR}/quickjs)
+endif()
 
 add_library(plutovg STATIC)
 foreach(source blend canvas font ft-math ft-raster ft-stroker matrix paint path rasterize surface)
@@ -121,19 +168,23 @@ foreach(source blend canvas font ft-math ft-raster ft-stroker matrix paint path 
 endforeach()
 target_compile_definitions(plutovg PRIVATE PLUTOVG_BUILD PLUTOVG_DISABLE_FONT_FACE_CACHE_LOAD
   PUBLIC PLUTOVG_BUILD_STATIC)
-target_compile_options(plutovg PRIVATE -O2 -w)
+target_compile_options(plutovg PRIVATE ${QUIET})
 target_include_directories(plutovg PUBLIC ${VENDOR}/plutovg/include)
 
 add_library(harfbuzz STATIC ${VENDOR}/harfbuzz/src/harfbuzz.cc)
-target_compile_options(harfbuzz PRIVATE -O2 -w -fno-exceptions -fno-rtti)
+target_compile_options(harfbuzz PRIVATE ${QUIET} $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-fno-exceptions -fno-rtti>)
 target_include_directories(harfbuzz PUBLIC ${VENDOR}/harfbuzz/src)
 
 add_library(sheenbidi STATIC ${VENDOR}/sheenbidi/Source/SheenBidi.c)
 target_compile_definitions(sheenbidi PRIVATE SB_CONFIG_UNITY)
-target_compile_options(sheenbidi PRIVATE -O2 -w)
+target_compile_options(sheenbidi PRIVATE ${QUIET})
 target_include_directories(sheenbidi PUBLIC ${VENDOR}/sheenbidi/Headers)
 
-set(WARNINGS -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers)
+if(MSVC)
+  set(WARNINGS /W3)
+else()
+  set(WARNINGS -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers)
+endif()
 
 # Child processes and streams (src/process.h).
 if(WIN32)
@@ -142,19 +193,10 @@ else()
   set(PROCESS_SOURCE src/process_posix.c)
 endif()
 
-# ---------------------------------------------------------------- programs
-
-add_executable(hydra-native src/main.c src/canvas2d.c src/svg_filter.c src/webgl.c src/video.c src/audio.c
-  src/audio_processing.c src/analog_agc.c src/fetch.c src/thumbnails.c src/midi.c src/recorder.c src/patch_bay.c
-  src/editor.c src/bidi.c src/ui.c src/settings.c src/overlay.c src/keymap.c src/programs.c src/signature.c
-  ${PROCESS_SOURCE})
-target_compile_options(hydra-native PRIVATE ${WARNINGS})
-target_compile_definitions(hydra-native PRIVATE HYDRA_NATIVE_VERSION="${PROJECT_VERSION}")
-target_include_directories(hydra-native PRIVATE ${VENDOR}/stb)
-target_link_libraries(hydra-native PRIVATE quickjs plutovg harfbuzz sheenbidi SDL3::SDL3 PkgConfig::SYSTEM m dl
-  pthread)
-# harfbuzz is C++, so the C++ driver links the program.
-set_target_properties(hydra-native PROPERTIES LINKER_LANGUAGE CXX)
+# Opens a hidden window with the GLES context of src/window.c and draws one pass (Mesa, ANGLE on Metal or D3D11).
+add_executable(window-test test/window_test.c src/window.c)
+target_compile_options(window-test PRIVATE ${WARNINGS})
+target_link_libraries(window-test PRIVATE SDL3::SDL3 gles)
 
 # The screen capture of initScreen, initMonitor, initArea and initWindow (src/capture.h), a video source command.
 # Backends: ScreenCaptureKit on macOS, Windows.Graphics.Capture (C++/WinRT of the Windows SDK) on Windows, the
@@ -170,10 +212,49 @@ elseif(WIN32)
   set_target_properties(hydra-native-capture PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
   target_link_libraries(hydra-native-capture PRIVATE d3d11 dxgi windowsapp)
 else()
+  pkg_check_modules(GIO REQUIRED IMPORTED_TARGET gio-unix-2.0)
   add_executable(hydra-native-capture src/capture_main.c src/capture_linux.c ${PROCESS_SOURCE})
   target_link_libraries(hydra-native-capture PRIVATE PkgConfig::GIO)
 endif()
 target_compile_options(hydra-native-capture PRIVATE ${WARNINGS})
+
+if(NOT HYDRA_LINUX)
+  # The parts of the program that are ported so far; the others come with the ports of PORTING.md. The editor
+  # core and the overlay compile here as a check, without a program yet.
+  add_library(hydra-native-portable OBJECT src/editor.c src/bidi.c src/keymap.c src/signature.c src/overlay.c
+    src/ui.c src/settings.c src/window.c)
+  target_compile_options(hydra-native-portable PRIVATE ${WARNINGS})
+  target_include_directories(hydra-native-portable PRIVATE ${VENDOR}/stb ${VENDOR}/quickjs ${VENDOR}/harfbuzz/src
+    ${VENDOR}/sheenbidi/Headers)
+  target_link_libraries(hydra-native-portable PRIVATE SDL3::SDL3 gles)
+  if(MSVC)
+    set_target_properties(hydra-native-portable PROPERTIES EXCLUDE_FROM_ALL TRUE) # POSIX headers still
+  endif()
+  # Not compiled on macOS and Windows so far; CI builds it in a step of its own that may fail.
+  set_target_properties(hydra-native-capture PROPERTIES EXCLUDE_FROM_ALL TRUE)
+  enable_testing()
+  add_test(NAME window COMMAND window-test)
+  set_tests_properties(window PROPERTIES LABELS window)
+  return()
+endif()
+
+# ---------------------------------------------------------------- programs (Linux)
+
+pkg_check_modules(SYSTEM REQUIRED IMPORTED_TARGET glesv2 libpulse-simple libpulse alsa)
+find_library(WEBRTC_APM_LIBRARY NAMES libwebrtc-audio-processing-1.so.3)
+
+add_executable(hydra-native src/main.c src/canvas2d.c src/svg_filter.c src/webgl.c src/video.c src/audio.c
+  src/audio_processing.c src/analog_agc.c src/fetch.c src/thumbnails.c src/midi.c src/recorder.c src/patch_bay.c
+  src/editor.c src/bidi.c src/ui.c src/settings.c src/overlay.c src/keymap.c src/programs.c src/signature.c
+  src/window.c ${PROCESS_SOURCE})
+target_compile_options(hydra-native PRIVATE ${WARNINGS})
+target_compile_definitions(hydra-native PRIVATE HYDRA_NATIVE_VERSION="${PROJECT_VERSION}")
+target_include_directories(hydra-native PRIVATE ${VENDOR}/stb)
+target_link_libraries(hydra-native PRIVATE quickjs plutovg harfbuzz sheenbidi SDL3::SDL3 PkgConfig::SYSTEM m dl
+  pthread)
+# harfbuzz is C++, so the C++ driver links the program.
+set_target_properties(hydra-native PROPERTIES LINKER_LANGUAGE CXX)
+
 
 # The audio processing of Chrome from the system (not downloaded); only its headers come from upstream.
 # C++17 makes absl::optional the std::optional that the system library uses.
@@ -247,10 +328,11 @@ endif()
 
 # The checks run the program in hidden windows, with a settings folder of their own.
 add_test(NAME check COMMAND hydra-native --hidden --no-vsync --no-analog-agc ${CMAKE_SOURCE_DIR}/test/check.js)
+add_test(NAME window COMMAND window-test)
 foreach(check fetch gallery patch_bay error)
   add_test(NAME ${check} COMMAND python3 ${CMAKE_SOURCE_DIR}/test/${check}_test.py)
 endforeach()
-set_tests_properties(check fetch gallery patch_bay error PROPERTIES LABELS check RUN_SERIAL true)
+set_tests_properties(check window fetch gallery patch_bay error PROPERTIES LABELS check RUN_SERIAL true)
 get_property(ALL_TESTS DIRECTORY PROPERTY TESTS)
 set_tests_properties(${ALL_TESTS} PROPERTIES
   ENVIRONMENT "XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/test-config;HYDRA_NATIVE_BUILD=${CMAKE_BINARY_DIR}")
