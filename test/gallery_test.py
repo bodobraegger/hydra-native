@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
-"""Checks tools/gallery_share.py against a local mock of the gallery server; nothing goes to the real server."""
+"""Checks the gallery sharing of js/editor-actions.js (__shareSketch, with fetch) against a local mock of the
+gallery server; nothing goes to the real server. Run with `make check` (it needs build/hydra-native)."""
 import base64
+import json
 import http.server
 import pathlib
 import subprocess
@@ -8,6 +10,14 @@ import sys
 import tempfile
 import threading
 import urllib.parse
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+# The sketch shares a fake PNG and prints the answer that src/main.c would show.
+SKETCH = """
+native.shareDone = (ok, text) => { console.log('RESULT ' + JSON.stringify([ok, text])); native.exit(0) }
+__shareSketch('%s', 'osc(10, 0.1, 1.2).out() // \\u00e4', new Uint8Array([0x89, 80, 78, 71, 32, 109, 111, 99, 107]).buffer, 'a name')
+setTimeout(() => native.exit(1), 20000)
+"""
 
 MOCK_SKETCH_ID = "mock_sketch_42"
 requests = []
@@ -18,6 +28,7 @@ class MockGallery(http.server.BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", 0))
         requests.append((self.path, self.headers.get("Content-Type", ""), self.rfile.read(length)))
         self.send_response(200)
+        self.send_header("Access-Control-Allow-Origin", "https://hydra.ojack.xyz") # as the cors options of hydra-server
         self.end_headers()
         self.wfile.write(MOCK_SKETCH_ID.encode() if self.path.startswith("/sketch") else b"ok")
 
@@ -29,12 +40,15 @@ server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), MockGallery)
 threading.Thread(target=server.serve_forever, daemon=True).start()
 code = "osc(10, 0.1, 1.2).out() // ä"
 with tempfile.TemporaryDirectory() as directory:
-    code_file, image_file = pathlib.Path(directory, "code.js"), pathlib.Path(directory, "image.png")
-    code_file.write_text(code, encoding="utf-8")
-    image_file.write_bytes(b"\x89PNG mock")
-    script = pathlib.Path(__file__).resolve().parent.parent / "tools" / "gallery_share.py"
-    url = subprocess.run([sys.executable, str(script), f"http://127.0.0.1:{server.server_address[1]}", str(code_file),
-                          str(image_file), "a name"], capture_output=True, text=True, check=True).stdout.strip()
+    sketch = pathlib.Path(directory, "share.js")
+    sketch.write_text(SKETCH % f"http://127.0.0.1:{server.server_address[1]}", encoding="utf-8")
+    run = subprocess.run([str(ROOT / "build" / "hydra-native"), "--hidden", "--no-vsync", "--no-analog-agc", str(sketch)],
+                         capture_output=True, text=True, timeout=60)
+results = [line for line in (run.stdout + run.stderr).splitlines() if line.startswith("RESULT ")]
+ok, url = json.loads(results[0][len("RESULT "):]) if results else (False, run.stdout + run.stderr)
+if not ok:
+    server.shutdown()
+    sys.exit(f"gallery_test: sharing failed: {url}")
 server.shutdown()
 
 errors = []

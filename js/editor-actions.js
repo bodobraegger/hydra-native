@@ -72,6 +72,43 @@ function encodeBase64 (text) {
 window.__webEditorUrl = () => WEB_EDITOR_URL
 window.__urlForCode = (code) => `${WEB_EDITOR_URL}?code=${encodeURIComponent(encodeBase64(encodeURIComponent(code)))}`
 
+// ---------------------------------------------------------------- sharing with the gallery
+
+// The query of superagent in gallery.js: encodeURIComponent, and a null value as a bare key.
+const query = (entries) => entries.map(([key, value]) =>
+  value === null ? encodeURIComponent(key) : `${encodeURIComponent(key)}=${encodeURIComponent(value)}`).join('&')
+
+const asciiBytes = (text) => Uint8Array.from(text, (character) => character.charCodeAt(0))
+
+// shareSketch of gallery.js in the web editor: POST /sketch?code=...&parent answers the sketch id, then POST
+// /image?url=...&sketch_id=...&name=... sends the screenshot as the multipart field "previewImage". src/main.c
+// calls this with the PNG of the next frame; the answer goes to native.shareDone(ok, sketch URL or error).
+window.__shareSketch = (server, code, image, name) => {
+  const base64 = encodeBase64(encodeURIComponent(code))
+  const checked = (response) => {
+    if (!response.ok) throw new Error(`HTTP ${response.status} from ${response.url}`)
+    return response.text()
+  }
+  fetch(`${server}/sketch?${query([['code', base64], ['parent', null]])}`, { method: 'POST' })
+    .then(checked)
+    .then((answer) => {
+      const sketchId = answer.trim()
+      const url = `${WEB_EDITOR_URL}?${query([['sketch_id', sketchId], ['code', base64]])}`
+      const boundary = `hydra-native-${Date.now().toString(16)}`
+      const head = asciiBytes(`--${boundary}\r\nContent-Disposition: form-data; name="previewImage"; filename="blob"\r\n` +
+        'Content-Type: image/png\r\n\r\n')
+      const tail = asciiBytes(`\r\n--${boundary}--\r\n`)
+      const body = new Uint8Array(head.length + image.byteLength + tail.length)
+      body.set(head)
+      body.set(new Uint8Array(image), head.length)
+      body.set(tail, head.length + image.byteLength)
+      return fetch(`${server}/image?${query([['url', url], ['sketch_id', sketchId], ['name', name]])}`, {
+        method: 'POST', headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` }, body
+      }).then(checked).then(() => url)
+    })
+    .then((url) => native.shareDone(true, url), (error) => native.shareDone(false, String(error.message || error)))
+}
+
 // The gallery server for reading sketches: --gallery-server, else the server of the deployed web editor.
 const DEFAULT_GALLERY_SERVER = 'https://api.hydrasynth.xyz'
 

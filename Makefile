@@ -133,11 +133,11 @@ test: build/editor-test build/ui-test build/audio-test $(if $(WEBRTC_APM_LIBRARY
 	build/ui-test
 	build/audio-test
 	python3 test/portal_test.py
-	python3 test/gallery_test.py
 
 check: all test
 	XDG_CONFIG_HOME=$(CURDIR)/build/test-config build/hydra-native --hidden --no-vsync --no-analog-agc test/check.js
 	XDG_CONFIG_HOME=$(CURDIR)/build/test-config python3 test/fetch_test.py
+	XDG_CONFIG_HOME=$(CURDIR)/build/test-config python3 test/gallery_test.py
 	XDG_CONFIG_HOME=$(CURDIR)/build/test-config python3 test/patch_bay_test.py
 
 clean:

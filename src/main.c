@@ -527,30 +527,32 @@ static void patch_bay_line(const char *text) {
     call_global("__patchBay", 1, arguments);
 }
 
-// Sharing: the screenshot comes from the next frame, then tools/gallery_share.py sends the requests.
+// Sharing: the screenshot comes from the next frame, then __shareSketch (js/editor-actions.js) sends the
+// requests of the web editor with fetch() and answers through native.shareDone().
 static struct {
-    bool waiting_for_frame;
-    int process;
-    char code_path[PATH_MAX];
-    char image_path[PATH_MAX];
+    bool waiting_for_frame, sending;
+    char *code;
     char name[256];
-} share = { .process = -1 };
+} share;
 
 static bool start_share(const char *code, const char *name) {
-    if (!gallery_server || share.process >= 0 || share.waiting_for_frame) return false;
-    const char *directory = getenv("XDG_RUNTIME_DIR");
-    snprintf(share.code_path, sizeof share.code_path, "%s/hydra-native-share.js", directory ? directory : "/tmp");
-    snprintf(share.image_path, sizeof share.image_path, "%s/hydra-native-share.png", directory ? directory : "/tmp");
+    if (!gallery_server || share.sending || share.waiting_for_frame) return false;
+    free(share.code);
+    share.code = strdup(code);
     snprintf(share.name, sizeof share.name, "%s", name);
-    FILE *file = fopen(share.code_path, "wb");
-    if (!file) return false;
-    fputs(code, file);
-    fclose(file);
     share.waiting_for_frame = true;
     return true;
 }
 
-static bool write_png(const char *path, int width, int height);
+static JSValue js_share_done(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    const char *text = JS_ToCString(ctx, argv[1]);
+    share.sending = false;
+    ui_share_done(JS_ToBool(ctx, argv[0]), text ? text : "");
+    JS_FreeCString(ctx, text);
+    return JS_UNDEFINED;
+}
+
+static unsigned char *read_window_pixels(int width, int height);
 
 static void set_window_title(const char *url) { SDL_SetWindowTitle(window, url); }
 
@@ -567,22 +569,41 @@ static void update_text_input_rect(int drawable_width) {
     SDL_SetTextInputRect(&rect);
 }
 
+struct png_buffer {
+    unsigned char *data;
+    size_t length, capacity;
+};
+
+static void append_png(void *context, void *data, int size) {
+    struct png_buffer *buffer = context;
+    if (buffer->length + (size_t)size > buffer->capacity) {
+        buffer->capacity = (buffer->length + (size_t)size) * 2;
+        buffer->data = realloc(buffer->data, buffer->capacity);
+    }
+    memcpy(buffer->data + buffer->length, data, (size_t)size);
+    buffer->length += (size_t)size;
+}
+
 static void continue_share(int width, int height) {
     share.waiting_for_frame = false;
-    char script[PATH_MAX + 64];
-    snprintf(script, sizeof script, "%s/../tools/gallery_share.py", executable_path_directory);
-    char *argv[] = { "python3", script, (char *)gallery_server, share.code_path, share.image_path, share.name, NULL };
-    share.process = write_png(share.image_path, width, height) ? process_start(argv) : -1;
-    if (share.process < 0) ui_share_done(false, "cannot write the screenshot");
+    unsigned char *pixels = read_window_pixels(width, height);
+    stbi_flip_vertically_on_write(1);
+    struct png_buffer png = { 0 };
+    bool ok = stbi_write_png_to_func(append_png, &png, width, height, 4, pixels, width * 4) != 0;
+    free(pixels);
+    if (!ok) {
+        free(png.data);
+        return ui_share_done(false, "cannot encode the screenshot");
+    }
+    share.sending = true;
+    JSValue arguments[4] = { JS_NewString(js, gallery_server), JS_NewString(js, share.code),
+                             JS_NewArrayBufferCopy(js, png.data, png.length), JS_NewString(js, share.name) };
+    free(png.data);
+    call_global("__shareSketch", 4, arguments);
 }
 
 static void fetch_done(int id, bool ok, const char *data, size_t length) {
     if (thumbnails_fetch_done(id, ok, data, length) || canvas2d_fetch_done(id, ok, data, length)) return;
-    if (id == share.process) {
-        share.process = -1;
-        ui_share_done(ok, data);
-        return;
-    }
     // The text for scripts and JSON, the bytes for binary files such as the fonts of p5.js loadFont.
     JSValue arguments[4] = { JS_NewInt32(js, id), JS_NewBool(js, ok), JS_NewStringLen(js, data, length),
                              JS_NewArrayBufferCopy(js, (const uint8_t *)data, length) };
@@ -798,6 +819,7 @@ static const JSCFunctionListEntry native_functions[] = {
     JS_CFUNC_DEF("audioStart", 0, js_audio_start),
     JS_CFUNC_DEF("audioFeatures", 0, js_audio_features),
     JS_CFUNC_DEF("fetchStart", 1, js_fetch_start),
+    JS_CFUNC_DEF("shareDone", 2, js_share_done),
     JS_CFUNC_DEF("patchBayStart", 2, js_patch_bay_start),
     JS_CFUNC_DEF("patchBaySend", 1, js_patch_bay_send),
     JS_CFUNC_DEF("patchBayStop", 0, js_patch_bay_stop),
@@ -1135,11 +1157,17 @@ static bool load_bundle(const char *directory) {
 }
 
 // Writes the default framebuffer as PNG (rows flipped, because GL starts at the bottom).
-static bool write_png(const char *path, int width, int height) {
+// The window as opaque RGBA rows from the bottom (malloc'd), as glReadPixels gives them.
+static unsigned char *read_window_pixels(int width, int height) {
     unsigned char *pixels = malloc((size_t)width * (size_t)height * 4);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
     for (size_t i = 3; i < (size_t)width * (size_t)height * 4; i += 4) pixels[i] = 255;
+    return pixels;
+}
+
+static bool write_png(const char *path, int width, int height) {
+    unsigned char *pixels = read_window_pixels(width, height);
     stbi_flip_vertically_on_write(1);
     bool ok = stbi_write_png(path, width, height, 4, pixels, width * 4) != 0;
     free(pixels);

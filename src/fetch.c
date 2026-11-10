@@ -1,5 +1,5 @@
 // Child processes whose output the main loop reads without blocking: downloads with curl (loadScript, languages,
-// extensions, thumbnails) and helpers such as tools/gallery_share.py.
+// extensions, thumbnails) and helpers.
 #define _GNU_SOURCE
 #include <errno.h>
 #include <fcntl.h>
