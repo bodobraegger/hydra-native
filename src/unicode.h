@@ -12,6 +12,13 @@ static inline bool unicode_is_wide(int codepoint) {
            (codepoint >= 0xFFE0 && codepoint <= 0xFFE6) || (codepoint >= 0x20000 && codepoint <= 0x3FFFD);
 }
 
+// Columns of a code point: 0 for joiners and variation selectors (as in emoji sequences), 2 for wide ones.
+static inline int unicode_columns(int codepoint) {
+    if (codepoint == 0x200D || (codepoint >= 0xFE00 && codepoint <= 0xFE0F)) return 0;
+    if (unicode_is_wide(codepoint) || (codepoint >= 0x1F300 && codepoint <= 0x1FAFF)) return 2;
+    return 1;
+}
+
 // Decodes one code point; invalid bytes count as one byte of U+FFFD.
 static inline int unicode_decode(const unsigned char *text, size_t length, size_t *consumed) {
     unsigned char first = text[0];

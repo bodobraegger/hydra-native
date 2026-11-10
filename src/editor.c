@@ -171,7 +171,7 @@ static size_t char_columns(const struct editor *editor, size_t offset, size_t co
     if (c == '\t') return EDITOR_TAB_WIDTH - column % EDITOR_TAB_WIDTH;
     if (c < 0xE0) return 1;
     size_t consumed;
-    return unicode_is_wide(unicode_decode((const unsigned char *)editor->text + offset, editor->length - offset, &consumed)) ? 2 : 1;
+    return (size_t)unicode_columns(unicode_decode((const unsigned char *)editor->text + offset, editor->length - offset, &consumed));
 }
 
 static size_t columns_between(const struct editor *editor, size_t start, size_t end) {

@@ -1235,7 +1235,9 @@ int main(int argc, char **argv) {
         .screencap = request_screencap,
         .share = start_share,
     };
-    if (!ui_init(options.font_path, options.font_size, sketch, &host)) return 1;
+    char emoji_font[PATH_MAX + 64];
+    snprintf(emoji_font, sizeof emoji_font, "%s/../vendor/fonts/NotoEmoji.ttf", directory);
+    if (!ui_init(options.font_path, emoji_font, options.font_size, sketch, &host)) return 1;
     if (url_code) {
         ui_set_code(url_code);
         if (!strncmp(url_code, SHOW_CODE_FALSE, strlen(SHOW_CODE_FALSE))) ui_set_visible(false);

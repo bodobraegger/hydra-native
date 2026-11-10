@@ -9,7 +9,7 @@
 #define OVERLAY_MAX_FONT_SIZE 56.0f
 #define OVERLAY_TAB_WIDTH 4 // a tab reaches the next multiple of 4 columns
 
-bool overlay_init(const char *font_path, float font_size);
+bool overlay_init(const char *font_path, const char *emoji_font_path, float font_size);
 bool overlay_set_font_size(float font_size);
 float overlay_font_size(void);
 float overlay_char_width(void);
@@ -27,3 +27,7 @@ void overlay_image(float x, float y, float width, float height, unsigned texture
 void overlay_end(int width, int height);
 int overlay_columns(int codepoint); // 2 for wide East Asian characters, else 1
 size_t overlay_text_columns(const char *text, size_t length);
+// Proportional text, shaped with HarfBuzz, in visual order after a bidi pass; returns the width in pixels.
+// For panels and prompts; the code uses the monospace grid of overlay_text().
+float overlay_text_shaped(float x, float y, const char *text, size_t length, bool right_to_left, uint32_t color);
+float overlay_text_shaped_width(const char *text, size_t length, bool right_to_left);

@@ -8,12 +8,16 @@ PLUTOVG_SOURCES := $(addprefix $(PLUTOVG_DIR)/source/,plutovg-blend.c plutovg-ca
 	plutovg-ft-raster.c plutovg-ft-stroker.c plutovg-matrix.c plutovg-paint.c plutovg-path.c plutovg-rasterize.c \
 	plutovg-surface.c)
 PLUTOVG_OBJECTS := $(patsubst $(PLUTOVG_DIR)/source/%.c,build/plutovg/%.o,$(PLUTOVG_SOURCES))
+HARFBUZZ_VERSION := 14.6.0
+HARFBUZZ_DIR := vendor/harfbuzz
+EMOJI_FONT_COMMIT := 8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5
+EMOJI_FONT_URL := https://raw.githubusercontent.com/google/fonts/$(EMOJI_FONT_COMMIT)/ofl/notoemoji
 OBJECTS := build/main.o build/canvas2d.o build/video.o build/audio.o build/fetch.o build/thumbnails.o build/midi.o build/recorder.o build/editor.o build/ui.o build/overlay.o build/keymap.o
 
-CFLAGS := -O2 -g -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -I$(QUICKJS_DIR) -Ivendor/stb -I$(PLUTOVG_DIR)/include -DPLUTOVG_BUILD_STATIC $(shell pkg-config --cflags sdl2)
+CFLAGS := -O2 -g -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -I$(QUICKJS_DIR) -Ivendor/stb -I$(PLUTOVG_DIR)/include -DPLUTOVG_BUILD_STATIC -I$(HARFBUZZ_DIR)/src $(shell pkg-config --cflags sdl2)
 LDLIBS := $(shell pkg-config --libs sdl2 glesv2 libpulse-simple alsa) -lm -ldl -lpthread
 
-all: build/hydra-native build/hydra-bundle.js build/p5.min.js
+all: build/hydra-native build/hydra-bundle.js build/p5.min.js vendor/fonts/NotoEmoji.ttf
 
 $(QUICKJS_DIR)/quickjs.c:
 	mkdir -p vendor
@@ -25,6 +29,20 @@ STB_COMMIT := 4e9b368bfc071e97206ea5c6adba68dd0cbf8897
 vendor/stb/%.h:
 	mkdir -p vendor/stb
 	curl -fsSL https://raw.githubusercontent.com/nothings/stb/$(STB_COMMIT)/$*.h -o $@
+
+$(HARFBUZZ_DIR)/src/harfbuzz.cc:
+	mkdir -p vendor
+	curl -fsSL https://github.com/harfbuzz/harfbuzz/releases/download/$(HARFBUZZ_VERSION)/harfbuzz-$(HARFBUZZ_VERSION).tar.xz | tar -xJ -C vendor
+	mv vendor/harfbuzz-$(HARFBUZZ_VERSION) $(HARFBUZZ_DIR)
+
+build/harfbuzz.o: $(HARFBUZZ_DIR)/src/harfbuzz.cc
+	@mkdir -p build
+	$(CXX) -O2 -w -fno-exceptions -fno-rtti -c $< -o $@
+
+vendor/fonts/NotoEmoji.ttf:
+	mkdir -p vendor/fonts
+	curl -fsSL "$(EMOJI_FONT_URL)/NotoEmoji%5Bwght%5D.ttf" -o $@
+	curl -fsSL "$(EMOJI_FONT_URL)/OFL.txt" -o vendor/fonts/NotoEmoji-OFL.txt
 
 $(PLUTOVG_DIR)/include/plutovg.h:
 	mkdir -p vendor
@@ -43,12 +61,12 @@ build/quickjs/%.o: $(QUICKJS_DIR)/%.c
 	@mkdir -p build/quickjs
 	$(CC) -O2 -w -D_GNU_SOURCE -DCONFIG_VERSION=\"$(QUICKJS_VERSION)\" -c $< -o $@
 
-build/%.o: src/%.c src/*.h $(QUICKJS_DIR)/quickjs.c $(PLUTOVG_DIR)/include/plutovg.h vendor/stb/stb_truetype.h vendor/stb/stb_image_write.h vendor/stb/stb_image.h
+build/%.o: src/%.c src/*.h $(QUICKJS_DIR)/quickjs.c $(PLUTOVG_DIR)/include/plutovg.h $(HARFBUZZ_DIR)/src/harfbuzz.cc vendor/stb/stb_truetype.h vendor/stb/stb_image_write.h vendor/stb/stb_image.h
 	@mkdir -p build
 	$(CC) $(CFLAGS) -c $< -o $@
 
-build/hydra-native: $(OBJECTS) $(QUICKJS_OBJECTS) $(PLUTOVG_OBJECTS)
-	$(CC) -o $@ $^ $(LDLIBS)
+build/hydra-native: $(OBJECTS) $(QUICKJS_OBJECTS) $(PLUTOVG_OBJECTS) build/harfbuzz.o
+	$(CXX) -o $@ $^ $(LDLIBS)
 
 build/p5.min.js: node_modules/hydra-synth/package.json
 	@mkdir -p build

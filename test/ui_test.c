@@ -23,7 +23,7 @@ static char next_error[256];
 
 // ---------------------------------------------------------------- stubs
 
-bool overlay_init(const char *font_path, float font_size) { return true; }
+bool overlay_init(const char *font_path, const char *emoji_font_path, float font_size) { return true; }
 bool overlay_set_font_size(float font_size) { return true; }
 float overlay_font_size(void) { return 20; }
 float overlay_char_width(void) { return 10; }
@@ -36,6 +36,8 @@ void overlay_end(int width, int height) {}
 int overlay_columns(int codepoint) { return 1; }
 void overlay_image(float x, float y, float width, float height, unsigned texture) {}
 unsigned thumbnail_texture(const char *url) { return 0; }
+float overlay_text_shaped(float x, float y, const char *text, size_t length, bool right_to_left, uint32_t color) { return 0; }
+float overlay_text_shaped_width(const char *text, size_t length, bool right_to_left) { return (float)length * 10; }
 size_t overlay_text_columns(const char *text, size_t length) { return length; }
 
 static char *evaluate(const char *code, size_t length, const char *name) {
@@ -109,7 +111,7 @@ int main(void) {
     close(fd);
     write_file(path, "osc(10)\n  .out()\n\nnoise().out()");
     static const struct ui_host host = { evaluate, nothing, never, nothing, call, nothing, share };
-    ui_init("unused.ttf", 20, path, &host);
+    ui_init("unused.ttf", NULL, 20, path, &host);
     ui_draw(800, 600, 0);
 
     key(SDLK_RETURN, KMOD_LALT); // the block around the cursor (line 0)

@@ -21,7 +21,8 @@ struct ui_host {
 };
 
 // `file_path` may be NULL (no file) or a path that does not exist yet (Ctrl+S creates it).
-bool ui_init(const char *font_path, float font_size, const char *file_path, const struct ui_host *host);
+bool ui_init(const char *font_path, const char *emoji_font_path, float font_size, const char *file_path,
+             const struct ui_host *host);
 bool ui_key(const SDL_KeyboardEvent *event); // true when the overlay used the key
 void ui_text_input(const char *text);
 void ui_text_editing(const char *text); // an IME composition that is not committed yet
