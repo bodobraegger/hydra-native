@@ -1,6 +1,6 @@
 // WebGLRenderingContext (WebGL 1) for canvas.getContext('webgl'), drawn by src/webgl.c on the GLES 3 context of
 // hydra-native. It covers the calls of p5.js 1.6.0 in WEBGL mode and the usual WebGL 1 API; the canvas is a
-// source for hydra like a 2D canvas. Not covered: texSubImage2D, compressed textures and copyTexImage2D.
+// source for hydra like a 2D canvas. Not covered: compressed textures and copyTexImage2D.
 import { sourceHandle } from './canvas.js'
 import constants from './webgl-constants.js'
 
@@ -143,6 +143,22 @@ export class WebGLRenderingContext {
     const handle = sourceHandle(source)
     if (handle < 0) throw new TypeError('texImage2D: hydra-native takes canvases, images, ImageData and video sources')
     native.glTexImageSource(this.context, target, level, internalFormat, format, type, handle)
+  }
+
+  // texSubImage2D(target, level, x, y, width, height, format, type, pixels) or
+  // texSubImage2D(target, level, x, y, format, type, source), with the sources of texImage2D.
+  texSubImage2D (target, level, x, y, ...rest) {
+    if (rest.length >= 5) {
+      const [width, height, format, type, pixels] = rest
+      return native.glTexSubImage2D(this.context, target, level, x, y, width, height, format, type, pixels)
+    }
+    const [format, type, source] = rest
+    if (source && source.data && source.width !== undefined && !source.nativeId) { // ImageData
+      return native.glTexSubImage2D(this.context, target, level, x, y, source.width, source.height, format, type, source.data)
+    }
+    const handle = sourceHandle(source)
+    if (handle < 0) throw new TypeError('texSubImage2D: hydra-native takes canvases, images, ImageData and video sources')
+    native.glTexSubImageSource(this.context, target, level, x, y, format, type, handle)
   }
 
   readPixels (x, y, width, height, format, type, pixels) {

@@ -621,34 +621,86 @@ static void flip_rows(unsigned char *pixels, int width, int height, int bytes_pe
     free(swap);
 }
 
+// The bytes of one pixel of an upload, or 0 for a format that WebGL 1 does not take.
+static size_t pixel_bytes(GLenum format, GLenum type) {
+    if (type == GL_UNSIGNED_SHORT_5_6_5 || type == GL_UNSIGNED_SHORT_4_4_4_4 || type == GL_UNSIGNED_SHORT_5_5_5_1) return 2;
+    size_t channels = format == GL_RGBA ? 4 : format == GL_RGB ? 3 : format == GL_LUMINANCE_ALPHA ? 2
+                    : format == GL_LUMINANCE || format == GL_ALPHA ? 1 : 0;
+    size_t size = type == GL_UNSIGNED_BYTE ? 1 : type == GL_FLOAT ? 4 : type == GL_HALF_FLOAT || type == 0x8D61 ? 2 : 0;
+    return channels * size; // 0x8D61 is HALF_FLOAT_OES of WebGL 1
+}
+
+// The pixels of a typed-array upload, flipped into a copy when UNPACK_FLIP_Y is set; NULL when the array is
+// smaller than the rows that GL reads.
+static const unsigned char *upload_pixels(JSContext *ctx, struct context *context, JSValueConst array, int width, int height,
+                                          GLenum format, GLenum type, unsigned char **copy) {
+    size_t size = 0, bytes = pixel_bytes(format, type);
+    const unsigned char *data = typed_array_data(ctx, array, &size);
+    size_t alignment = (size_t)(context->unpack_alignment > 0 ? context->unpack_alignment : 4);
+    size_t row = (size_t)width * bytes, stride = (row + alignment - 1) / alignment * alignment;
+    *copy = NULL;
+    if (!data || !bytes || width <= 0 || height <= 0 || size < stride * (size_t)(height - 1) + row) return NULL;
+    if (!context->flip_y) return data;
+    *copy = malloc(stride * (size_t)height);
+    for (int y = 0; y < height; y++) memcpy(*copy + (size_t)y * stride, data + (size_t)(height - 1 - y) * stride, row);
+    return *copy;
+}
+
 // texImage2D(id, target, level, internalFormat, width, height, format, type, data or null): the typed-array form.
 WEBGL_FUNCTION(js_tex_image_2d) {
     ACTIVATE();
     int width = INT(4), height = INT(5);
-    size_t size = 0;
-    unsigned char *data = JS_IsNull(argv[8]) || JS_IsUndefined(argv[8]) ? NULL : typed_array_data(ctx, argv[8], &size);
     unsigned char *copy = NULL;
-    if (data && context->flip_y && INT(7) == GL_UNSIGNED_BYTE && INT(6) == GL_RGBA && size >= (size_t)width * (size_t)height * 4) {
-        copy = malloc((size_t)width * (size_t)height * 4);
-        memcpy(copy, data, (size_t)width * (size_t)height * 4);
-        flip_rows(copy, width, height, 4);
-        data = copy;
+    const unsigned char *data = NULL;
+    if (!JS_IsNull(argv[8]) && !JS_IsUndefined(argv[8])) {
+        data = upload_pixels(ctx, context, argv[8], width, height, (GLenum)INT(6), (GLenum)INT(7), &copy);
+        if (!data) return JS_ThrowTypeError(ctx, "texImage2D: the array is too small for the size, format and type");
     }
     glTexImage2D((GLenum)INT(1), INT(2), INT(3), width, height, 0, (GLenum)INT(6), (GLenum)INT(7), data);
     free(copy);
     return JS_UNDEFINED;
 }
 
-// texImageSource(id, target, level, internalFormat, format, type, canvasHandle): the image-source form, for 2D
-// canvases and images of js/canvas.js; the pixel store flags apply.
+// texSubImage2D(id, target, level, x, y, width, height, format, type, data): the typed-array form.
+WEBGL_FUNCTION(js_tex_sub_image_2d) {
+    ACTIVATE();
+    int width = INT(5), height = INT(6);
+    unsigned char *copy = NULL;
+    const unsigned char *data = upload_pixels(ctx, context, argv[9], width, height, (GLenum)INT(7), (GLenum)INT(8), &copy);
+    if (!data) return JS_ThrowTypeError(ctx, "texSubImage2D: the array is too small for the size, format and type");
+    glTexSubImage2D((GLenum)INT(1), INT(2), INT(3), INT(4), width, height, (GLenum)INT(7), (GLenum)INT(8), data);
+    free(copy);
+    return JS_UNDEFINED;
+}
+
+// The RGBA pixels of a 2D canvas or image of js/canvas.js, with the pixel store flags applied.
+static unsigned char *source_pixels(struct context *context, int handle, int *width, int *height) {
+    unsigned char *pixels = canvas2d_rgba(handle, context->premultiply_alpha, width, height);
+    if (pixels && context->flip_y) flip_rows(pixels, *width, *height, 4);
+    return pixels;
+}
+
+// texImageSource(id, target, level, internalFormat, format, type, canvasHandle): the image-source form.
 WEBGL_FUNCTION(js_tex_image_source) {
     ACTIVATE();
     int width, height;
-    unsigned char *pixels = canvas2d_rgba(INT(6), context->premultiply_alpha, &width, &height);
+    unsigned char *pixels = source_pixels(context, INT(6), &width, &height);
     if (!pixels) return JS_ThrowTypeError(ctx, "texImage2D: the source has no pixels");
-    if (context->flip_y) flip_rows(pixels, width, height, 4);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     glTexImage2D((GLenum)INT(1), INT(2), INT(3), width, height, 0, (GLenum)INT(4), (GLenum)INT(5), pixels);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, context->unpack_alignment);
+    free(pixels);
+    return JS_UNDEFINED;
+}
+
+// texSubImageSource(id, target, level, x, y, format, type, canvasHandle): the image-source form.
+WEBGL_FUNCTION(js_tex_sub_image_source) {
+    ACTIVATE();
+    int width, height;
+    unsigned char *pixels = source_pixels(context, INT(7), &width, &height);
+    if (!pixels) return JS_ThrowTypeError(ctx, "texSubImage2D: the source has no pixels");
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexSubImage2D((GLenum)INT(1), INT(2), INT(3), INT(4), width, height, (GLenum)INT(5), (GLenum)INT(6), pixels);
     glPixelStorei(GL_UNPACK_ALIGNMENT, context->unpack_alignment);
     free(pixels);
     return JS_UNDEFINED;
@@ -738,6 +790,8 @@ static const JSCFunctionListEntry webgl_functions[] = {
     JS_CFUNC_DEF("glPixelStore", 3, js_pixel_store),
     JS_CFUNC_DEF("glTexImage2D", 9, js_tex_image_2d),
     JS_CFUNC_DEF("glTexImageSource", 7, js_tex_image_source),
+    JS_CFUNC_DEF("glTexSubImage2D", 10, js_tex_sub_image_2d),
+    JS_CFUNC_DEF("glTexSubImageSource", 8, js_tex_sub_image_source),
     JS_CFUNC_DEF("glReadPixels", 8, js_read_pixels),
     JS_CFUNC_DEF("glParameter", 2, js_parameter),
     JS_CFUNC_DEF("glIsEnabled", 2, js_is_enabled),
