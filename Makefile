@@ -134,10 +134,16 @@ build/audio-test: test/audio_test.c src/audio_processing.c src/audio_processing.
 	@mkdir -p build
 	$(CC) -O1 -g -Wall -Wextra -fsanitize=address,undefined -o $@ test/audio_test.c src/audio_processing.c src/analog_agc.c -lm -ldl -lpthread
 
-test: build/editor-test build/ui-test build/audio-test build/hydra-native-capture $(if $(WEBRTC_APM_LIBRARY),build/libhydra-webrtc-apm.so)
+build/midi-test: test/midi_test.c src/midi.c src/midi.h
+	@mkdir -p build
+	$(CC) -O1 -g -Wall -Wextra -Wno-unused-parameter -fsanitize=address,undefined -o $@ test/midi_test.c src/midi.c \
+		$(shell pkg-config --libs alsa) -lm -lpthread
+
+test: build/editor-test build/ui-test build/audio-test build/midi-test build/hydra-native-capture $(if $(WEBRTC_APM_LIBRARY),build/libhydra-webrtc-apm.so)
 	build/editor-test
 	build/ui-test
 	build/audio-test
+	build/midi-test
 	python3 test/portal_test.py
 
 check: all test

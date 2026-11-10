@@ -1,9 +1,12 @@
 // MIDI input and output for navigator.requestMIDIAccess() (js/midi.js) through the ALSA sequencer.
 // hydra-native connects its input port to every readable port, also to ports that appear later.
 // Output goes directly to the port of a MIDIOutput.
+// A queue stamps each input event with its arrival time in the kernel, so that the time stamp of a
+// MIDIMessageEvent does not depend on when the frame reads it.
 #include <alsa/asoundlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 #include "midi.h"
 
@@ -12,7 +15,7 @@
 #define SYSTEM_CLIENT 0
 
 static snd_seq_t *sequencer;
-static int own_client, own_port, own_output_port;
+static int own_client, own_port, own_output_port, queue;
 static snd_midi_event_t *decoder;
 static snd_midi_event_t *encoder;
 static bool inputs_changed;
@@ -62,6 +65,16 @@ bool midi_start(void) {
                                           SND_SEQ_PORT_TYPE_MIDI_GENERIC | SND_SEQ_PORT_TYPE_APPLICATION);
     own_output_port = snd_seq_create_simple_port(sequencer, "output", SND_SEQ_PORT_CAP_READ | SND_SEQ_PORT_CAP_SUBS_READ,
                                                  SND_SEQ_PORT_TYPE_MIDI_GENERIC | SND_SEQ_PORT_TYPE_APPLICATION);
+    queue = snd_seq_alloc_named_queue(sequencer, "hydra-native");
+    snd_seq_port_info_t *port_info;
+    snd_seq_port_info_alloca(&port_info);
+    snd_seq_get_port_info(sequencer, own_port, port_info);
+    snd_seq_port_info_set_timestamping(port_info, 1);
+    snd_seq_port_info_set_timestamp_real(port_info, 1);
+    snd_seq_port_info_set_timestamp_queue(port_info, queue);
+    snd_seq_set_port_info(sequencer, own_port, port_info);
+    snd_seq_start_queue(sequencer, queue, NULL);
+    snd_seq_drain_output(sequencer);
     snd_midi_event_new(MAX_MESSAGE_BYTES, &encoder);
     // The announce port reports new ports, so that devices plugged in later connect too.
     snd_seq_connect_from(sequencer, own_port, SND_SEQ_CLIENT_SYSTEM, SND_SEQ_PORT_SYSTEM_ANNOUNCE);
@@ -121,9 +134,30 @@ bool midi_send(int client, int port, const unsigned char *bytes, int length) {
 
 bool midi_inputs_changed(void) { return inputs_changed; }
 
-int midi_poll(void (*message)(int client, int port, const unsigned char *bytes, int length)) {
+static double monotonic_ms(void) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return now.tv_sec * 1e3 + now.tv_nsec / 1e6;
+}
+
+static double real_time_ms(const snd_seq_real_time_t *time) { return time->tv_sec * 1e3 + time->tv_nsec / 1e6; }
+
+// The difference between CLOCK_MONOTONIC and the queue time, read again for each poll so that a drift
+// of the queue timer does not add up.
+static double queue_offset_ms(void) {
+    snd_seq_queue_status_t *status;
+    snd_seq_queue_status_alloca(&status);
+    double before = monotonic_ms();
+    if (snd_seq_get_queue_status(sequencer, queue, status) < 0) return before;
+    double after = monotonic_ms();
+    return (before + after) / 2 - real_time_ms(snd_seq_queue_status_get_real_time(status));
+}
+
+int midi_poll(void (*message)(int client, int port, double time, const unsigned char *bytes, int length)) {
     if (!sequencer) return 0;
     int count = 0;
+    double offset = queue_offset_ms();
+    double now = monotonic_ms();
     snd_seq_event_t *event;
     while (snd_seq_event_input(sequencer, &event) >= 0 && event) {
         if (event->type == SND_SEQ_EVENT_PORT_START) {
@@ -137,7 +171,9 @@ int midi_poll(void (*message)(int client, int port, const unsigned char *bytes, 
         unsigned char bytes[MAX_MESSAGE_BYTES];
         long length = snd_midi_event_decode(decoder, bytes, sizeof bytes, event);
         if (length > 0) {
-            message(event->source.client, event->source.port, bytes, (int)length);
+            bool stamped = (event->flags & SND_SEQ_TIME_STAMP_MASK) == SND_SEQ_TIME_STAMP_REAL;
+            double time = stamped ? offset + real_time_ms(&event->time.time) : now;
+            message(event->source.client, event->source.port, time, bytes, (int)length);
             count++;
         }
     }

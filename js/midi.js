@@ -71,12 +71,12 @@ navigator.requestMIDIAccess = () => {
   if (!native.midiStart()) return Promise.reject(new Error('the ALSA sequencer is not available'))
   access = { inputs: new Map(), outputs: new Map(), sysexEnabled: false, onstatechange: null }
   updateInputs()
-  onAfterFrame((now) => {
+  onAfterFrame(() => {
     const { changed, messages } = native.midiPoll()
     if (changed) updateInputs()
-    for (const [id, ...bytes] of messages) {
+    for (const [id, time, ...bytes] of messages) {
       const input = access.inputs.get(id)
-      if (input) input.receive(bytes, now)
+      if (input) input.receive(bytes, time)
     }
   })
   return Promise.resolve(access)

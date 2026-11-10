@@ -215,7 +215,8 @@ feOffset, feBlend, feComposite, feFlood, feMerge, feMorphology, feTurbulence and
 `fetch()` and `XMLHttpRequest` read files and send requests with curl, so p5 `loadFont` and `loadJSON` work.
 Requests follow the CORS and mixed-content rules of a page at https://hydra.ojack.xyz, so a server that the web
 editor cannot read fails here too. `vidRecorder.start()` and `vidRecorder.stop()` record the visuals to a WebM file
-(VP9, 25 fps) in ~/Downloads. `navigator.requestMIDIAccess()` gives MIDI input and output through ALSA.
+(VP9, 25 fps) in ~/Downloads. `navigator.requestMIDIAccess()` gives MIDI input and output through ALSA. The
+`timeStamp` of a MIDI message is its arrival time in the kernel, in the time of `performance.now()`.
 
 With `--gallery-server URL`, `pb` joins the room 'iclc' of the signalling server at that URL, as the web editor
 does with its server, and publishes the output of hydra-native. `pb.list()` shows the peers, and

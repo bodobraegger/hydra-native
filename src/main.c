@@ -664,12 +664,13 @@ static JSValue js_midi_send(JSContext *ctx, JSValueConst this, int argc, JSValue
 
 static JSValue midi_messages;
 
-static void add_midi_message(int client, int port, const unsigned char *bytes, int length) {
+static void add_midi_message(int client, int port, double time, const unsigned char *bytes, int length) {
     char id[32];
     snprintf(id, sizeof id, "%d:%d", client, port);
     JSValue entry = JS_NewArray(js);
     JS_SetPropertyUint32(js, entry, 0, JS_NewString(js, id));
-    for (int i = 0; i < length; i++) JS_SetPropertyUint32(js, entry, (uint32_t)i + 1, JS_NewInt32(js, bytes[i]));
+    JS_SetPropertyUint32(js, entry, 1, JS_NewFloat64(js, time));
+    for (int i = 0; i < length; i++) JS_SetPropertyUint32(js, entry, (uint32_t)i + 2, JS_NewInt32(js, bytes[i]));
     JSValue length_value = JS_GetPropertyStr(js, midi_messages, "length");
     int32_t index = 0;
     JS_ToInt32(js, &index, length_value);
@@ -677,7 +678,7 @@ static void add_midi_message(int client, int port, const unsigned char *bytes, i
     JS_SetPropertyUint32(js, midi_messages, (uint32_t)index, entry);
 }
 
-// midiPoll() returns { changed, messages: [[id, byte, ...], ...] } since the last call.
+// midiPoll() returns { changed, messages: [[id, time, byte, ...], ...] } since the last call.
 static JSValue js_midi_poll(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
     midi_messages = JS_NewArray(ctx);
     midi_poll(add_midi_message);
