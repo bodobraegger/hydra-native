@@ -561,6 +561,8 @@ static JSValue js_exit(JSContext *ctx, JSValueConst this, int argc, JSValueConst
 }
 
 static JSValue js_screencap(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv);
+static JSValue js_record_start(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv);
+static JSValue js_record_stop(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv);
 
 static const JSCFunctionListEntry native_functions[] = {
     JS_CFUNC_DEF("createProgram", 2, js_create_program),
@@ -591,6 +593,8 @@ static const JSCFunctionListEntry native_functions[] = {
     JS_CFUNC_DEF("midiPoll", 0, js_midi_poll),
     JS_CFUNC_DEF("now", 0, js_now),
     JS_CFUNC_DEF("screencap", 0, js_screencap),
+    JS_CFUNC_DEF("recordStart", 0, js_record_start),
+    JS_CFUNC_DEF("recordStop", 0, js_record_stop),
     JS_CFUNC_DEF("readFile", 1, js_read_file),
     JS_CFUNC_DEF("drawableSize", 0, js_drawable_size),
     JS_CFUNC_DEF("consoleMessage", 1, js_console_message),
@@ -912,17 +916,46 @@ static JSValue js_screencap(JSContext *ctx, JSValueConst this, int argc, JSValue
     return JS_UNDEFINED;
 }
 
+static void download_base(char *base, size_t size);
+
+static char recording_path[PATH_MAX + 80];
+
+static JSValue js_record_start(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    char base[PATH_MAX + 64];
+    download_base(base, sizeof base);
+    snprintf(recording_path, sizeof recording_path, "%s.webm", base);
+    int width, height;
+    SDL_GL_GetDrawableSize(window, &width, &height);
+    if (!recorder_start(recording_path, width & ~1, height & ~1)) return JS_ThrowInternalError(ctx, "cannot record");
+    return JS_UNDEFINED;
+}
+
+static JSValue js_record_stop(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    if (!recorder_active()) return JS_UNDEFINED;
+    bool ok = recorder_stop();
+    char message[PATH_MAX + 128];
+    snprintf(message, sizeof message, ok ? "saved %s" : "cannot save %s (see the ffmpeg output)", recording_path);
+    ui_show_message(message, !ok);
+    return JS_NewString(ctx, recording_path);
+}
+
 // Like screencap() of the web editor: the visuals without the code as PNG, and the code as .js,
 // named hydra-Y-M-D-H.M.S, in ~/Downloads (or the current directory).
-static void save_screencap(int width, int height) {
+// The base name of downloads, like in the web editor: hydra-Y-M-D-H.M.S in ~/Downloads (or the current directory).
+static void download_base(char *base, size_t size) {
     time_t seconds = time(NULL);
     struct tm *local = localtime(&seconds);
     const char *home = getenv("HOME");
-    char directory[PATH_MAX], base[PATH_MAX + 64];
+    char directory[PATH_MAX];
     snprintf(directory, sizeof directory, "%s/Downloads", home ? home : ".");
     if (access(directory, W_OK) != 0) snprintf(directory, sizeof directory, ".");
-    snprintf(base, sizeof base, "%s/hydra-%d-%d-%d-%d.%d.%d", directory, local->tm_year + 1900, local->tm_mon + 1,
+    snprintf(base, size, "%s/hydra-%d-%d-%d-%d.%d.%d", directory, local->tm_year + 1900, local->tm_mon + 1,
              local->tm_mday, local->tm_hour, local->tm_min, local->tm_sec);
+}
+
+static void save_screencap(int width, int height) {
+    char base[PATH_MAX + 64];
+    download_base(base, sizeof base);
     char image_path[PATH_MAX + 80], code_path[PATH_MAX + 80], message[PATH_MAX + 128];
     snprintf(image_path, sizeof image_path, "%s.png", base);
     snprintf(code_path, sizeof code_path, "%s.js", base);
@@ -1078,6 +1111,7 @@ int main(int argc, char **argv) {
         double after_js = now_ms();
         int drawable_width, drawable_height;
         SDL_GL_GetDrawableSize(window, &drawable_width, &drawable_height);
+        recorder_frame(now);
         if (screencap_requested) {
             screencap_requested = false;
             save_screencap(drawable_width, drawable_height);
@@ -1115,6 +1149,7 @@ int main(int argc, char **argv) {
         }
     }
 
+    if (recorder_active()) recorder_stop();
     video_close_all();
     if (listener >= 0) {
         close(listener);

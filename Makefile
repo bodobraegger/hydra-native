@@ -8,7 +8,7 @@ PLUTOVG_SOURCES := $(addprefix $(PLUTOVG_DIR)/source/,plutovg-blend.c plutovg-ca
 	plutovg-ft-raster.c plutovg-ft-stroker.c plutovg-matrix.c plutovg-paint.c plutovg-path.c plutovg-rasterize.c \
 	plutovg-surface.c)
 PLUTOVG_OBJECTS := $(patsubst $(PLUTOVG_DIR)/source/%.c,build/plutovg/%.o,$(PLUTOVG_SOURCES))
-OBJECTS := build/main.o build/canvas2d.o build/video.o build/audio.o build/fetch.o build/midi.o build/editor.o build/ui.o build/overlay.o build/keymap.o
+OBJECTS := build/main.o build/canvas2d.o build/video.o build/audio.o build/fetch.o build/midi.o build/recorder.o build/editor.o build/ui.o build/overlay.o build/keymap.o
 
 CFLAGS := -O2 -g -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -I$(QUICKJS_DIR) -Ivendor/stb -I$(PLUTOVG_DIR)/include -DPLUTOVG_BUILD_STATIC $(shell pkg-config --cflags sdl2)
 LDLIBS := $(shell pkg-config --libs sdl2 glesv2 libpulse-simple alsa) -lm -ldl -lpthread

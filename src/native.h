@@ -20,3 +20,10 @@ bool audio_features(float specific[BARK_BAND_COUNT], float *total);
 // Downloads with curl; fetch_poll calls `done` once per finished download.
 int fetch_start(const char *url);
 void fetch_poll(void (*done)(int id, bool ok, const char *data, size_t length));
+
+// Recording of the hydra output to a WebM file through ffmpeg (vidRecorder).
+#define RECORD_FPS 25 // captureStream(25) in hydra-synth
+bool recorder_start(const char *path, int width, int height);
+bool recorder_active(void);
+void recorder_frame(double now); // call after the hydra frame and before the code overlay
+bool recorder_stop(void); // waits for ffmpeg; false when it failed
