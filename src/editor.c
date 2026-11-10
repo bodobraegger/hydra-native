@@ -14,6 +14,7 @@
 #define MAX_WRAP_ROWS 1024
 #define INDENT "  "
 #define INDENT_WIDTH 2
+#define MAX_NESTING 64
 #define COMMENT_TOKEN "//"
 #define OPENING_BRACKETS "([{"
 #define CLOSING_BRACKETS ")]}"
@@ -1159,6 +1160,34 @@ void editor_type(struct editor *editor, const char *text, size_t length) {
     for_each_selection(editor, type_one, &arguments);
 }
 
+// The first entry after the innermost ( or [ of the line before `end` that is still open and has content after it
+// on the line, or NO_POSITION. Brackets in strings do not count.
+static size_t open_list_entry(const struct editor *editor, size_t line_start, size_t end) {
+    size_t openers[MAX_NESTING], depth = 0;
+    char quote = 0;
+    for (size_t i = line_start; i < end; i++) {
+        char c = editor->text[i];
+        if (quote) {
+            if (c == '\\') i++;
+            else if (c == quote) quote = 0;
+        } else if (strchr(QUOTES, c)) {
+            quote = c;
+        } else if (c == '(' || c == '[') {
+            if (depth < MAX_NESTING) openers[depth] = i;
+            depth++;
+        } else if ((c == ')' || c == ']') && depth > 0) {
+            depth--;
+        }
+    }
+    if (depth == 0 || depth > MAX_NESTING) return NO_POSITION;
+    size_t entry = openers[depth - 1] + 1;
+    while (entry < end && (editor->text[entry] == ' ' || editor->text[entry] == '\t')) entry++;
+    return entry < end ? entry : NO_POSITION;
+}
+
+// Enter keeps the indentation of the line; inside an open ( or [ with entries after it, the new line starts at the
+// column of the first entry, so that entries line up; directly after an opening bracket it indents one level, and
+// a closing bracket after the cursor moves to its own line (as in VS Code).
 static void newline_one(struct editor *editor, void *data) {
     size_t start, end;
     editor_selection(editor, &start, &end);
@@ -1170,11 +1199,18 @@ static void newline_one(struct editor *editor, void *data) {
     char next = char_at(editor, end);
     bool after_opener = previous && strchr(OPENING_BRACKETS, previous);
     bool between_pair = after_opener && next == closing_partner(previous);
-    char *text = malloc(2 * indent + INDENT_WIDTH + 3);
+    size_t entry = after_opener ? NO_POSITION : open_list_entry(editor, line_start, start);
+    size_t entry_columns = entry != NO_POSITION ? editor_columns_between(editor, line_start, entry) : 0;
+    char *text = malloc(2 * indent + entry_columns + INDENT_WIDTH + 3);
     size_t used = 0;
     text[used++] = '\n';
-    memcpy(text + used, editor->text + line_start, indent);
-    used += indent;
+    if (entry != NO_POSITION) {
+        memset(text + used, ' ', entry_columns);
+        used += entry_columns;
+    } else {
+        memcpy(text + used, editor->text + line_start, indent);
+        used += indent;
+    }
     if (after_opener) {
         memcpy(text + used, INDENT, INDENT_WIDTH);
         used += INDENT_WIDTH;

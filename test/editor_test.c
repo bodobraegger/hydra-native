@@ -471,6 +471,47 @@ static void test_visual_motion(void) {
     editor_free(&editor);
 }
 
+// Enter: (a) the indentation of the line stays, (b) inside an open ( or [ with entries the new line starts under
+// the first entry, (c) directly after an opener one level more, with the closer on its own line.
+static void test_enter_indentation(void) {
+    struct editor editor;
+    editor_init(&editor);
+    load(&editor, "  osc(10)");
+    editor_move(&editor, MOTION_DOCUMENT_END, false);
+    editor_insert_newline(&editor);
+    EXPECT_TEXT(&editor, "  osc(10)\n  "); // (a)
+
+    load(&editor, "shape([4, 3,");
+    editor_move(&editor, MOTION_DOCUMENT_END, false);
+    editor_insert_newline(&editor);
+    editor_type(&editor, "5,", 2);
+    editor_insert_newline(&editor);
+    EXPECT_TEXT(&editor, "shape([4, 3,\n       5,\n       "); // (b): under 4, then the entries line up
+
+    load(&editor, "osc(10, noise(3,");
+    editor_move(&editor, MOTION_DOCUMENT_END, false);
+    editor_insert_newline(&editor);
+    EXPECT_TEXT(&editor, "osc(10, noise(3,\n              "); // the innermost open bracket
+    load(&editor, "  osc(10, noise(3), '(',");
+    editor_move(&editor, MOTION_DOCUMENT_END, false);
+    editor_insert_newline(&editor);
+    EXPECT_TEXT(&editor, "  osc(10, noise(3), '(',\n      "); // noise( is closed, the bracket in the string does not count
+
+    load(&editor, "  shape([])");
+    editor_set_cursor(&editor, strlen("  shape(["), false);
+    editor_insert_newline(&editor);
+    EXPECT_TEXT(&editor, "  shape([\n    \n  ])"); // (c)
+    EXPECT(editor.cursor == strlen("  shape([\n    "));
+
+    // Wrapped lines change nothing: the columns are those of the line, not of its rows.
+    editor.wrap_columns = 8;
+    load(&editor, "src(o0).blend(o1, [0.1, 0.2,");
+    editor_move(&editor, MOTION_DOCUMENT_END, false);
+    editor_insert_newline(&editor);
+    EXPECT_TEXT(&editor, "src(o0).blend(o1, [0.1, 0.2,\n                   ");
+    editor_free(&editor);
+}
+
 static void test_sublime_commands(void) {
     struct editor editor;
     editor_init(&editor);
@@ -550,6 +591,7 @@ int main(void) {
     test_sublime_commands();
     test_group_motion();
     test_clusters();
+    test_enter_indentation();
     test_visual_motion();
     if (failures) {
         fprintf(stderr, "editor_test: %d failures\n", failures);
