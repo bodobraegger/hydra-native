@@ -163,30 +163,31 @@ gallery and signalling server (hydra-synth/hydra-server) and from the CodeMirror
 
 ### Hydra API and inputs
 
-| Feature                        | hydra-native                                   | Identical                          |
-| ------------------------------ | ---------------------------------------------- | ---------------------------------- |
-| hydra-synth API                | the same hydra-synth 1.4.0                     | yes                                |
-| setResolution, top-level await | stretched canvas, async global eval            | yes                                |
-| loadScript (paths and URLs)    | file or curl, global eval                      | yes                                |
-| fetch, XMLHttpRequest          | curl, CORS and mixed content of the web origin | yes                                |
-| initCam, initVideo, initImage  | GStreamer, ffmpeg                              | yes (YouTube needs yt-dlp)         |
-| initScreen                     | portal picker                                  | yes                                |
-| initCanvas, 2D canvas          | plutovg: gradients, shadows, filters, clip     | yes; url(#id): 11 SVG primitives   |
-| P5 (p5.js 1.6.0), 2D mode      | on the 2D canvas                               | yes                                |
-| P5 WEBGL mode                  | WebGL 1 on GLES 3, text with loadFont          | yes                                |
-| a (audio FFT)                  | Meyda, WebRTC processing, analog AGC           | yes                                |
-| Web MIDI input and output      | ALSA sequencer                                 | yes                                |
-| screencap(), vidRecorder       | PNG and js; WebM VP9 through ffmpeg            | yes                                |
-| setTimeout, setInterval        | between frames, about 1 ms late                | yes, except while a frame draws    |
-| initStream and pb (webRTC)     | editor patch bay in node with @roamhq/wrtc     | no: browser receiving native fails |
+| Feature                        | hydra-native                                   | Identical                        |
+| ------------------------------ | ---------------------------------------------- | -------------------------------- |
+| hydra-synth API                | the same hydra-synth 1.4.0                     | yes                              |
+| setResolution, top-level await | stretched canvas, async global eval            | yes                              |
+| loadScript (paths and URLs)    | file or curl, global eval                      | yes                              |
+| fetch, XMLHttpRequest          | curl, CORS and mixed content of the web origin | yes                              |
+| initCam, initVideo, initImage  | GStreamer, ffmpeg                              | yes (YouTube needs yt-dlp)       |
+| initScreen                     | portal picker                                  | yes                              |
+| initCanvas, 2D canvas          | plutovg: gradients, shadows, filters, clip     | yes; url(#id): 11 SVG primitives |
+| P5 (p5.js 1.6.0), 2D mode      | on the 2D canvas                               | yes                              |
+| P5 WEBGL mode                  | WebGL 1 on GLES 3, text with loadFont          | yes                              |
+| a (audio FFT)                  | Meyda, WebRTC processing, analog AGC           | yes                              |
+| Web MIDI input and output      | ALSA sequencer                                 | yes                              |
+| screencap(), vidRecorder       | PNG and js; WebM VP9 through ffmpeg            | yes                              |
+| setTimeout, setInterval        | between frames, about 1 ms late                | yes, except while a frame draws  |
+| initStream and pb (webRTC)     | editor patch bay, @roamhq/wrtc                 | yes, also with the web editor    |
 
 `initStream` and `pb` run the patch bay code of the web editor (rtc-patch-bay.js, pb-live.js) unchanged in
 node with @roamhq/wrtc 0.8 (tools/patch-bay.mjs). The helper joins the room with the events of hydra-server,
 writes the RGBA frames of received streams into FIFOs that src/video.c reads, and publishes the output frames
 that src/recorder.c writes while a peer is connected. Tests: test/patch_bay_test.py with two instances and a local
-copy of the signalling (test/signalling_server.cjs). With the local web editor in Chromium, hydra-native receives
-the browser, but the browser does not receive hydra-native yet (the connection fails after the stream arrives).
-The local web editor itself needs `process.nextTick` for simple-peer under its vite dev server.
+copy of the signalling (test/signalling_server.cjs). With the local web editor in headless Chromium and the same
+signalling copy, both directions work: hydra-native receives the output of the browser, and the browser receives
+hydra-native through s0.initStream. Under its vite dev server, the local web editor itself lacks
+`process.nextTick` for simple-peer, so its webRTC fails there; the test gives the page a small stand-in.
 
 Other differences that remain:
 

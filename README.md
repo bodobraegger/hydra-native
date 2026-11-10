@@ -93,7 +93,7 @@ JSON, the defaults apply, the error bar shows the error with its line, and nothi
 | audioSource         | "" (default)     | --audio SOURCE       | audio source for `a`                     |
 | analogAgc           | true             | --no-analog-agc      | analog gain control                      |
 | language            | "" ($LANG)       | --lang CODE          | language of the info panel               |
-| galleryServer       | "" (none)        | --gallery-server URL | gallery server                           |
+| galleryServer       | "" (none)        | --gallery-server URL | gallery and patch bay server             |
 | l10nUrl             | "" (l10n)        | --l10n-url URL       | editor.json of a language                |
 | socket              | "" (runtime dir) | --socket PATH        | the code socket                          |
 | themes              | {}               |                      | custom themes, see below                 |
