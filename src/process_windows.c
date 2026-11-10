@@ -264,7 +264,8 @@ long stream_read_ready(int stream, void *buffer, size_t size) {
     return (long)count;
 }
 
-// CancelIoEx also cancels a synchronous ReadFile of another thread of this process.
+// CancelIoEx also cancels a synchronous ReadFile of another thread of this process. A read that starts after
+// the call still waits for data, so the reader must check its own stop condition between reads.
 void stream_shutdown(int stream) { CancelIoEx(stream_handle(stream), NULL); }
 
 void stream_close(int stream) { _close(stream); }

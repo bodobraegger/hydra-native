@@ -6,8 +6,10 @@
 
 #define BARK_BAND_COUNT 24
 
-// Video sources: a child process writes raw RGBA frames of a fixed size to its stdout.
+// Video sources: a child process writes raw RGBA frames of a fixed size to its stdout (video_open runs a shell
+// command, see src/process.h), or a stream of the patch bay brings them (video_open_stream owns `stream`).
 int video_open(const char *command, int width, int height);
+int video_open_stream(int stream, int width, int height);
 bool video_upload(int handle, GLuint texture);
 bool video_is_running(int handle);
 bool video_size(int handle, int *width, int *height);
@@ -36,8 +38,8 @@ bool recorder_start(const char *path, int width, int height);
 bool recorder_active(void);
 void recorder_frame(double now); // call after the hydra frame and before the code overlay
 bool recorder_stop(void); // waits for ffmpeg; false when it failed
-// The output frames for the patch bay (25 fps, rows from the bottom) into `fd`, which the publisher closes.
-bool publisher_start(int fd, int width, int height);
+// The output frames for the patch bay (25 fps, rows from the bottom) into `stream`, which the publisher closes.
+bool publisher_start(int stream, int width, int height);
 bool publisher_active(void);
 void publisher_stop(void);
 // The webRTC patch bay (tools/patch-bay.mjs): one helper process with JSON lines in and out.

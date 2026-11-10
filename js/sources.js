@@ -25,13 +25,11 @@ function cameraDevices () {
   return devices
 }
 
-// A native video source for the texture of a HydraSource: the RGBA frames that `command` writes to stdout.
-export function nativeVideo (command, width, height) {
-  const handle = native.videoOpen(command, width, height)
+// A native video source of src/video.c for the texture of a HydraSource, from its handle.
+export function nativeVideo (handle, width, height) {
   return {
     width,
     height,
-    command,
     videoHandle: handle,
     upload: (texture) => native.videoUpload(handle, texture.id),
     close: () => native.videoClose(handle),
@@ -50,7 +48,7 @@ export function installSources (sourcePrototype) {
   // initCommand(shellCommand, { width, height, ...textureParams }) is the base of all other inputs.
   sourcePrototype.initCommand = function (command, { width = DEFAULT_WIDTH, height = DEFAULT_HEIGHT, ...params } = {}) {
     this.clear()
-    this.src = nativeVideo(command, width, height)
+    this.src = nativeVideo(native.videoOpen(command, width, height), width, height)
     this.tex = this.regl.texture({ width, height, ...params })
     this.dynamic = true
     return this
