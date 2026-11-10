@@ -316,3 +316,10 @@ build/hydra-native --no-vsync --bench 10 bench/prelude.js sketch.js
 `src/programs.c` selects how shaders compile, and the environment variable `HYDRA_SHADER_COMPILE` overrides it:
 `thread` (a second GL context on a thread of its own, the default on Mesa), `parallel` (GL_KHR_parallel_shader_compile,
 the default with other drivers that have it, for example ANGLE) or `blocking` (the frame waits for the compiler).
+
+## License
+
+hydra-native is free software under the GNU Affero General Public License 3.0, see [LICENSE](LICENSE).
+It contains [hydra-synth](https://github.com/hydra-synth/hydra-synth) and code of the
+[hydra web editor](https://github.com/hydra-synth/hydra), both by Olivia Jack and the hydra contributors and
+under the same license. [THIRD_PARTY.md](THIRD_PARTY.md) lists all other code and its licenses.
