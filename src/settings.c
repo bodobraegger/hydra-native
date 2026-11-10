@@ -40,14 +40,19 @@ void settings_defaults(struct settings *settings) {
     settings->window_height = SETTINGS_DEFAULT_HEIGHT;
 }
 
-// Linux: XDG_CONFIG_HOME/hydra-native. macOS: ~/Library/Application Support/hydra-native. Windows:
-// %APPDATA%\hydra-native. SDL_GetPrefPath gives the last two; on Linux it gives the data folder instead.
+// XDG_CONFIG_HOME/hydra-native when XDG_CONFIG_HOME is set, on every system (the tests set it). Else Linux:
+// ~/.config/hydra-native; macOS: ~/Library/Application Support/hydra-native; Windows: %APPDATA%\hydra-native.
+// SDL_GetPrefPath gives the last two; on Linux it gives the data folder instead.
 bool settings_path(char *path, size_t size) {
+    const char *config = getenv("XDG_CONFIG_HOME");
+    if (config && config[0]) {
+        snprintf(path, size, "%s/" SETTINGS_DIRECTORY "/" SETTINGS_FILE, config);
+        return true;
+    }
 #if defined(__linux__)
-    const char *config = getenv("XDG_CONFIG_HOME"), *home = getenv("HOME");
-    if (config && config[0]) snprintf(path, size, "%s/" SETTINGS_DIRECTORY "/" SETTINGS_FILE, config);
-    else if (home && home[0]) snprintf(path, size, "%s/.config/" SETTINGS_DIRECTORY "/" SETTINGS_FILE, home);
-    else return false;
+    const char *home = getenv("HOME");
+    if (!home || !home[0]) return false;
+    snprintf(path, size, "%s/.config/" SETTINGS_DIRECTORY "/" SETTINGS_FILE, home);
 #else
     char *folder = SDL_GetPrefPath(NULL, SETTINGS_DIRECTORY); // ends with the separator of the system
     if (!folder) return false;
