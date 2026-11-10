@@ -20,6 +20,7 @@
 // stb_image_write.h 1.16 (public domain or MIT, see THIRD_PARTY.md) writes the PNG files.
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
+#include "stb_image.h"
 
 #include "canvas2d.h"
 #include "webgl.h"
@@ -33,6 +34,7 @@
 #include "quickjs.h"
 
 #define BUNDLE_FILE_NAME "hydra-bundle.js"
+#define WINDOW_ICON_FILE "../assets/icon/hicolor/48x48/apps/hydra-native.png"
 #define SOCKET_FILE_NAME "hydra-native.sock"
 #define WATCH_INTERVAL_MS 250
 #define BENCH_WARMUP_MS 3000
@@ -1136,6 +1138,19 @@ static bool create_window(const struct options *options) {
     return true;
 }
 
+// Without the icon file (a build moved without its assets) the window keeps the default icon.
+static void set_window_icon(const char *directory) {
+    char path[PATH_MAX + 64];
+    snprintf(path, sizeof path, "%s/%s", directory, WINDOW_ICON_FILE);
+    int width, height, channels;
+    unsigned char *pixels = stbi_load(path, &width, &height, &channels, 4);
+    if (!pixels) return;
+    SDL_Surface *icon = SDL_CreateRGBSurfaceWithFormatFrom(pixels, width, height, 32, width * 4, SDL_PIXELFORMAT_RGBA32);
+    if (icon) SDL_SetWindowIcon(window, icon);
+    SDL_FreeSurface(icon);
+    stbi_image_free(pixels);
+}
+
 static bool executable_directory(char *directory, size_t size) {
     char executable[PATH_MAX];
     ssize_t length = readlink("/proc/self/exe", executable, sizeof executable - 1);
@@ -1363,6 +1378,7 @@ int main(int argc, char **argv) {
     JS_SetPropertyStr(js, global, "native", native);
     JS_FreeValue(js, global);
     if (!load_bundle(directory)) return 1;
+    set_window_icon(directory);
 
     // The last file is the sketch of the overlay. It may not exist yet; Ctrl+S creates it.
     // A URL of the web editor (https://hydra.ojack.xyz/?code=...) or its "?code=..." part works in place of a file.

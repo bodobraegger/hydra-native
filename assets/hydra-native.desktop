@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=hydra-native
+GenericName=Live Coding Visuals
+Comment=Live code video synthesis with Hydra in a native window
+Exec=hydra-native %f
+Icon=hydra-native
+Terminal=false
+Categories=Graphics;
+Keywords=hydra;live coding;visuals;video synth;
+StartupWMClass=hydra-native

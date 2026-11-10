@@ -47,3 +47,7 @@ replaces QuickJS, which does not build with MSVC. The code socket becomes a name
 
 The camera: the SDL3 camera API is a candidate for the camera on all three platforms, but on Linux it stays
 with GStreamer until a measurement shows the same speed with the same formats (MJPEG at 1280x720 and 30 fps).
+
+The icon: assets/icon/favicon.ico has only 16, 32 and 48 px images. The Linux package uses them as hicolor icons
+and as the window icon. A macOS .icns needs images up to 1024 px, and a Windows .ico for the taskbar and the
+installer needs 256 px. Both need a larger source image (an SVG or a PNG of 1024 px) before the ports.
