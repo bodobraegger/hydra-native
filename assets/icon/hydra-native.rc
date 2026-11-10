@@ -1,0 +1,2 @@
+// The icon of hydra-native.exe (Windows), from the 16, 32 and 48 px favicon.
+IDI_ICON1 ICON "favicon.ico"
