@@ -93,6 +93,13 @@
     X(SNIPPET_NEXT, "next argument of the inserted call") \
     X(SNIPPET_PREVIOUS, "previous argument of the inserted call") \
     X(SNIPPET_END, "leave the arguments of the inserted call") \
+    X(NUMBER_ACCEPT, "apply the typed number of the settings menu") \
+    X(NUMBER_CANCEL, "leave the number field without a change") \
+    X(NUMBER_UP, "number field: one step up") \
+    X(NUMBER_DOWN, "number field: one step down") \
+    X(NUMBER_UP_LARGE, "number field: ten steps up") \
+    X(NUMBER_DOWN_LARGE, "number field: ten steps down") \
+    X(NUMBER_BACKSPACE, "number field: delete left") \
     X(PROMPT_ACCEPT, "find next, replace, go, or run the command") \
     X(PROMPT_ACCEPT_BACKWARD, "find the previous match") \
     X(PROMPT_NEXT_FIELD, "switch between find and replace") \
@@ -148,6 +155,7 @@ enum key_context {
     CONTEXT_GHOST, // a ghost-text suggestion shows after the cursor
     CONTEXT_PROMPT, // find, replace, go to line or the command palette is open
     CONTEXT_SNIPPET, // an inserted call has tab stops on its arguments
+    CONTEXT_NUMBER, // a number of the settings menu is a text field
 };
 
 struct key_binding {

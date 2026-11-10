@@ -20,6 +20,16 @@ static const struct key_binding default_keymap[] = {
     { SDLK_RIGHTBRACKET, KEY_ALT, COMMAND_COMPLETION_NEXT, .context = CONTEXT_GHOST },
     { SDLK_LEFTBRACKET, KEY_ALT, COMMAND_COMPLETION_PREVIOUS, .context = CONTEXT_GHOST },
 
+    // while a number of the settings menu is a text field
+    { SDLK_RETURN, 0, COMMAND_NUMBER_ACCEPT, .context = CONTEXT_NUMBER },
+    { SDLK_KP_ENTER, 0, COMMAND_NUMBER_ACCEPT, .context = CONTEXT_NUMBER },
+    { SDLK_ESCAPE, 0, COMMAND_NUMBER_CANCEL, .context = CONTEXT_NUMBER },
+    { SDLK_UP, 0, COMMAND_NUMBER_UP, .context = CONTEXT_NUMBER },
+    { SDLK_DOWN, 0, COMMAND_NUMBER_DOWN, .context = CONTEXT_NUMBER },
+    { SDLK_UP, KEY_SHIFT, COMMAND_NUMBER_UP_LARGE, .context = CONTEXT_NUMBER },
+    { SDLK_DOWN, KEY_SHIFT, COMMAND_NUMBER_DOWN_LARGE, .context = CONTEXT_NUMBER },
+    { SDLK_BACKSPACE, 0, COMMAND_NUMBER_BACKSPACE, .context = CONTEXT_NUMBER },
+
     // while an inserted call has tab stops on its arguments, as the snippets of VS Code
     { SDLK_TAB, 0, COMMAND_SNIPPET_NEXT, .context = CONTEXT_SNIPPET },
     { SDLK_TAB, KEY_SHIFT, COMMAND_SNIPPET_PREVIOUS, .context = CONTEXT_SNIPPET },

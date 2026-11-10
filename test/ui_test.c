@@ -46,9 +46,13 @@ static float copy_x, copy_y; // where the "copy" button of the settings panel sh
 // ---------------------------------------------------------------- stubs
 
 bool overlay_init(const char *font_path, const char *emoji_font_path, float font_size) { return true; }
-bool overlay_set_font_size(float font_size) { return true; }
+static float font_size = 20; // clamped like src/overlay.c
+bool overlay_set_font_size(float size) {
+    font_size = size < OVERLAY_MIN_FONT_SIZE ? OVERLAY_MIN_FONT_SIZE : size > OVERLAY_MAX_FONT_SIZE ? OVERLAY_MAX_FONT_SIZE : size;
+    return true;
+}
 bool overlay_set_font(const char *font_path) { return true; }
-float overlay_font_size(void) { return 20; }
+float overlay_font_size(void) { return font_size; }
 float overlay_char_width(void) { return 10; }
 float overlay_line_height(void) { return 20; }
 // The texts of the last frame with their positions, for clicks on panel buttons.
@@ -214,6 +218,83 @@ static void test_overlay_settings(const char *settings_file) {
     EXPECT(loaded.code_text_blend == CODE_BLEND_DIFFERENCE && loaded.code_background_blend == CODE_BLEND_DIFFERENCE &&
            loaded.code_background_opacity > 0 && loaded.code_background_opacity <= 100);
     EXPECT_CONTAINS(read_file(settings_file), "\"codeTextBlend\": \"difference\"");
+}
+
+// The drawn text of the last frame that ends with `suffix`, such as the "%" of the opacity field, or "".
+static const char *text_ending(const char *suffix) {
+    for (size_t i = 0; i < drawn_text_count; i++) {
+        size_t length = strlen(drawn_texts[i].text), suffix_length = strlen(suffix);
+        if (length >= suffix_length && !strcmp(drawn_texts[i].text + length - suffix_length, suffix)) return drawn_texts[i].text;
+    }
+    return "";
+}
+
+static int saved_opacity(const char *settings_file) {
+    struct settings loaded;
+    char error[SETTINGS_TEXT];
+    settings_defaults(&loaded);
+    settings_load(&loaded, settings_file, error, sizeof error);
+    return loaded.code_background_opacity;
+}
+
+// The numbers of the settings menu as text fields: typing, Enter, Escape, the clamp, the arrows, the wheel, an
+// invalid entry, and a unit after the number.
+static void test_number_fields(const char *settings_file) {
+    key(SDLK_COMMA, SDL_KMOD_LCTRL);
+    ui_draw(800, 600, 0);
+    EXPECT(click_text(text_ending(" %"), 0));
+    type("45");
+    key(SDLK_RETURN, 0);
+    EXPECT(saved_opacity(settings_file) == 45);
+    ui_draw(800, 600, 0);
+    EXPECT_CONTAINS(drawn, "45 %\n");
+
+    EXPECT(click_text("45 %", 0));
+    type("250%"); // above the range: 100
+    key(SDLK_RETURN, 0);
+    EXPECT(saved_opacity(settings_file) == 100);
+
+    ui_draw(800, 600, 0);
+    EXPECT(click_text("100 %", 0));
+    type("abc"); // no number: the field stays open with the text, nothing changes
+    key(SDLK_RETURN, 0);
+    ui_draw(800, 600, 0);
+    EXPECT_CONTAINS(drawn, "abc|\n");
+    EXPECT(saved_opacity(settings_file) == 100);
+    key(SDLK_ESCAPE, 0); // cancels the field; the settings menu stays open
+    ui_draw(800, 600, 0);
+    EXPECT(strstr(drawn, "abc") == NULL);
+    EXPECT_CONTAINS(drawn, "100 %\n");
+    EXPECT(saved_opacity(settings_file) == 100);
+
+    EXPECT(click_text("100 %", 0));
+    key(SDLK_DOWN, 0); // applied at once
+    EXPECT(saved_opacity(settings_file) == 99);
+    key(SDLK_DOWN, SDL_KMOD_LSHIFT);
+    EXPECT(saved_opacity(settings_file) == 89);
+    key(SDLK_UP, 0);
+    EXPECT(saved_opacity(settings_file) == 90);
+    ui_wheel(-1);
+    EXPECT(saved_opacity(settings_file) == 89);
+    key(SDLK_BACKSPACE, 0); // the selected text goes
+    type("7");
+    key(SDLK_RETURN, 0);
+    EXPECT(saved_opacity(settings_file) == 7);
+
+    ui_draw(800, 600, 0);
+    EXPECT(click_text(text_ending(" px"), 0));
+    type("30px");
+    key(SDLK_RETURN, 0);
+    EXPECT(overlay_font_size() == 30);
+    ui_draw(800, 600, 0);
+    EXPECT(click_text("30 px", 0));
+    type("2"); // below the range
+    key(SDLK_RETURN, 0);
+    EXPECT(overlay_font_size() == OVERLAY_MIN_FONT_SIZE);
+    overlay_set_font_size(20);
+    key(SDLK_ESCAPE, 0); // closes the settings menu
+    ui_draw(800, 600, 0);
+    EXPECT(strstr(drawn, "code box") == NULL);
 }
 
 // The call around the cursor: nested calls, commas in arrays, arrow functions and strings.
@@ -710,6 +791,7 @@ int main(void) {
 
     test_signatures();
     test_overlay_settings(settings_file);
+    test_number_fields(settings_file);
 
     unlink(settings_file);
     *strrchr(settings_file, '/') = '\0';

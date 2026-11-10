@@ -80,6 +80,12 @@ stops the patch bay and the "share" button without a restart. While the patch ba
 the stream id, which other peers pass to `s0.initStream` and which `pb.list()` shows; its "copy" button and
 Ctrl+Alt+I copy it.
 
+The numbers of the settings menu (the opacity of the code box and the font size) have - and + buttons and can
+also be typed: a click on the value turns it into a text field with the value selected. Enter applies the typed
+value, also with its unit ("45 %", "20px"), clamped to the valid range; Escape leaves the field without a
+change. An entry that is no number shows in the error color and changes nothing. Up and Down, and the mouse
+wheel over the value, step it at once, by one or with Shift by ten.
+
 ### Settings file
 
 All settings live in one JSON file: ~/.config/hydra-native/settings.json, or

@@ -861,6 +861,119 @@ static void change_font_size(float step) {
     }
 }
 
+// The opacity of the code boxes in percent, from the setting or from the alpha of the theme.
+static int code_background_percent(void) {
+    int opacity = active_settings.code_background_opacity;
+    return opacity == SETTINGS_THEME_OPACITY ? (int)((theme->line_background & 0xFFu) * 100 + 127) / 255 : opacity;
+}
+
+// The box behind a code line: the color of the theme, or white for blend mode difference (which inverts what
+// is below), with the alpha of the theme or of "codeBackgroundOpacity".
+static uint32_t code_background_color(void) {
+    int opacity = active_settings.code_background_opacity;
+    uint32_t alpha = opacity == SETTINGS_THEME_OPACITY ? theme->line_background & 0xFFu : (uint32_t)(opacity * 255 + 50) / 100;
+    uint32_t rgb = active_settings.code_background_blend == CODE_BLEND_DIFFERENCE ? 0xFFFFFF00u : theme->line_background & 0xFFFFFF00u;
+    return rgb | alpha;
+}
+
+// ---------------------------------------------------------------- number fields of the settings menu
+
+// A click on a number of the settings menu turns it into a text field: Enter applies the typed value (clamped,
+// with an optional unit), Escape cancels, Up and Down (and the wheel) step it, Shift by ten steps.
+enum number_kind { NUMBER_OPACITY, NUMBER_FONT_SIZE };
+static const struct {
+    const char *unit; // accepted after the number, and shown after it
+    const char *action; // the panel action of a click on the value
+    double minimum, maximum, step;
+} number_specs[] = {
+    [NUMBER_OPACITY] = { "%", "edit opacity", 0, 100, 1 },
+    [NUMBER_FONT_SIZE] = { "px", "edit size", OVERLAY_MIN_FONT_SIZE, OVERLAY_MAX_FONT_SIZE, 1 },
+};
+#define MAX_NUMBER_TEXT 16
+#define LARGE_STEPS 10
+
+static struct {
+    bool open;
+    enum number_kind kind;
+    char text[MAX_NUMBER_TEXT];
+    bool selected; // the whole text, so that typing replaces it
+    bool invalid; // the last Enter found no number; it shows in the error color
+} number_field;
+
+static double number_value(enum number_kind kind) {
+    return kind == NUMBER_OPACITY ? code_background_percent() : overlay_font_size();
+}
+
+static void format_number(enum number_kind kind, double value, char *text, size_t size) {
+    snprintf(text, size, "%.0f %s", value, number_specs[kind].unit);
+}
+
+static void set_number(enum number_kind kind, double value) {
+    if (value < number_specs[kind].minimum) value = number_specs[kind].minimum;
+    if (value > number_specs[kind].maximum) value = number_specs[kind].maximum;
+    if (kind == NUMBER_FONT_SIZE) {
+        change_font_size((float)value - overlay_font_size());
+    } else {
+        stored_settings.code_background_opacity = active_settings.code_background_opacity = (int)lround(value);
+        save_settings();
+    }
+}
+
+// A number with an optional unit ("45", "45 %", "20px"); false for anything else.
+static bool parse_number(enum number_kind kind, const char *text, double *value) {
+    char *end;
+    *value = strtod(text, &end);
+    if (end == text || !isfinite(*value)) return false;
+    while (*end == ' ') end++;
+    size_t unit = strlen(number_specs[kind].unit);
+    if (!strncasecmp(end, number_specs[kind].unit, unit)) end += unit;
+    while (*end == ' ') end++;
+    return *end == '\0';
+}
+
+static void open_number_field(enum number_kind kind) {
+    number_field.open = true;
+    number_field.kind = kind;
+    number_field.selected = true;
+    number_field.invalid = false;
+    format_number(kind, number_value(kind), number_field.text, sizeof number_field.text);
+}
+
+// The typed value when it is a number, else the current one, moved by `steps` steps and applied at once.
+static void step_number(enum number_kind kind, int steps) {
+    double value;
+    if (!number_field.open || number_field.kind != kind || !parse_number(kind, number_field.text, &value))
+        value = number_value(kind);
+    set_number(kind, value + steps * number_specs[kind].step);
+    if (number_field.open && number_field.kind == kind) open_number_field(kind);
+}
+
+static void accept_number_field(void) {
+    double value;
+    if (!parse_number(number_field.kind, number_field.text, &value)) {
+        number_field.invalid = true;
+        return;
+    }
+    set_number(number_field.kind, value);
+    number_field.open = false;
+}
+
+static void type_number(const char *text) {
+    if (number_field.selected) number_field.text[0] = '\0';
+    number_field.selected = false;
+    number_field.invalid = false;
+    size_t length = strlen(number_field.text);
+    snprintf(number_field.text + length, sizeof number_field.text - length, "%s", text);
+}
+
+static void number_backspace(void) {
+    size_t length = number_field.selected ? 0 : strlen(number_field.text);
+    while (length > 0 && (number_field.text[--length] & 0xC0) == 0x80) {}
+    number_field.text[length] = '\0';
+    number_field.selected = false;
+    number_field.invalid = false;
+}
+
 static void set_theme(const struct theme *next) {
     theme = next;
     snprintf(stored_settings.theme, sizeof stored_settings.theme, "%s", next->name);
@@ -1160,6 +1273,13 @@ static void run_command_body(enum command command, bool extend) {
     case COMMAND_SNIPPET_NEXT: next_tab_stop(1); break;
     case COMMAND_SNIPPET_PREVIOUS: next_tab_stop(-1); break;
     case COMMAND_SNIPPET_END: snippet.active = false; break;
+    case COMMAND_NUMBER_ACCEPT: accept_number_field(); return;
+    case COMMAND_NUMBER_CANCEL: number_field.open = false; return;
+    case COMMAND_NUMBER_UP: step_number(number_field.kind, 1); return;
+    case COMMAND_NUMBER_DOWN: step_number(number_field.kind, -1); return;
+    case COMMAND_NUMBER_UP_LARGE: step_number(number_field.kind, LARGE_STEPS); return;
+    case COMMAND_NUMBER_DOWN_LARGE: step_number(number_field.kind, -LARGE_STEPS); return;
+    case COMMAND_NUMBER_BACKSPACE: number_backspace(); return;
     case COMMAND_PROMPT_ACCEPT: accept_prompt(1); break;
     case COMMAND_PROMPT_ACCEPT_BACKWARD: accept_prompt(-1); break;
     case COMMAND_PROMPT_NEXT_FIELD: prompt.field = prompt.kind == PROMPT_REPLACE ? !prompt.field : 0; return;
@@ -1199,6 +1319,8 @@ static void run_command_body(enum command command, bool extend) {
 }
 
 static enum key_context key_context(void) {
+    if (!settings_visible) number_field.open = false;
+    if (number_field.open) return CONTEXT_NUMBER;
     if (completion.open) return active_settings.autocomplete_style == AUTOCOMPLETE_GHOST ? CONTEXT_GHOST : CONTEXT_COMPLETION;
     if (prompt.kind != PROMPT_NONE) return CONTEXT_PROMPT;
     follow_snippet(editor.length); // the snippet ends when a mouse click moved the cursor out of it
@@ -1236,6 +1358,10 @@ void ui_text_input(const char *text) {
     composition[0] = '\0';
     if (suppress_text || !visible || (SDL_GetModState() & (SDL_KMOD_CTRL | SDL_KMOD_LALT))) return;
     if (help_visible) return;
+    if (number_field.open && settings_visible) {
+        type_number(text);
+        return;
+    }
     if (prompt.kind != PROMPT_NONE) {
         char *field = prompt_field();
         if (prompt.query_selected && field == prompt.query) field[0] = '\0';
@@ -1330,21 +1456,6 @@ static void draw_toolbar(void) {
         overlay_text_shaped(left, top, text, strlen(text), false, theme->text);
         free(text);
     }
-}
-
-// The opacity of the code boxes in percent, from the setting or from the alpha of the theme.
-static int code_background_percent(void) {
-    int opacity = active_settings.code_background_opacity;
-    return opacity == SETTINGS_THEME_OPACITY ? (int)((theme->line_background & 0xFFu) * 100 + 127) / 255 : opacity;
-}
-
-// The box behind a code line: the color of the theme, or white for blend mode difference (which inverts what
-// is below), with the alpha of the theme or of "codeBackgroundOpacity".
-static uint32_t code_background_color(void) {
-    int opacity = active_settings.code_background_opacity;
-    uint32_t alpha = opacity == SETTINGS_THEME_OPACITY ? theme->line_background & 0xFFu : (uint32_t)(opacity * 255 + 50) / 100;
-    uint32_t rgb = active_settings.code_background_blend == CODE_BLEND_DIFFERENCE ? 0xFFFFFF00u : theme->line_background & 0xFFFFFF00u;
-    return rgb | alpha;
 }
 
 // ---------------------------------------------------------------- info panel
@@ -1663,6 +1774,23 @@ static void flow_label(struct panel_flow *flow, const char *text, bool selected,
     add_panel_button(x, flow->y, width, overlay_line_height(), action);
 }
 
+// A number of the settings menu: a button that opens its text field, or the open field with the typed text.
+static void flow_number(struct panel_flow *flow, enum number_kind kind) {
+    char text[MAX_NUMBER_TEXT + 2];
+    bool editing = number_field.open && number_field.kind == kind;
+    if (editing) snprintf(text, sizeof text, "%s%s", number_field.text, number_field.selected ? "" : "|");
+    else format_number(kind, number_value(kind), text, sizeof text);
+    size_t columns;
+    float x = flow_place(flow, text, &columns), width = (float)columns * overlay_char_width();
+    float text_width = (float)overlay_text_columns(text, strlen(text)) * overlay_char_width();
+    overlay_rect(x, flow->y, width, overlay_line_height(), editing ? theme->popup_background : theme->toolbar);
+    if (editing && number_field.selected)
+        overlay_rect(x + overlay_char_width() / 2, flow->y, text_width, overlay_line_height(), theme->selection);
+    overlay_text(x + overlay_char_width() / 2, flow->y, text, strlen(text), 0, columns - 1, NULL,
+                 editing && number_field.invalid ? theme->error : theme->text);
+    add_panel_button(x, flow->y, width, overlay_line_height(), number_specs[kind].action);
+}
+
 static void flow_text(struct panel_flow *flow, const char *text, uint32_t color) {
     size_t columns;
     float x = flow_place(flow, text, &columns);
@@ -1701,10 +1829,8 @@ static void draw_settings(void) {
     flow_label(&flow, "Ctrl+Shift+Space", active_settings.signature_help == SIGNATURE_HELP_MANUAL, "signature 0");
     flow_label(&flow, "on (", active_settings.signature_help == SIGNATURE_HELP_PAREN, "signature 1");
     flow_row(&flow, label_x, "code box", false);
-    char opacity[16];
-    snprintf(opacity, sizeof opacity, "%d %%", code_background_percent());
     flow_label(&flow, "-", false, "opacity -");
-    flow_text(&flow, opacity, theme->text);
+    flow_number(&flow, NUMBER_OPACITY);
     flow_label(&flow, "+", false, "opacity +");
     flow_label(&flow, "normal", active_settings.code_background_blend == CODE_BLEND_NORMAL, "box 0");
     flow_label(&flow, "difference", active_settings.code_background_blend == CODE_BLEND_DIFFERENCE, "box 1");
@@ -1735,10 +1861,8 @@ static void draw_settings(void) {
     }
     free(stream_id);
     flow_row(&flow, label_x, "font size", false);
-    char size[16];
-    snprintf(size, sizeof size, "%.0f px", overlay_font_size());
     flow_label(&flow, "-", false, "size -");
-    flow_text(&flow, size, theme->text);
+    flow_number(&flow, NUMBER_FONT_SIZE);
     flow_label(&flow, "+", false, "size +");
     flow_row(&flow, label_x, "font", false);
     size_t rows = (size_t)((top + height - flow.y - line_height / 2) / line_height);
@@ -1752,6 +1876,12 @@ static void draw_settings(void) {
 }
 
 static void run_settings_action(const char *action) {
+    for (enum number_kind kind = NUMBER_OPACITY; kind <= NUMBER_FONT_SIZE; kind++)
+        if (!strcmp(action, number_specs[kind].action)) {
+            if (!number_field.open || number_field.kind != kind) open_number_field(kind);
+            return;
+        }
+    number_field.open = false; // a click on another button leaves the field without a change
     size_t index = (size_t)atol(strchr(action, ' ') + 1);
     if (!strncmp(action, "theme ", 6) && index < theme_count) set_theme(&themes[index]);
     else if (!strncmp(action, "style ", 6)) set_autocomplete((enum autocomplete_style)index, active_settings.autocomplete_trigger);
@@ -1893,8 +2023,29 @@ void ui_mouse_motion(float x, float y) {
     reveal_cursor();
 }
 
+// The wheel over a number of the settings menu (or in its open field) steps it; Shift steps by ten.
+static bool wheel_number(int lines) {
+    int steps = lines * ((SDL_GetModState() & SDL_KMOD_SHIFT) ? LARGE_STEPS : 1);
+    if (number_field.open) {
+        step_number(number_field.kind, steps);
+        return true;
+    }
+    for (size_t i = 0; i < panel_button_count; i++) {
+        if (pointer_x < panel_buttons[i].x || pointer_x > panel_buttons[i].x + panel_buttons[i].width ||
+            pointer_y < panel_buttons[i].y || pointer_y > panel_buttons[i].y + panel_buttons[i].height)
+            continue;
+        for (enum number_kind kind = NUMBER_OPACITY; kind <= NUMBER_FONT_SIZE; kind++)
+            if (!strcmp(panel_buttons[i].action, number_specs[kind].action)) {
+                step_number(kind, steps);
+                return true;
+            }
+    }
+    return false;
+}
+
 void ui_wheel(int lines) {
     if (!visible) return;
+    if (settings_visible && wheel_number(lines)) return;
     if (info_visible || extensions_visible || settings_visible) {
         long target = (long)info_scroll - (long)lines * WHEEL_ROWS;
         info_scroll = target < 0 ? 0 : (size_t)target;
