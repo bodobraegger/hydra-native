@@ -779,6 +779,32 @@ CANVAS_FUNCTION(js_canvas_image_state) {
     return array;
 }
 
+unsigned char *canvas2d_rgba(int id, bool premultiplied, int *width, int *height) {
+    if (id < 0 || id >= MAX_CANVASES || !canvases[id].canvas) return NULL;
+    struct canvas *canvas = &canvases[id];
+    *width = canvas->width;
+    *height = canvas->height;
+    unsigned char *pixels = malloc((size_t)canvas->width * (size_t)canvas->height * 4);
+    const unsigned char *data = plutovg_surface_get_data(canvas->surface);
+    int stride = plutovg_surface_get_stride(canvas->surface);
+    for (int y = 0; y < canvas->height; y++)
+        for (int x = 0; x < canvas->width; x++) {
+            uint32_t pixel = ((const uint32_t *)(data + (size_t)y * (size_t)stride))[x];
+            unsigned a = pixel >> 24, r = (pixel >> 16) & 0xFF, g = (pixel >> 8) & 0xFF, b = pixel & 0xFF;
+            if (!premultiplied && a) {
+                r = (r * 255 + a / 2) / a;
+                g = (g * 255 + a / 2) / a;
+                b = (b * 255 + a / 2) / a;
+            }
+            unsigned char *out = pixels + ((size_t)y * (size_t)canvas->width + (size_t)x) * 4;
+            out[0] = (unsigned char)r;
+            out[1] = (unsigned char)g;
+            out[2] = (unsigned char)b;
+            out[3] = (unsigned char)a;
+        }
+    return pixels;
+}
+
 bool canvas2d_fetch_done(int fetch, bool ok, const char *data, size_t length) {
     for (int id = 0; id < MAX_CANVASES; id++) {
         if (!canvases[id].canvas || canvases[id].fetch != fetch) continue;

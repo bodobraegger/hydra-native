@@ -22,6 +22,7 @@
 #include "stb_image_write.h"
 
 #include "canvas2d.h"
+#include "webgl.h"
 #include "midi.h"
 #include "native.h"
 #include "thumbnails.h"
@@ -344,6 +345,7 @@ static JSValue js_create_framebuffer(JSContext *ctx, JSValueConst this, int argc
 }
 
 static JSValue js_bind_framebuffer(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    webgl_release();
     glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)to_int(ctx, argv[0]));
     glViewport(0, 0, to_int(ctx, argv[1]), to_int(ctx, argv[2]));
     return JS_UNDEFINED;
@@ -1192,6 +1194,7 @@ int main(int argc, char **argv) {
     JSValue native = JS_NewObject(js);
     JS_SetPropertyFunctionList(js, native, native_functions, sizeof native_functions / sizeof native_functions[0]);
     canvas2d_install(js, native);
+    webgl_install(js, native);
     char directory[PATH_MAX];
     if (!executable_directory(directory, sizeof directory)) return 1;
     snprintf(executable_path_directory, sizeof executable_path_directory, "%s", directory);
@@ -1280,6 +1283,7 @@ int main(int argc, char **argv) {
         run_pending_jobs();
         check_pending_evaluations();
         double after_js = now_ms();
+        webgl_release();
         int drawable_width, drawable_height;
         SDL_GL_GetDrawableSize(window, &drawable_width, &drawable_height);
         recorder_frame(now);

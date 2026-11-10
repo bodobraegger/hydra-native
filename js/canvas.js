@@ -1,4 +1,5 @@
 import { Element } from './element.js'
+import { WebGLRenderingContext } from './webgl.js'
 
 // A <canvas> element with a CanvasRenderingContext2D, drawn by src/canvas2d.c (plutovg).
 // It covers what hydra-text, hydra-canvas and s0.initCanvas() sketches use: rectangles, paths, arcs, text,
@@ -477,6 +478,7 @@ export class CanvasElement extends Element {
   }
 
   nativeId () {
+    if (this.webgl) return -1 // drawImage and patterns of a WebGL canvas are not supported
     if (this.handle < 0) {
       this.handle = native.canvasCreate(this._width, this._height)
       surfaces.register(this, this.handle)
@@ -495,13 +497,21 @@ export class CanvasElement extends Element {
   resize (width, height) {
     this._width = Math.max(1, Math.floor(width) || 0)
     this._height = Math.max(1, Math.floor(height) || 0)
-    if (this.handle >= 0) native.canvasResize(this.handle, this._width, this._height)
-    if (this.context) this.context.reset()
+    if (this.webgl) this.context.resize(this._width, this._height)
+    else if (this.handle >= 0) native.canvasResize(this.handle, this._width, this._height)
+    if (this.context && !this.webgl) this.context.reset()
     this.changed()
   }
 
-  getContext (type) {
-    if (type !== '2d') return null
+  getContext (type, attributes) {
+    if (type === 'webgl' || type === 'experimental-webgl') {
+      if (!this.context) {
+        this.context = new WebGLRenderingContext(this, attributes)
+        this.webgl = true
+      }
+      return this.webgl ? this.context : null
+    }
+    if (type !== '2d' || this.webgl) return null
     if (!this.context) {
       this.nativeId()
       this.context = new CanvasRenderingContext2D(this)
@@ -512,7 +522,15 @@ export class CanvasElement extends Element {
   // Called by the regl shim (Texture.subimage) every frame; uploads only after a change.
   upload (texture) {
     const key = `${texture.id}:${texture.width}x${texture.height}:${this.version}`
-    if (this.uploaded === key || this.handle < 0) return
+    if (this.uploaded === key) return
+    if (this.webgl) {
+      this.context.copyTo(texture)
+      texture.width = this._width
+      texture.height = this._height
+      this.uploaded = `${texture.id}:${texture.width}x${texture.height}:${this.version}`
+      return
+    }
+    if (this.handle < 0) return
     native.canvasUpload(this.handle, texture.id)
     texture.width = this._width
     texture.height = this._height

@@ -1,5 +1,7 @@
 import { CanvasElement, CanvasGradient, CanvasPattern, ImageData, ImageElement, Path2D } from './canvas.js'
 import { Element } from './element.js'
+import { WebGLRenderingContext } from './webgl.js'
+import webglConstants from './webgl-constants.js'
 
 // The browser globals that hydra-synth, its lib/audio.js and the user's sketches use,
 // backed by the `native` object that src/main.c installs.
@@ -194,6 +196,8 @@ window.navigator = {
 }
 
 window.Path2D = Path2D
+window.WebGLRenderingContext = WebGLRenderingContext
+Object.assign(WebGLRenderingContext, webglConstants)
 window.Image = ImageElement
 window.ImageData = ImageData
 window.CanvasGradient = CanvasGradient
