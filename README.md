@@ -32,9 +32,13 @@ build/hydra-native --watch sketch.js            # load and evaluate sketch.js ag
 build/hydra-native --audio @DEFAULT_MONITOR@ sketch.js   # FFT of the system output instead of the microphone
 build/hydra-native --font /usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf --font-size 24 sketch.js
 build/hydra-native --screenshot shot.png sketch.js       # write the window with the code as PNG after 1.5 s and exit
+build/hydra-native 'https://hydra.ojack.xyz/?code=...'  # a sketch URL of the web editor
+build/hydra-native --lang de                             # the info panel in German
+build/hydra-native --gallery-server URL sketch.js        # Ctrl+Shift+G shares with this hydra gallery server
 ```
 
 The program evaluates the files in the given order, in the global scope, like the browser console.
+Without a file, it starts like the web editor: with a random example and the info panel.
 The last file opens in the code overlay, and Ctrl+S saves the overlay text to it.
 If the file does not exist yet, the overlay starts empty and Ctrl+S creates the file.
 With `--watch`, a change on disk replaces the overlay text and evaluates it, but only when the overlay has no unsaved edits.
@@ -50,8 +54,11 @@ An evaluation error, or a console warning during the evaluation (for example a s
 The next successful evaluation clears the bar.
 Ctrl+Shift+H hides and shows the overlay; the visuals keep running, and the evaluation keys keep working.
 The default font is DejaVu Sans Mono at 20 pixels (`--font`, `--font-size`, Ctrl+plus and Ctrl+minus).
-The toolbar at the top right has the buttons of the web editor: run, clear, example, mutate (Shift: undo,
-Ctrl: change a function) and help. PLAN.md compares every feature with the web editor.
+The toolbar at the top right has the buttons of the web editor: run, clear, extensions, example, mutate
+(Shift: undo, Ctrl: change a function), share (with `--gallery-server`) and info. The info panel has the
+languages of the web editor (from hydra-synth/l10n, cached in ~/.cache/hydra-native/l10n).
+The extensions panel lists the catalog of hydra-synth/hydra-extensions; "+" adds the load code to the top.
+Ctrl+Shift+L copies the hydra.ojack.xyz URL of the code. PLAN.md compares every feature with the web editor.
 
 The editor has multiple cursors, find and replace, go to line, a command palette and autocomplete of hydra
 names and of the words of the file. Typing an opening bracket or quote adds the closing one.
@@ -89,6 +96,7 @@ Keys marked "always" also work while the overlay is hidden.
 | Ctrl+Shift+H                                   | hide or show the code (always)                         |
 | Ctrl+S; Ctrl+Shift+S                           | save; save a screenshot and the code (always)          |
 | F1; Ctrl+Shift+P                               | help; command palette (always)                         |
+| Ctrl+Shift+L; Ctrl+Shift+G                     | copy the sketch URL; share with the gallery (always)   |
 | F7; F8, Shift+F8, Ctrl+F8; Ctrl+Shift+Delete   | example; mutate, undo, change a function; clear all    |
 | F11; Ctrl+Q                                    | fullscreen; quit (always)                              |
 | Ctrl+Shift+F, Shift+Alt+F                      | format with js-beautify                                |
@@ -97,7 +105,10 @@ Keys marked "always" also work while the overlay is hidden.
 | Ctrl+L; Ctrl+Shift+K; Ctrl+J                   | select line; delete line; join lines                   |
 | Ctrl+D                                         | select the word, then add the next occurrence          |
 | Ctrl+Shift+Up/Down, Ctrl+Alt+Up/Down           | add a cursor above or below                            |
-| Alt+click; Shift+Alt+drag; Ctrl+Shift+L        | add a cursor; column selection; a cursor per line      |
+| Alt+click; Shift+Alt+drag; Shift+Alt+I         | add a cursor; column selection; a cursor per line      |
+| Alt+Left, Alt+Right                            | move by subword (camelCase)                            |
+| Ctrl+F2, F2, Shift+F2; Ctrl+F3, Alt+F3         | bookmarks; find or select the word under the cursor    |
+| Ctrl+K, then Ctrl+U, L, K, Backspace, D        | the two-key commands of the sublime keymap             |
 | Ctrl+F, F3, Shift+F3; Ctrl+H; Ctrl+G           | find; replace (Tab, Enter, Ctrl+Alt+Enter); go to line |
 | Ctrl+Space                                     | autocomplete (also while typing a word)                |
 | Ctrl+], Ctrl+[; Tab, Shift+Tab                 | indent, outdent                                        |
@@ -116,15 +127,22 @@ All `init*` calls accept `{ width, height }` for the capture size (default 1280x
 | Call                            | Source                                                        |
 | ------------------------------- | ------------------------------------------------------------- |
 | `s0.initCam(index)`             | webcam number `index` (V4L2, GStreamer)                       |
-| `s0.initScreen(index)`          | monitor number `index`, no portal dialog                      |
+| `s0.initScreen()`               | a window or monitor that you pick in the portal dialog        |
+| `s0.initMonitor(index)`         | monitor number `index`, no dialog (Mutter ScreenCast)         |
 | `s0.initArea(x, y, w, h)`       | an area of the screen, no portal dialog                       |
 | `s0.initWindow(delay)`          | the window that has the focus after `delay` seconds           |
 | `s0.initVideo(url)`             | a file or stream (ffmpeg, loops); YouTube links need `yt-dlp` |
 | `s0.initImage(url)`             | an image (ffmpeg)                                             |
 | `s0.initCommand(shell, {w, h})` | any command that writes raw RGBA frames of w x h to stdout    |
 
+`initScreen()` opens the picker of xdg-desktop-portal, as `getDisplayMedia()` does in the browser.
+`initMonitor`, `initArea` and `initWindow` use the Mutter ScreenCast API directly and open no dialog.
 A monitor stream sends no frame until something on that monitor repaints.
 Window and area streams start at once.
+
+`p5 = new P5()` creates a p5.js 1.6.0 sketch in 2D mode, as in the web editor; `s0.init({ src: p5.canvas })`
+uses it as a source. `vidRecorder.start()` and `vidRecorder.stop()` record the visuals to a WebM file
+(VP9, 25 fps) in ~/Downloads. `navigator.requestMIDIAccess()` gives MIDI input and output through ALSA.
 
 The audio object `a` is the one of hydra-synth (`a.show()`, `a.setBins()`, `a.setSmooth()`, `a.fft`).
 The browser applies automatic gain control to the microphone, hydra-native does not.
