@@ -448,6 +448,48 @@ static JSValue js_fetch_start(JSContext *ctx, JSValueConst this, int argc, JSVal
     return JS_NewInt32(ctx, id);
 }
 
+// httpRequest(url, method, ["Name: value", ...], body): body is null, a string, an ArrayBuffer or a typed array.
+static JSValue js_http_request(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    const char *url = JS_ToCString(ctx, argv[0]), *method = JS_ToCString(ctx, argv[1]);
+    int64_t header_count = 0;
+    JSValue length = JS_GetPropertyStr(ctx, argv[2], "length");
+    JS_ToInt64(ctx, &header_count, length);
+    JS_FreeValue(ctx, length);
+    if (header_count < 0) header_count = 0;
+    const char **headers = calloc((size_t)header_count + 1, sizeof *headers);
+    for (int64_t i = 0; i < header_count; i++) {
+        JSValue header = JS_GetPropertyUint32(ctx, argv[2], (uint32_t)i);
+        headers[i] = JS_ToCString(ctx, header);
+        JS_FreeValue(ctx, header);
+    }
+    const char *text = NULL;
+    const void *body = NULL;
+    size_t body_length = 0;
+    if (JS_IsString(argv[3])) body = text = JS_ToCStringLen(ctx, &body_length, argv[3]);
+    else if (!JS_IsNull(argv[3]) && !JS_IsUndefined(argv[3])) {
+        body = JS_GetArrayBuffer(ctx, &body_length, argv[3]);
+        if (!body) {
+            JS_FreeValue(ctx, JS_GetException(ctx));
+            size_t offset, element_size;
+            JSValue buffer = JS_GetTypedArrayBuffer(ctx, argv[3], &offset, &body_length, &element_size);
+            if (!JS_IsException(buffer)) {
+                size_t buffer_length;
+                const uint8_t *bytes = JS_GetArrayBuffer(ctx, &buffer_length, buffer);
+                body = bytes ? bytes + offset : NULL;
+                JS_FreeValue(ctx, buffer); // the typed array keeps the buffer alive
+            }
+        }
+    }
+    int id = url && method ? http_start(url, method, headers, (size_t)header_count, body, body_length) : -1;
+    for (int64_t i = 0; i < header_count; i++) JS_FreeCString(ctx, headers[i]);
+    free(headers);
+    if (text) JS_FreeCString(ctx, text);
+    JS_FreeCString(ctx, url);
+    JS_FreeCString(ctx, method);
+    if (id < 0) return JS_ThrowInternalError(ctx, "cannot start curl");
+    return JS_NewInt32(ctx, id);
+}
+
 // Sharing: the screenshot comes from the next frame, then tools/gallery_share.py sends the requests.
 static const char *gallery_server;
 static struct {
@@ -718,6 +760,7 @@ static const JSCFunctionListEntry native_functions[] = {
     JS_CFUNC_DEF("audioStart", 0, js_audio_start),
     JS_CFUNC_DEF("audioFeatures", 0, js_audio_features),
     JS_CFUNC_DEF("fetchStart", 1, js_fetch_start),
+    JS_CFUNC_DEF("httpRequest", 4, js_http_request),
     JS_CFUNC_DEF("midiStart", 0, js_midi_start),
     JS_CFUNC_DEF("midiInputs", 0, js_midi_inputs),
     JS_CFUNC_DEF("midiOutputs", 0, js_midi_outputs),

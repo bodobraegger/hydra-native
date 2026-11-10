@@ -1,11 +1,12 @@
 import { EventTarget } from './element.js'
 
-// fetch() and XMLHttpRequest for sketches and libraries (p5.js loadFont, loadJSON): http(s) URLs download with
-// curl (src/fetch.c), other URLs are files relative to the working directory. Only GET works, and a failed
-// download is a network error, also for an HTTP error status.
+// fetch() and XMLHttpRequest for sketches and libraries (p5.js loadFont, loadJSON): http(s) requests go through
+// curl (src/fetch.c) with method, headers and body, and give the status and headers of the response. Other
+// URLs are files relative to the working directory. There is no CORS check, so every server answers.
 
 const URL_PATTERN = /^https?:\/\//
 const STATUS_OK = 200
+const HEADER_END = [13, 10, 13, 10] // \r\n\r\n
 const READY_STATES = { UNSENT: 0, OPENED: 1, HEADERS_RECEIVED: 2, LOADING: 3, DONE: 4 }
 
 // Callbacks of native.fetchStart() downloads by id, also for js/main.js, js/l10n.js and js/extensions.js.
@@ -19,16 +20,29 @@ window.__fetchDone = (id, ok, text, buffer) => {
 }
 
 class Headers {
-  constructor () { this.values = new Map() }
+  constructor (init) {
+    this.values = new Map()
+    const entries = init instanceof Headers ? [...init.values] : Array.isArray(init) ? init : Object.entries(init || {})
+    for (const [name, value] of entries) this.append(name, value)
+  }
+
+  append (name, value) {
+    const key = String(name).toLowerCase()
+    this.values.set(key, this.values.has(key) ? `${this.values.get(key)}, ${value}` : String(value))
+  }
+
+  set (name, value) { this.values.set(String(name).toLowerCase(), String(value)) }
   get (name) { return this.values.get(String(name).toLowerCase()) ?? null }
   has (name) { return this.values.has(String(name).toLowerCase()) }
-  forEach () {}
+  delete (name) { this.values.delete(String(name).toLowerCase()) }
+  forEach (callback, self) { for (const [name, value] of this.values) callback.call(self, value, name, this) }
+  entries () { return this.values.entries() }
+  [Symbol.iterator] () { return this.values.entries() }
 }
 
 class Response {
-  constructor (url, readText, readBuffer) {
-    Object.assign(this, { url, ok: true, status: STATUS_OK, statusText: 'OK', type: 'basic', redirected: false })
-    this.headers = new Headers()
+  constructor (url, readText, readBuffer, { status = STATUS_OK, statusText = 'OK', headers = new Headers(), redirected = false } = {}) {
+    Object.assign(this, { url, status, statusText, headers, redirected, ok: status >= 200 && status < 300, type: 'basic' })
     this.readText = readText
     this.readBuffer = readBuffer
   }
@@ -38,28 +52,63 @@ class Response {
   arrayBuffer () { return Promise.resolve().then(this.readBuffer) }
 }
 
-function download (url) {
+function indexOfHeaderEnd (bytes, start) {
+  for (let i = start; i + 3 < bytes.length; i++) if (HEADER_END.every((byte, k) => bytes[i + k] === byte)) return i
+  return -1
+}
+
+// Splits the output of curl -D - into the last header block (after redirects and 100 Continue) and the body.
+function parseResponse (url, text, buffer, redirected) {
+  const bytes = new Uint8Array(buffer)
+  let offset = 0, status = 0, statusText = '', headers = new Headers(), blocks = 0
+  while (bytes[offset] === 72 && String.fromCharCode(...bytes.subarray(offset, offset + 5)) === 'HTTP/') { // "H"
+    const end = indexOfHeaderEnd(bytes, offset)
+    if (end < 0) break
+    const [statusLine, ...lines] = String.fromCharCode(...bytes.subarray(offset, end)).split('\r\n')
+    const match = /^HTTP\/[\d.]+ (\d+) ?(.*)$/.exec(statusLine)
+    status = match ? Number(match[1]) : 0
+    statusText = match ? match[2] : ''
+    headers = new Headers(lines.map((line) => [line.slice(0, line.indexOf(':')), line.slice(line.indexOf(':') + 1).trim()]))
+    offset = end + HEADER_END.length
+    blocks++
+  }
+  const body = buffer.slice(offset)
+  return new Response(url, () => text.slice(offset), () => body.slice(0), { status, statusText, headers, redirected: redirected || blocks > 1 })
+}
+
+function request (url, method, headers, body) {
   return new Promise((resolve, reject) => {
-    if (!URL_PATTERN.test(url)) {
-      const path = url.replace(/^file:\/\//, '')
-      try {
-        native.readFile(path, true) // fails here for a missing file, as a network error
-      } catch (error) {
-        return reject(new TypeError(`Failed to fetch ${url}: ${error.message}`))
-      }
-      return resolve(new Response(url, () => native.readFile(path), () => native.readFile(path, true)))
-    }
-    pendingFetches.set(native.fetchStart(url), (ok, text, buffer) => {
-      if (ok) resolve(new Response(url, () => text, () => buffer.slice(0)))
+    const data = body === undefined || body === null ? null
+      : typeof body === 'string' || body instanceof ArrayBuffer || ArrayBuffer.isView(body) ? body : String(body)
+    const all = new Headers(headers)
+    // The content type of the browser: text for a string, none for bytes ("Content-Type:" removes the one of curl).
+    if (data !== null && !all.has('content-type')) all.set('content-type', typeof data === 'string' ? 'text/plain;charset=UTF-8' : '')
+    const lines = []
+    all.forEach((value, name) => lines.push(`${name}:${value ? ' ' + value : ''}`))
+    pendingFetches.set(native.httpRequest(url, method, lines, data), (ok, text, buffer) => {
+      if (ok) resolve(parseResponse(url, text, buffer, false))
       else reject(new TypeError(`Failed to fetch ${url}`))
     })
   })
 }
 
+function readLocal (url) {
+  return new Promise((resolve, reject) => {
+    const path = url.replace(/^file:\/\//, '')
+    try {
+      native.readFile(path, true) // fails here for a missing file, as a network error
+    } catch (error) {
+      return reject(new TypeError(`Failed to fetch ${url}: ${error.message}`))
+    }
+    resolve(new Response(url, () => native.readFile(path), () => native.readFile(path, true)))
+  })
+}
+
 window.fetch = (input, options = {}) => {
+  const url = String(input?.url ?? input)
   const method = String(options.method || input?.method || 'GET').toUpperCase()
-  if (method !== 'GET') return Promise.reject(new TypeError(`fetch: hydra-native sends only GET requests, not ${method}`))
-  return download(String(input?.url ?? input))
+  if (!URL_PATTERN.test(url)) return readLocal(url)
+  return request(url, method, options.headers || input?.headers, options.body)
 }
 window.Headers = Headers
 window.Response = Response
@@ -74,13 +123,18 @@ export class XMLHttpRequest extends EventTarget {
   open (method, url) {
     this.method = String(method).toUpperCase()
     this.url = String(url)
+    this.requestHeaders = new Headers()
     this.change(READY_STATES.OPENED)
   }
 
-  setRequestHeader () {}
+  setRequestHeader (name, value) { this.requestHeaders.append(name, value) }
   overrideMimeType () {}
-  getResponseHeader () { return null }
-  getAllResponseHeaders () { return '' }
+  getResponseHeader (name) { return this.responseHeaders?.get(name) ?? null }
+  getAllResponseHeaders () {
+    let text = ''
+    this.responseHeaders?.forEach((value, name) => { text += `${name}: ${value}\r\n` })
+    return text
+  }
   abort () { this.aborted = true }
 
   change (state) {
@@ -94,12 +148,13 @@ export class XMLHttpRequest extends EventTarget {
     this.dispatchEvent(event)
   }
 
-  send () {
-    window.fetch(this.url, { method: this.method }).then(async (response) => {
+  send (body) {
+    window.fetch(this.url, { method: this.method, headers: this.requestHeaders, body }).then(async (response) => {
       if (this.aborted) return
       const binary = this.responseType === 'arraybuffer' || this.responseType === 'blob'
       const body = binary ? await response.arrayBuffer() : await response.text()
       Object.assign(this, { status: response.status, statusText: response.statusText, responseURL: this.url })
+      this.responseHeaders = response.headers
       this.response = this.responseType === 'json' ? JSON.parse(body) : body
       if (!binary && this.responseType !== 'json') this.responseText = body
       this.change(READY_STATES.DONE)

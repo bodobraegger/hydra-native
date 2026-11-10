@@ -113,6 +113,7 @@ test: build/editor-test build/ui-test build/audio-test
 
 check: all test
 	build/hydra-native --hidden --no-vsync test/check.js
+	python3 test/fetch_test.py
 
 clean:
 	rm -rf build

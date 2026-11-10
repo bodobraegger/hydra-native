@@ -22,6 +22,9 @@ bool audio_features(float specific[BARK_BAND_COUNT], float *total);
 // Downloads with curl, and other child processes; fetch_poll calls `done` once per finished process with its
 // output and whether it exited with status 0.
 int fetch_start(const char *url);
+// A request of fetch() and XMLHttpRequest; the output is the response header blocks and then the body.
+int http_start(const char *url, const char *method, const char *const *headers, size_t header_count, const void *body,
+               size_t body_length);
 int process_start(char *const argv[]);
 void fetch_stop_all(void); // at exit, without output of the stopped processes
 void fetch_poll(void (*done)(int id, bool ok, const char *data, size_t length));

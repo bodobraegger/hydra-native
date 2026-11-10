@@ -4,8 +4,10 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -13,6 +15,7 @@
 
 #define MAX_FETCHES 16
 #define FETCH_TIMEOUT_SECONDS "30"
+#define MAX_REQUEST_HEADERS 64
 
 struct fetch {
     pid_t pid;
@@ -51,6 +54,49 @@ int process_start(char *const argv[]) {
 int fetch_start(const char *url) {
     char *argv[] = { "curl", "-fsSL", "--max-time", FETCH_TIMEOUT_SECONDS, "--", (char *)url, NULL };
     return process_start(argv);
+}
+
+int http_start(const char *url, const char *method, const char *const *headers, size_t header_count, const void *body,
+               size_t body_length) {
+    // The body goes to curl as an inherited memory file, so no file on disk holds it.
+    int body_fd = -1;
+    char body_argument[32];
+    if (body) {
+        body_fd = memfd_create("hydra-native-request", 0);
+        if (body_fd < 0) return -1;
+        for (size_t written = 0; written < body_length;) {
+            ssize_t count = write(body_fd, (const char *)body + written, body_length - written);
+            if (count <= 0) {
+                close(body_fd);
+                return -1;
+            }
+            written += (size_t)count;
+        }
+        lseek(body_fd, 0, SEEK_SET);
+        snprintf(body_argument, sizeof body_argument, "@/dev/fd/%d", body_fd);
+    }
+    // -D - writes the header blocks (one per redirect) before the body; without -f an error status is a response.
+    const char *argv[16 + 2 * MAX_REQUEST_HEADERS] = { "curl", "-sSL", "-D", "-", "--max-time", FETCH_TIMEOUT_SECONDS };
+    size_t count = 6;
+    if (!strcmp(method, "HEAD")) argv[count++] = "-I";
+    else if (strcmp(method, "GET") != 0) {
+        argv[count++] = "-X";
+        argv[count++] = method;
+    }
+    for (size_t i = 0; i < header_count && i < MAX_REQUEST_HEADERS; i++) {
+        argv[count++] = "-H";
+        argv[count++] = headers[i];
+    }
+    if (body) {
+        argv[count++] = "--data-binary";
+        argv[count++] = body_argument;
+    }
+    argv[count++] = "--";
+    argv[count++] = url;
+    argv[count] = NULL;
+    int id = process_start((char *const *)argv);
+    if (body_fd >= 0) close(body_fd);
+    return id;
 }
 
 void fetch_poll(void (*done)(int id, bool ok, const char *data, size_t length)) {

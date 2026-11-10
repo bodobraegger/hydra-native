@@ -167,7 +167,7 @@ gallery and signalling server (hydra-synth/hydra-server) and from the CodeMirror
 | hydra-synth API                | the same hydra-synth 1.4.0                 | yes                                  |
 | setResolution, top-level await | stretched canvas, async global eval        | yes                                  |
 | loadScript (paths and URLs)    | file or curl, global eval                  | yes                                  |
-| fetch, XMLHttpRequest          | GET of files and URLs (curl)               | no: GET only, no HTTP status         |
+| fetch, XMLHttpRequest          | curl: methods, headers, bodies, status     | yes, but without CORS checks         |
 | initCam, initVideo, initImage  | GStreamer, ffmpeg                          | yes (YouTube needs yt-dlp)           |
 | initScreen                     | portal picker                              | yes                                  |
 | initCanvas, 2D canvas          | plutovg: gradients, shadows, filters, clip | yes (filter url() is missing)        |
@@ -190,8 +190,7 @@ local copy of the hydra-server signalling code with socket.io 2 and two native i
 
 Other differences that remain:
 
-- `fetch` and `XMLHttpRequest` send only GET requests. A failed download, also with an HTTP error status, is a
-  network error, while the browser gives a response with the status.
+- `fetch` and `XMLHttpRequest` make no CORS check, so a request that the browser blocks works here.
 - Network data (thumbnails, languages, extensions) needs the network once; languages stay cached.
 
 ## Video input
