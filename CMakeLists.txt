@@ -116,7 +116,7 @@ set(WARNINGS -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers
 
 add_executable(hydra-native src/main.c src/canvas2d.c src/svg_filter.c src/webgl.c src/video.c src/audio.c
   src/audio_processing.c src/analog_agc.c src/fetch.c src/thumbnails.c src/midi.c src/recorder.c src/patch_bay.c
-  src/editor.c src/bidi.c src/ui.c src/settings.c src/overlay.c src/keymap.c)
+  src/editor.c src/bidi.c src/ui.c src/settings.c src/overlay.c src/keymap.c src/programs.c)
 target_compile_options(hydra-native PRIVATE ${WARNINGS})
 target_compile_definitions(hydra-native PRIVATE HYDRA_NATIVE_VERSION="${PROJECT_VERSION}")
 target_include_directories(hydra-native PRIVATE ${VENDOR}/stb)

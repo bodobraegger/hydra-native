@@ -112,8 +112,9 @@ esbuild bundles the original `hydra-synth/src/hydra-synth.js` and replaces only 
 `regl` (WebGL wrapper), `raf-loop` (frame loop) and `meyda` (audio features).
 Thus the GLSL generator, the transforms, `setFunction`, the array functions (`.fast()`, `.smooth()`), `hush`, `render`,
 `setResolution`, the output ping-pong and the audio object `a` are the code of the browser version.
-The regl shim is 117 lines.
-It compiles shaders when hydra creates a pass, so that a shader error keeps the old pass, as in the browser.
+The regl shim is 148 lines.
+It starts to compile shaders when hydra creates a pass, and js/main.js keeps the old pass of an output until the new
+one is compiled, so that a shader error keeps the old pass, as in the browser.
 
 The audio code computes the Meyda "loudness" feature exactly as Meyda 5.6.3 does (512-sample Hann window, 24 Bark bands, sum^0.23).
 Thus `a.setScale`, `a.setCutoff` and `a.setBins` keep their meaning.

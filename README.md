@@ -59,7 +59,9 @@ Run `build/hydra-native --help` for all options.
 The overlay shows the code on a dark, partly transparent background behind each line, with syntax colors
 and bracket pair colors. Long lines wrap with a hanging indent of 2 (Alt+Z toggles the wrap).
 Evaluated lines flash for 300 ms.
-An evaluation error, or a console warning during the evaluation (for example a shader compile error), shows in the bar at the bottom.
+An evaluation error, a console warning during the evaluation, or a shader compile error shows in the bar at the bottom.
+New shaders compile in the background, and each output shows its old shader until the new one is ready.
+Thus an evaluation does not stop the visuals, and a shader compile error comes some frames after the evaluation.
 The next successful evaluation clears the bar.
 Ctrl+Shift+H hides and shows the overlay; the visuals keep running, and the evaluation keys keep working.
 The default font is DejaVu Sans Mono at 20 pixels (`--font`, `--font-size`, Ctrl+plus and Ctrl+minus).
@@ -140,6 +142,7 @@ hydra-native listens on the Unix socket `$XDG_RUNTIME_DIR/hydra-native.sock`.
 A client sends JavaScript, closes its write side and gets `ok` or the error with its stack.
 Code from the socket does not enter the overlay text, because the overlay shows the sketch file.
 Errors of socket code show in the error bar with the prefix `socket:`.
+The reply comes before the new shaders are compiled, so shader compile errors show only in the error bar and on stderr.
 
 ```sh
 echo 'osc(20, 0.1, 1.2).kaleid(5).out()' | build/hydra-native --send
@@ -254,3 +257,7 @@ build/hydra-native --no-vsync --bench 10 bench/prelude.js ../../2609-artrio.js
 ```
 
 `bench/prelude.js` replaces the screen captures, the extensions and the audio input of the repo sketches with stubs.
+
+`src/programs.c` selects how shaders compile, and the environment variable `HYDRA_SHADER_COMPILE` overrides it:
+`thread` (a second GL context on a thread of its own, the default on Mesa), `parallel` (GL_KHR_parallel_shader_compile,
+the default with other drivers that have it, for example ANGLE) or `blocking` (the frame waits for the compiler).

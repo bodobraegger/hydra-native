@@ -212,50 +212,29 @@ static void call_global(const char *name, int argc, JSValue *argv) {
 
 // ---------------------------------------------------------------- GL bindings
 
-static GLuint compile_shader(JSContext *ctx, GLenum type, const char *source, JSValue *error) {
-    GLuint shader = glCreateShader(type);
-    glShaderSource(shader, 1, &source, NULL);
-    glCompileShader(shader);
-    GLint ok;
-    glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);
-    if (!ok) {
-        char log[4096];
-        glGetShaderInfoLog(shader, sizeof log, NULL, log);
-        *error = JS_ThrowSyntaxError(ctx, "%s shader: %s", type == GL_VERTEX_SHADER ? "vertex" : "fragment", log);
-        glDeleteShader(shader);
-        return 0;
-    }
-    return shader;
-}
-
+// createProgram(vertex, fragment) starts to compile and link, and returns the program before it is ready.
 static JSValue js_create_program(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
     const char *vertex_source = JS_ToCString(ctx, argv[0]);
     const char *fragment_source = JS_ToCString(ctx, argv[1]);
-    JSValue error = JS_UNDEFINED;
-    GLuint vertex = compile_shader(ctx, GL_VERTEX_SHADER, vertex_source, &error);
-    GLuint fragment = vertex ? compile_shader(ctx, GL_FRAGMENT_SHADER, fragment_source, &error) : 0;
+    JSValue result = vertex_source && fragment_source
+                         ? JS_NewInt32(ctx, (int32_t)program_create(vertex_source, fragment_source)) : JS_EXCEPTION;
     JS_FreeCString(ctx, vertex_source);
     JS_FreeCString(ctx, fragment_source);
-    if (!fragment) {
-        if (vertex) glDeleteShader(vertex);
-        return error;
+    return result;
+}
+
+// programStatus(program, wait): true when the program is ready, false while it compiles and `wait` is false.
+// A failed program throws its log as a SyntaxError.
+static JSValue js_program_status(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    char *error;
+    switch (program_status((GLuint)to_int(ctx, argv[0]), JS_ToBool(ctx, argv[1]), &error)) {
+    case PROGRAM_COMPILING: return JS_FALSE;
+    case PROGRAM_LINKED: return JS_TRUE;
+    default: break;
     }
-    GLuint program = glCreateProgram();
-    glAttachShader(program, vertex);
-    glAttachShader(program, fragment);
-    glBindAttribLocation(program, 0, "position");
-    glLinkProgram(program);
-    glDeleteShader(vertex);
-    glDeleteShader(fragment);
-    GLint ok;
-    glGetProgramiv(program, GL_LINK_STATUS, &ok);
-    if (!ok) {
-        char log[4096];
-        glGetProgramInfoLog(program, sizeof log, NULL, log);
-        glDeleteProgram(program);
-        return JS_ThrowSyntaxError(ctx, "link: %s", log);
-    }
-    return JS_NewInt32(ctx, (int32_t)program);
+    JSValue exception = JS_ThrowSyntaxError(ctx, "%s", error);
+    free(error);
+    return exception;
 }
 
 static JSValue js_uniform_location(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
@@ -778,6 +757,17 @@ static JSValue js_console_message(JSContext *ctx, JSValueConst this, int argc, J
     return JS_UNDEFINED;
 }
 
+// showError(text): an error that comes after its evaluation, for example a shader that the driver compiled later.
+static JSValue js_show_error(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    const char *text = JS_ToCString(ctx, argv[0]);
+    if (text) {
+        fprintf(stderr, "%s\n", text);
+        ui_show_message(text, true);
+        JS_FreeCString(ctx, text);
+    }
+    return JS_UNDEFINED;
+}
+
 static JSValue js_exit(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
     exit_code = argc > 0 ? to_int(ctx, argv[0]) : 0;
     quit_requested = true;
@@ -790,6 +780,7 @@ static JSValue js_record_stop(JSContext *ctx, JSValueConst this, int argc, JSVal
 
 static const JSCFunctionListEntry native_functions[] = {
     JS_CFUNC_DEF("createProgram", 2, js_create_program),
+    JS_CFUNC_DEF("programStatus", 2, js_program_status),
     JS_CFUNC_DEF("uniformLocation", 2, js_uniform_location),
     JS_CFUNC_DEF("useProgram", 1, js_use_program),
     JS_CFUNC_DEF("uniform", 5, js_uniform),
@@ -832,6 +823,7 @@ static const JSCFunctionListEntry native_functions[] = {
     JS_CFUNC_DEF("readFile", 2, js_read_file),
     JS_CFUNC_DEF("drawableSize", 0, js_drawable_size),
     JS_CFUNC_DEF("consoleMessage", 1, js_console_message),
+    JS_CFUNC_DEF("showError", 1, js_show_error),
     JS_CFUNC_DEF("exit", 1, js_exit),
 };
 
@@ -1109,6 +1101,7 @@ static bool create_window(const struct options *options) {
         return false;
     }
     SDL_GL_SetSwapInterval(active_settings.vsync ? 1 : 0);
+    programs_start(window);
     const SDL_DisplayMode *mode = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(window));
     if (mode && mode->refresh_rate > 0) frame_period_ms = 1000.0 / mode->refresh_rate;
     SDL_StartTextInput(window);
@@ -1355,6 +1348,7 @@ int main(int argc, char **argv) {
     if (!executable_directory(directory, sizeof directory)) return 1;
     snprintf(executable_path_directory, sizeof executable_path_directory, "%s", directory);
     JS_SetPropertyStr(js, native, "directory", JS_NewString(js, directory));
+    JS_SetPropertyStr(js, native, "shaderCompile", JS_NewString(js, programs_method()));
     JS_SetPropertyStr(js, native, "language", settings->language[0] ? JS_NewString(js, settings->language) : JS_NULL);
     JS_SetPropertyStr(js, native, "galleryServer", gallery_server ? JS_NewString(js, gallery_server) : JS_NULL);
     JS_SetPropertyStr(js, native, "l10nUrl", settings->l10n_url[0] ? JS_NewString(js, settings->l10n_url) : JS_NULL);
@@ -1509,6 +1503,7 @@ int main(int argc, char **argv) {
         close(listener);
         unlink(socket_path);
     }
+    programs_stop();
     SDL_DestroyWindow(window);
     SDL_Quit();
     return exit_code;

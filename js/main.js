@@ -42,6 +42,29 @@ if (hydra.synth.a) {
 // hydra-editor exposes the renderer as hydraSynth; the hydra-extensions look for it there.
 window.hydraSynth = hydra
 installSources(hydra.s[0].constructor.prototype)
+
+// hydra-synth replaces the pass of an output at once (Output.render). Here the old pass keeps drawing until the
+// driver has compiled the new one (src/programs.c), so that an eval does not stop the frames. The newest pass wins.
+const outputPrototype = hydra.o[0].constructor.prototype
+const renderOutput = outputPrototype.render
+outputPrototype.render = function (passes) {
+  const current = this.draw
+  renderOutput.call(this, passes)
+  this.pendingDraw = this.draw
+  this.draw = current
+}
+const tickOutput = outputPrototype.tick
+outputPrototype.tick = function (props) {
+  if (this.pendingDraw) {
+    try {
+      if (this.pendingDraw.ready()) [this.draw, this.pendingDraw] = [this.pendingDraw, null]
+    } catch (error) {
+      this.pendingDraw = null
+      native.showError(`shader could not compile ${error}`)
+    }
+  }
+  tickOutput.call(this, props)
+}
 // screencap() of hydra-synth saves through a DOM link; src/main.c writes PNG and code files instead.
 hydra.synth.screencap = window.screencap = () => native.screencap()
 // vidRecorder of hydra-synth uses MediaRecorder; here src/recorder.c sends the frames to ffmpeg (WebM, VP9).

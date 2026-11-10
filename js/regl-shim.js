@@ -76,27 +76,51 @@ export default function createRegl () {
   const programs = new Map()
   const context = {}
 
+  // The driver compiles a program in the background (src/programs.c); a failed program leaves the cache, so that the
+  // next eval of the same code compiles it again and reports the error again.
   function program (vert, frag) {
     const key = vert + '\0' + frag
-    if (!programs.has(key)) programs.set(key, native.createProgram(vert, frag))
+    if (!programs.has(key)) programs.set(key, { key, id: native.createProgram(vert, frag), linked: false, error: null })
     return programs.get(key)
   }
 
-  // Compiles at creation, unlike regl, so that GlslSource.out() catches shader errors and keeps the old pass.
-  function regl ({ vert, frag, uniforms = {}, framebuffer }) {
-    const id = program(vert, frag)
-    const bindings = Object.entries(uniforms)
-      .map(([name, value]) => [native.uniformLocation(id, name), value])
-      .filter(([location]) => location >= 0)
+  // true when the program is linked, false while the driver compiles it (only if `wait` is false); throws the
+  // shader error.
+  function linked (entry, wait) {
+    if (entry.error) throw entry.error
+    if (entry.linked) return true
+    try {
+      entry.linked = native.programStatus(entry.id, wait)
+    } catch (error) {
+      entry.error = error
+      programs.delete(entry.key)
+      throw error
+    }
+    return entry.linked
+  }
 
-    return (props = {}) => {
+  // A command draws with its program as soon as it is called; command.ready() lets a caller keep an older
+  // command until the driver is done (js/main.js does so for the outputs). When nothing compiles in the
+  // background, the command waits at creation, so that GlslSource.out() catches the shader error.
+  function regl ({ vert, frag, uniforms = {}, framebuffer }) {
+    const entry = program(vert, frag)
+    if (native.shaderCompile === 'blocking') linked(entry, true)
+    let bindings = null
+
+    const command = (props = {}) => {
+      if (!bindings) {
+        linked(entry, true)
+        bindings = Object.entries(uniforms)
+          .map(([name, value]) => [native.uniformLocation(entry.id, name), value])
+          .filter(([location]) => location >= 0)
+      }
       // regl resolves the framebuffer before the uniforms; hydra's ping-pong buffers depend on this order.
       const target = typeof framebuffer === 'function' ? framebuffer(context, props) : framebuffer
       const [width, height] = target ? [target.width, target.height] : screenSize()
       context.viewportWidth = context.drawingBufferWidth = width
       context.viewportHeight = context.drawingBufferHeight = height
       native.bindFramebuffer(target ? target.id : 0, width, height)
-      native.useProgram(id)
+      native.useProgram(entry.id)
       const textureUnit = { next: 0 }
       for (const [location, binding] of bindings) {
         let value = binding
@@ -106,6 +130,8 @@ export default function createRegl () {
       }
       native.drawTriangle()
     }
+    command.ready = () => linked(entry, false)
+    return command
   }
 
   regl.prop = (name) => new Prop(name)
