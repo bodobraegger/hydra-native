@@ -55,6 +55,7 @@ static const struct key_binding keymap[] = {
     { SDLK_UP, KEY_ALT, COMMAND_MOVE_LINE_UP },
     { SDLK_DOWN, KEY_ALT, COMMAND_MOVE_LINE_DOWN },
     { SDLK_DOWN, KEY_ALT | KEY_SHIFT, COMMAND_DUPLICATE_LINE },
+    { SDLK_d, KEY_CTRL | KEY_SHIFT, COMMAND_DUPLICATE_LINE }, // the sublime keymap of the web editor
     { SDLK_f, KEY_ALT | KEY_SHIFT, COMMAND_FORMAT },
     { SDLK_f, KEY_CTRL | KEY_SHIFT, COMMAND_FORMAT }, // the key of hydra.ojack.xyz
     { SDLK_d, KEY_CTRL, COMMAND_SELECT_NEXT_OCCURRENCE },
