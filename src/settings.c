@@ -266,6 +266,7 @@ bool settings_save(const struct settings *settings, const char *path, char *erro
         set_string(ctx, root, "autocompleteStyle", style_names[settings->autocomplete_style]);
         set_string(ctx, root, "autocompleteTrigger", trigger_names[settings->autocomplete_trigger]);
         JS_SetPropertyStr(ctx, root, "wordWrap", JS_NewBool(ctx, settings->word_wrap));
+        set_string(ctx, root, "galleryServer", settings->gallery_server);
         JSValue json = JS_JSONStringify(ctx, root, JS_UNDEFINED, JS_NewInt32(ctx, JSON_INDENT));
         const char *output = JS_ToCString(ctx, json);
         // A temporary file and rename(): a reader never sees half a file.

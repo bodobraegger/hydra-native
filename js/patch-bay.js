@@ -1,6 +1,6 @@
 // `pb`, the webRTC patch bay of the web editor (src/lib/patch-bay/pb-live.js): tools/patch-bay.mjs runs that code
 // with @roamhq/wrtc, and this object mirrors it for hydra-synth (initStream) and sketches (pb.list(), pb.setName()).
-// As in the web editor, it exists only with a server (--gallery-server), in the room 'iclc'.
+// As in the web editor, it exists only with a server (galleryServer, the settings menu), in the room 'iclc'.
 import { EventEmitter } from 'events'
 import { nativeVideo } from './sources.js'
 
@@ -22,6 +22,15 @@ export class PatchBay extends EventEmitter {
     window.pb = this
   }
 
+  // Leaves the room: the helper ends, the received streams close.
+  close () {
+    native.patchBayStop()
+    for (const video of this.videos.values()) video.close()
+    this.videos.clear()
+    this.id = null
+    this.removeAllListeners()
+  }
+
   call (method, ...args) { native.patchBaySend(JSON.stringify({ type: 'call', method, args })) }
 
   initSource (nick) { this.call('initSource', nick) }
@@ -40,7 +49,7 @@ export class PatchBay extends EventEmitter {
   receive (message) {
     switch (message.type) {
       case 'state':
-        Object.assign(this, { id: message.id, nick: message.nick, nicks: message.nicks, peers: message.peers })
+        Object.assign(this, { id: message.id, streamId: message.streamId, nick: message.nick, nicks: message.nicks, peers: message.peers })
         break
       case 'publish':
         native.patchBayPublish(message.on)

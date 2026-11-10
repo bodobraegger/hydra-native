@@ -141,7 +141,10 @@ static const char *const keywords[] = {
     "case", "default", "try", "catch", "throw",
 };
 
-enum prompt_kind { PROMPT_NONE, PROMPT_FIND, PROMPT_REPLACE, PROMPT_GO_TO_LINE, PROMPT_PALETTE, PROMPT_SHARE };
+enum prompt_kind { PROMPT_NONE, PROMPT_FIND, PROMPT_REPLACE, PROMPT_GO_TO_LINE, PROMPT_PALETTE, PROMPT_SHARE, PROMPT_SERVER };
+
+// The server of the deployed web editor (VITE_SERVER_URL of hydra.ojack.xyz) for gallery and patch bay.
+#define WEB_EDITOR_SERVER "https://api.hydrasynth.xyz"
 
 // The prompt() text of showConfirmation() in gallery-store.js of the web editor.
 static const char *const share_confirmation[] = {
@@ -175,6 +178,7 @@ static bool help_visible;
 static bool info_visible;
 static bool extensions_visible;
 static bool settings_visible;
+static bool gallery_enabled; // the web editor shows "share" only with a gallery server
 #define MAX_PANEL_BUTTONS 256
 #define EXTENSION_ROWS 3
 // Clickable areas of the extensions panel, with the action that src/ui.c runs on a click.
@@ -541,6 +545,8 @@ static void open_prompt(enum prompt_kind kind) {
     prompt.kind = kind;
 }
 
+static void set_server(const char *url);
+
 static char *prompt_field(void) { return prompt.kind == PROMPT_REPLACE && prompt.field == 1 ? prompt.replacement : prompt.query; }
 
 static bool find_open(void) { return prompt.kind == PROMPT_FIND || prompt.kind == PROMPT_REPLACE; }
@@ -602,6 +608,10 @@ static void accept_prompt(int direction) {
         prompt.kind = PROMPT_NONE;
         break;
     }
+    case PROMPT_SERVER:
+        prompt.kind = PROMPT_NONE;
+        set_server(prompt.query);
+        break;
     case PROMPT_SHARE:
         prompt.kind = PROMPT_NONE;
         if (!host.share(editor.text, prompt.query)) ui_show_message("no gallery server: start with --gallery-server URL", true);
@@ -618,6 +628,43 @@ static void accept_prompt(int direction) {
 }
 
 // ---------------------------------------------------------------- commands
+
+static void save_settings(void);
+
+// The gallery and patch bay server ("" is off): js/main.js starts or stops the patch bay at once, and "share"
+// shows only with a server, as in the web editor.
+static void set_server(const char *url) {
+    snprintf(stored_settings.gallery_server, sizeof stored_settings.gallery_server, "%s", url);
+    snprintf(active_settings.gallery_server, sizeof active_settings.gallery_server, "%s", url);
+    save_settings();
+    free(host.call("__setPatchBayServer", url));
+    gallery_enabled = url[0] != '\0';
+    char text[SETTINGS_TEXT + 64];
+    if (url[0]) snprintf(text, sizeof text, "gallery and patch bay: %s", url);
+    else snprintf(text, sizeof text, "gallery and patch bay: off");
+    ui_show_message(text, false);
+}
+
+// "pb.id stream-id" of this instance in the patch bay room ("" without a connection). The stream id (the socket
+// id of the signalling) is what other peers pass to s0.initStream; pb.id is only the default nickname.
+static char *patch_bay_id(void) {
+    char *id = host.call("__patchBayId", "");
+    if (!id) id = strdup("");
+    return id;
+}
+
+static void copy_patch_bay_id(void) {
+    char *id = patch_bay_id(), text[192];
+    char *stream_id = strchr(id, ' ');
+    if (stream_id) {
+        SDL_SetClipboardText(stream_id + 1);
+        snprintf(text, sizeof text, "copied the stream id %s: s0.initStream('%s') elsewhere", stream_id + 1, stream_id + 1);
+    } else {
+        snprintf(text, sizeof text, "the patch bay is not connected (settings: server)");
+    }
+    ui_show_message(text, !stream_id);
+    free(id);
+}
 
 // Writes the settings file after a change of the settings menu or of the font size.
 static void save_settings(void) {
@@ -826,6 +873,12 @@ static void run_command_body(enum command command, bool extend) {
         info_visible = extensions_visible = false;
         info_scroll = 0;
         return;
+    case COMMAND_COPY_PATCH_BAY_ID: copy_patch_bay_id(); return;
+    case COMMAND_SET_SERVER:
+        open_prompt(PROMPT_SERVER);
+        snprintf(prompt.query, sizeof prompt.query, "%.*s", (int)sizeof prompt.query - 1, active_settings.gallery_server);
+        prompt.query_selected = prompt.query[0] != '\0'; // typing replaces the current URL
+        return;
     case COMMAND_NEXT_THEME: {
         set_theme(&themes[(size_t)(theme - themes + 1) % theme_count]);
         char text[96];
@@ -1026,7 +1079,6 @@ static const struct toolbar_item toolbar[] = {
     { "?", "toolbar.show-info", COMMAND_TOGGLE_INFO, COMMAND_TOGGLE_HELP, COMMAND_TOGGLE_HELP },
 };
 #define TOOLBAR_COUNT (sizeof toolbar / sizeof toolbar[0])
-static bool gallery_enabled; // the web editor shows "share" only with a gallery server
 
 static bool toolbar_shown(size_t index) { return gallery_enabled || toolbar[index].command != COMMAND_GALLERY_SHARE; }
 
@@ -1383,7 +1435,7 @@ static void draw_settings(void) {
     if (!font_choices_loaded) load_font_choices();
     float label_x = left + char_width, value_x = left + 15 * char_width, y = top + line_height / 2;
     char action[32];
-    const char *labels[] = { "theme", "autocomplete", "trigger", "whitespace", "line wrap", "font size", "font" };
+    const char *labels[] = { "theme", "autocomplete", "trigger", "whitespace", "line wrap", "server", "font size", "font" };
     for (size_t row = 0; row < sizeof labels / sizeof labels[0]; row++)
         overlay_text(label_x, y + (float)row * 1.5f * line_height, labels[row], strlen(labels[row]), 0, 14, NULL, theme->help_keys);
     float x = value_x;
@@ -1408,6 +1460,21 @@ static void draw_settings(void) {
     x = panel_label(value_x, y, "on", wrap, "wrap 1");
     panel_label(x, y, "off", !wrap, "wrap 0");
     y += 1.5f * line_height;
+    const char *server = active_settings.gallery_server;
+    x = panel_label(value_x, y, "off", !server[0], "server off");
+    x = panel_label(x, y, "hydra.ojack.xyz", !strcmp(server, WEB_EDITOR_SERVER), "server web");
+    bool custom = server[0] && strcmp(server, WEB_EDITOR_SERVER);
+    x = panel_label(x, y, custom ? server : "custom", custom, "server custom");
+    char *id = patch_bay_id(), *stream_id = strchr(id, ' ');
+    if (stream_id) { // the own ids while the patch bay is connected, with a button that copies the stream id
+        char label[160];
+        *stream_id++ = '\0';
+        snprintf(label, sizeof label, "pb.id %s, stream id %s", id, stream_id);
+        overlay_text(x, y, label, strlen(label), 0, 40, NULL, theme->help_keys);
+        panel_label(x + (float)(strlen(label) + 1) * char_width, y, "copy", false, "copy id");
+    }
+    free(id);
+    y += 1.5f * line_height;
     char size[16];
     snprintf(size, sizeof size, "%.0f px", overlay_font_size());
     x = panel_label(value_x, y, "-", false, "size -");
@@ -1431,6 +1498,15 @@ static void run_settings_action(const char *action) {
     else if (!strncmp(action, "whitespace ", 11) && index <= WHITESPACE_ALL) {
         stored_settings.render_whitespace = active_settings.render_whitespace = (enum render_whitespace)index;
         save_settings();
+    } else if (!strcmp(action, "server off")) {
+        set_server("");
+    } else if (!strcmp(action, "server web")) {
+        set_server(WEB_EDITOR_SERVER);
+    } else if (!strcmp(action, "server custom")) {
+        settings_visible = false;
+        run_command(COMMAND_SET_SERVER, false);
+    } else if (!strcmp(action, "copy id")) {
+        copy_patch_bay_id();
     } else if (!strncmp(action, "wrap ", 5)) {
         wrap = stored_settings.word_wrap = active_settings.word_wrap = index != 0;
         layout.valid = false;
@@ -1935,6 +2011,7 @@ static void draw_prompt(int width, int height) {
                  prompt.field == 0 ? "_" : "", count, prompt.replacement, prompt.field == 1 ? "_" : "");
         break;
     case PROMPT_GO_TO_LINE: snprintf(text, sizeof text, "go to line: %s", prompt.query); break;
+    case PROMPT_SERVER: snprintf(text, sizeof text, "gallery and patch bay server URL: %s   (Enter: OK, empty: off)", prompt.query); break;
     case PROMPT_SHARE: {
         float line_height = overlay_line_height(), y = (float)height - bar_height();
         size_t lines = sizeof share_confirmation / sizeof share_confirmation[0], columns = visible_columns();
@@ -2019,6 +2096,8 @@ void ui_set_visible(bool show) { visible = show; }
 void ui_show_info(void) { info_visible = true; }
 
 void ui_enable_gallery(void) { gallery_enabled = true; }
+
+void ui_set_server(const char *url) { set_server(url); }
 
 void ui_share_done(bool ok, const char *output) {
     char text[MAX_MESSAGE];

@@ -38,6 +38,28 @@ const check = setInterval(() => {
 }, 250)
 """
 
+# The server of the settings menu switches at run time (src/ui.c set_server calls __setPatchBayServer): pb appears
+# with a URL and goes away with "", and the helper process ends.
+SWITCHER = """
+const log = (text) => console.log('RESULT ' + text)
+log('before ' + typeof pb)
+__setPatchBayServer('%s')
+const wait = setInterval(() => {
+  if (typeof pb === 'undefined' || !pb.id) return
+  clearInterval(wait)
+  log('started ' + (__patchBayId() === pb.id + ' ' + pb.streamId && pb.streamId.length > 0))
+  __setPatchBayServer('')
+  log('stopped ' + typeof pb + ' ' + JSON.stringify(__patchBayId()))
+  setTimeout(() => native.exit(0), 3000)
+}, 200)
+setTimeout(() => { log('timeout'); native.exit(1) }, 20000)
+"""
+
+
+def helper_running(pid):
+    return subprocess.run(["pgrep", "-f", f"hydra-native-patch-bay-{pid}"], capture_output=True).returncode == 0
+
+
 server = subprocess.Popen(["node", str(ROOT / "test" / "signalling_server.cjs"), "0"], stdout=subprocess.PIPE, text=True)
 try:
     port = server.stdout.readline().split()[1]
@@ -52,6 +74,15 @@ try:
                                   timeout=TIMEOUT_SECONDS)
         publisher.terminate() # SIGTERM: A leaves the room through its normal exit
         publisher_output = publisher.communicate(timeout=TIMEOUT_SECONDS)[0]
+        switcher_file = pathlib.Path(directory, "c.js")
+        switcher_file.write_text(SWITCHER % url)
+        switcher = subprocess.Popen(HYDRA + [str(switcher_file)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        switch_lines, helper_after_stop = [], None
+        for line in switcher.stdout:
+            switch_lines.append(line)
+            if line.startswith("RESULT stopped"):
+                helper_after_stop = helper_running(switcher.pid)
+        switcher.wait(timeout=TIMEOUT_SECONDS)
 finally:
     server.terminate()
     server.wait()
@@ -62,4 +93,8 @@ if not results or not results[0].startswith("RESULT received"):
     sys.exit(f"patch_bay_test: no stream\n--- receiver\n{output}\n--- publisher\n{publisher_output}")
 if publisher.returncode != 0:
     sys.exit(f"patch_bay_test: the publisher ended with {publisher.returncode}\n{publisher_output}")
-print(f"patch_bay_test: ok, {results[0][len('RESULT received '):]}")
+switch_results = [line.strip() for line in switch_lines if line.startswith("RESULT ")]
+expected_switch = ["RESULT before undefined", "RESULT started true", 'RESULT stopped undefined ""']
+if switch_results != expected_switch or helper_after_stop:
+    sys.exit(f"patch_bay_test: live start and stop: {switch_results}, helper after stop: {helper_after_stop}\n{''.join(switch_lines)}")
+print(f"patch_bay_test: ok, {results[0][len('RESULT received '):]}, live start and stop")

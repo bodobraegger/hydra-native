@@ -64,8 +64,11 @@ the web editor does. Ctrl+Shift+L copies that URL, and Ctrl+Shift+O opens the UR
 PLAN.md compares every feature with the web editor.
 
 The "settings" entry of the toolbar (Ctrl+,) chooses the color theme, the autocomplete style and trigger, the
-rendering of whitespace, line wrap, the font size and a font from the installed monospace fonts (fc-list). Each
-choice applies at once and goes into the settings file.
+rendering of whitespace, line wrap, the gallery and patch bay server, the font size and a font from the installed
+monospace fonts (fc-list). Each choice applies at once and goes into the settings file. The server is "off" (the
+default; `pb` is undefined then), hydra.ojack.xyz (https://api.hydrasynth.xyz) or a custom URL; a change starts or
+stops the patch bay and the "share" button without a restart. While the patch bay is connected, the panel shows
+pb.id and the stream id, which other peers pass to `s0.initStream`; Ctrl+Alt+I copies the stream id.
 
 ### Settings file
 
@@ -156,6 +159,7 @@ Keys marked "always" also work while the overlay is hidden.
 | Ctrl+Shift+H                                   | hide or show the code (always)                         |
 | Ctrl+S; Ctrl+Shift+S                           | save; save a screenshot and the code (always)          |
 | F1; Ctrl+Shift+P; Ctrl+,                       | help; command palette; settings (always)               |
+| Ctrl+Alt+I                                     | copy the stream id of the patch bay (always)           |
 | Ctrl+Shift+L; Ctrl+Shift+O; Ctrl+Shift+G       | copy the URL; open a URL; share with the gallery       |
 | F7; F8, Shift+F8, Ctrl+F8; Ctrl+Shift+Delete   | example; mutate, undo, change a function; clear all    |
 | F11; Ctrl+Q                                    | fullscreen; quit (always)                              |

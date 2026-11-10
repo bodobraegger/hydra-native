@@ -15,11 +15,26 @@ const canvas = document.createElement('canvas')
 ;[canvas.width, canvas.height] = native.drawableSize()
 document.body.appendChild(canvas)
 
+const hydra = new Hydra({ canvas, enableStreamCapture: false })
+
 // As in the web editor (src/views/Hydra.js): with a server, pb joins the room 'iclc' and publishes the output,
-// and hydra-synth uses it for initStream; without one, there is no webRTC.
-const pb = native.galleryServer ? new PatchBay() : null
-const hydra = new Hydra({ canvas, enableStreamCapture: false, pb })
-if (pb) pb.init(null, { server: native.galleryServer })
+// and hydra-synth uses it for initStream; without one, pb is undefined. The settings menu changes the server
+// while the program runs (src/ui.c, set_server).
+let patchBay = null
+window.__setPatchBayServer = (server) => {
+  if (patchBay) patchBay.close()
+  patchBay = server ? new PatchBay() : null
+  if (patchBay) patchBay.init(null, { server })
+  else delete window.pb
+  hydra.pb = patchBay
+  for (const source of hydra.s) source.pb = patchBay
+  native.setGalleryServer(server || null)
+  native.galleryServer = server || null
+  return ''
+}
+// "pb.id <id> <stream id>" for the settings panel; others connect with s0.initStream('<stream id>').
+window.__patchBayId = () => patchBay && patchBay.id && patchBay.streamId ? `${patchBay.id} ${patchBay.streamId}` : ''
+if (native.galleryServer) window.__setPatchBayServer(native.galleryServer)
 // The audio meter of lib/audio.js draws its bars into this recording context, see the overlay code below.
 if (hydra.synth.a) {
   hydra.synth.a.ctx = Object.assign(new RecordingContext2D(hydra.synth.a.canvas), { fillStyle: '#DFFFFF', strokeStyle: '#0ff' })

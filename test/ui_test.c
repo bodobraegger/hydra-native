@@ -13,6 +13,8 @@
 static int failures;
 static char evaluated[4096];
 static char next_error[256];
+static char patch_bay_server[256]; // the argument of the last __setPatchBayServer
+static char drawn[16384]; // all texts of the last frame, one per line
 
 #define EXPECT_STRING(actual, expected)                                                                    \
     do {                                                                                                   \
@@ -46,12 +48,14 @@ bool overlay_set_font(const char *font_path) { return true; }
 float overlay_font_size(void) { return 20; }
 float overlay_char_width(void) { return 10; }
 float overlay_line_height(void) { return 20; }
-void overlay_begin(void) {}
+void overlay_begin(void) { drawn[0] = '\0'; }
 void overlay_rect(float x, float y, float width, float height, uint32_t color) {}
 static char bar_text[512]; // the last drawn text that starts with "find: "
 void overlay_text(float x, float y, const char *text, size_t length, size_t first_column, size_t max_columns,
                   const uint32_t *colors, uint32_t color) {
     if (length > 6 && !strncmp(text, "find: ", 6)) snprintf(bar_text, sizeof bar_text, "%.*s", (int)length, text);
+    size_t used = strlen(drawn);
+    snprintf(drawn + used, sizeof drawn - used, "%.*s\n", (int)length, text);
 }
 void overlay_end(int width, int height) {}
 void overlay_difference_begin(void) {}
@@ -79,6 +83,11 @@ static char *call(const char *function, const char *argument) {
     if (!strcmp(function, "__mutateUndo")) return strdup("noise().out()");
     if (!strcmp(function, "__completionNames")) return strdup("noise\nosc\nout");
     if (!strcmp(function, "__urlForCode")) return strdup("https://hydra.ojack.xyz/?code=x");
+    if (!strcmp(function, "__setPatchBayServer")) {
+        snprintf(patch_bay_server, sizeof patch_bay_server, "%s", argument);
+        return strdup("");
+    }
+    if (!strcmp(function, "__patchBayId")) return strdup(patch_bay_server[0] ? "pbid123 stream456" : "");
     char *text = strdup(argument);
     for (char *c = text; *c; c++) *c = (char)toupper((unsigned char)*c);
     return text;
@@ -432,6 +441,36 @@ int main(void) {
     content[fread(content, 1, sizeof content - 1, saved)] = '\0';
     fclose(saved);
     EXPECT_CONTAINS(content, "broken");
+
+    // The gallery and patch bay server of the settings menu: a URL starts the patch bay at once, the panel shows
+    // the own id, Ctrl+Alt+I copies it, and an empty URL stops it again; the file keeps the choice.
+    write_file(settings_file, "{}\n");
+    key(SDLK_p, KMOD_LCTRL | KMOD_LSHIFT);
+    type("set the gallery and patch bay");
+    key(SDLK_RETURN, 0);
+    type("http://127.0.0.1:9"); // replaces the selected URL of the file loaded at the start
+    key(SDLK_RETURN, 0);
+    EXPECT_STRING(patch_bay_server, "http://127.0.0.1:9");
+    settings_defaults(&loaded);
+    settings_load(&loaded, settings_file, error, sizeof error);
+    EXPECT_STRING(loaded.gallery_server, "http://127.0.0.1:9");
+    key(SDLK_COMMA, KMOD_LCTRL);
+    ui_draw(800, 600, 0);
+    EXPECT_CONTAINS(drawn, "pb.id pbid123, stream id stream456");
+    key(SDLK_ESCAPE, 0);
+    key(SDLK_i, KMOD_LCTRL | KMOD_LALT);
+    ui_draw(800, 600, 0);
+    EXPECT_CONTAINS(drawn, "copied the stream id stream456");
+    key(SDLK_p, KMOD_LCTRL | KMOD_LSHIFT);
+    type("set the gallery and patch bay");
+    key(SDLK_RETURN, 0);
+    key(SDLK_BACKSPACE, 0); // the prompt starts with the URL, selected
+    key(SDLK_RETURN, 0);
+    EXPECT_STRING(patch_bay_server, "");
+    key(SDLK_COMMA, KMOD_LCTRL);
+    ui_draw(800, 600, 0);
+    EXPECT(strstr(drawn, "pb.id") == NULL);
+    key(SDLK_ESCAPE, 0);
 
     unlink(settings_file);
     *strrchr(settings_file, '/') = '\0';

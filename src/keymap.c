@@ -47,6 +47,7 @@ static const struct key_binding default_keymap[] = {
     { SDLK_ESCAPE, 0, COMMAND_ESCAPE, .global = true },
     { SDLK_F1, 0, COMMAND_TOGGLE_HELP, .global = true },
     { SDLK_COMMA, KEY_CTRL, COMMAND_TOGGLE_SETTINGS, .global = true }, // the settings key of VS Code
+    { SDLK_i, KEY_CTRL | KEY_ALT, COMMAND_COPY_PATCH_BAY_ID, .global = true },
 
     // toolbar actions of hydra.ojack.xyz (the web editor has no keys for them)
     { SDLK_DELETE, KEY_CTRL | KEY_SHIFT, COMMAND_CLEAR_ALL, .global = true },

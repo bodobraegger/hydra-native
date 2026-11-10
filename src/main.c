@@ -481,6 +481,9 @@ static JSValue js_http_request(JSContext *ctx, JSValueConst this, int argc, JSVa
 
 // ---------------------------------------------------------------- webRTC patch bay (tools/patch-bay.mjs)
 
+static const char *gallery_server; // NULL: no gallery and no patch bay
+static char gallery_server_url[SETTINGS_TEXT];
+
 static JSValue js_patch_bay_start(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
     const char *server = JS_ToCString(ctx, argv[0]), *room = JS_ToCString(ctx, argv[1]);
     char script[PATH_MAX + 64];
@@ -489,6 +492,20 @@ static JSValue js_patch_bay_start(JSContext *ctx, JSValueConst this, int argc, J
     JS_FreeCString(ctx, server);
     JS_FreeCString(ctx, room);
     return JS_NewBool(ctx, ok);
+}
+
+static JSValue js_patch_bay_stop(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    patch_bay_stop();
+    return JS_UNDEFINED;
+}
+
+// setGalleryServer(url or null): the server of sharing and of the patch bay changes while the program runs.
+static JSValue js_set_gallery_server(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    const char *url = JS_IsString(argv[0]) ? JS_ToCString(ctx, argv[0]) : NULL;
+    snprintf(gallery_server_url, sizeof gallery_server_url, "%s", url ? url : "");
+    gallery_server = gallery_server_url[0] ? gallery_server_url : NULL;
+    JS_FreeCString(ctx, url);
+    return JS_UNDEFINED;
 }
 
 static JSValue js_patch_bay_send(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
@@ -511,7 +528,6 @@ static void patch_bay_line(const char *text) {
 }
 
 // Sharing: the screenshot comes from the next frame, then tools/gallery_share.py sends the requests.
-static const char *gallery_server;
 static struct {
     bool waiting_for_frame;
     int process;
@@ -784,6 +800,8 @@ static const JSCFunctionListEntry native_functions[] = {
     JS_CFUNC_DEF("fetchStart", 1, js_fetch_start),
     JS_CFUNC_DEF("patchBayStart", 2, js_patch_bay_start),
     JS_CFUNC_DEF("patchBaySend", 1, js_patch_bay_send),
+    JS_CFUNC_DEF("patchBayStop", 0, js_patch_bay_stop),
+    JS_CFUNC_DEF("setGalleryServer", 1, js_set_gallery_server),
     JS_CFUNC_DEF("patchBayPublish", 1, js_patch_bay_publish),
     JS_CFUNC_DEF("httpRequest", 4, js_http_request),
     JS_CFUNC_DEF("midiStart", 0, js_midi_start),
@@ -1289,7 +1307,8 @@ int main(int argc, char **argv) {
     audio_set_analog_agc(settings->analog_agc);
     // The analog gain control changes the volume of the audio source; every way out restores it.
     atexit(audio_stop);
-    gallery_server = settings->gallery_server[0] ? settings->gallery_server : NULL;
+    snprintf(gallery_server_url, sizeof gallery_server_url, "%.*s", (int)sizeof gallery_server_url - 1, settings->gallery_server);
+    gallery_server = gallery_server_url[0] ? gallery_server_url : NULL;
     if (!create_window(&options)) return 1;
     // After SDL, which installs handlers of its own: the first SIGINT or SIGTERM ends the loop, so that the audio
     // source gets its volume back; a second one ends the process at once.

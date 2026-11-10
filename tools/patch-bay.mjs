@@ -120,7 +120,10 @@ const pb = new PBLive()
 // hydra-synth captures its canvas with captureStream(25); this stream gets the frames of hydra-native.
 pb.init(stream, { server, room })
 
-const sendState = () => send({ type: 'state', id: pb.id, nick: pb.nick, nicks: Object.keys(pb.idFromNick), peers: Object.keys(pb.peers) })
+// streamId: the socket id, which the other peers list in pb.peers and pass to s0.initStream; pb.id (from shortid) is
+// only the default nickname.
+const sendState = () => send({ type: 'state', id: pb.id, streamId: pb.signaller.id, nick: pb.nick, nicks: Object.keys(pb.idFromNick),
+  peers: Object.keys(pb.peers) })
 for (const event of ['ready', 'new peer', 'broadcast', 'connect', 'close']) pb.on(event, () => setImmediate(sendState))
 pb.on('broadcast', (data) => send({ type: 'broadcast', data }))
 pb.on('message', (data) => send({ type: 'message', data }))
