@@ -1,7 +1,8 @@
 // Replaces the DOM media inputs of HydraSource (s0..s3) with native video sources:
 // a child process writes raw RGBA frames to a pipe, src/video.c uploads the newest frame.
-// The commands use gst-launch-1.0, ffmpeg and build/hydra-native-capture (src/capture.h: the portal picker of
-// initScreen, and Mutter ScreenCast without a dialog for initMonitor, initArea and initWindow).
+// The commands use gst-launch-1.0 (cameras on Linux), ffmpeg and build/hydra-native-capture (src/capture.h: the
+// system picker of initScreen, and initMonitor, initArea and initWindow without a dialog). On macOS and Windows,
+// the cameras come from SDL in the process, and the commands run in cmd.exe on Windows.
 
 const DEFAULT_WIDTH = 1280
 const DEFAULT_HEIGHT = 720
@@ -9,13 +10,17 @@ const DEFAULT_WINDOW_DELAY_SECONDS = 3
 const MAX_VIDEO_DEVICES = 64
 const YOUTUBE_PATTERN = /^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\//
 
-const quote = (text) => `'${String(text).replace(/'/g, "'\\''")}'`
+const WINDOWS = native.platform === 'Windows'
+// A word for the shell of src/process.h: /bin/sh, or cmd.exe, where a file name cannot contain a quote.
+const quote = WINDOWS ? (text) => `"${String(text)}"` : (text) => `'${String(text).replace(/'/g, "'\\''")}'`
 const rawVideoCaps = (width, height) => `video/x-raw,format=RGBA,width=${width},height=${height}`
 const ffmpegOutput = (width, height) => `-vf scale=${width}:${height} -pix_fmt rgba -f rawvideo -`
 const screencast = (...args) => `${quote(native.directory + '/hydra-native-capture')} ${args.join(' ')}`
 
-// Capture devices in the order of their /dev/video number. Metadata nodes (index 1) are skipped.
+// Capture devices: on Linux in the order of their /dev/video number (metadata nodes, index 1, are skipped),
+// elsewhere the names of the SDL cameras.
 function cameraDevices () {
+  if (native.platform !== 'Linux') return native.cameras()
   const devices = []
   for (let number = 0; number < MAX_VIDEO_DEVICES; number++) {
     try {
@@ -45,18 +50,26 @@ export function installSources (sourcePrototype) {
     clear.call(this)
   }
 
+  function initHandle (source, open, width, height, params) {
+    source.clear()
+    source.src = nativeVideo(open(), width, height)
+    source.tex = source.regl.texture({ width, height, ...params })
+    source.dynamic = true
+    return source
+  }
+
   // initCommand(shellCommand, { width, height, ...textureParams }) is the base of all other inputs.
   sourcePrototype.initCommand = function (command, { width = DEFAULT_WIDTH, height = DEFAULT_HEIGHT, ...params } = {}) {
-    this.clear()
-    this.src = nativeVideo(native.videoOpen(command, width, height), width, height)
-    this.tex = this.regl.texture({ width, height, ...params })
-    this.dynamic = true
-    return this
+    return initHandle(this, () => native.videoOpen(command, width, height), width, height, params)
   }
 
   sourcePrototype.initCam = function (index = 0, { width = DEFAULT_WIDTH, height = DEFAULT_HEIGHT, ...params } = {}) {
-    const device = cameraDevices()[index]
-    if (!device) return console.warn(`no camera ${index}, found: ${cameraDevices().join(' ')}`)
+    const devices = cameraDevices()
+    if (!devices[index]) return console.warn(`no camera ${index}, found: ${devices.join(', ')}`)
+    if (native.platform !== 'Linux') {
+      return initHandle(this, () => native.cameraOpen(index, width, height), width, height, params)
+    }
+    const device = devices[index]
     return this.initCommand(`gst-launch-1.0 -q v4l2src device=${device} ! decodebin ! videoconvert ! videoscale ! ` +
       `${rawVideoCaps(width, height)} ! fdsink fd=1 sync=false`, { width, height, ...params })
   }
@@ -88,7 +101,7 @@ export function installSources (sourcePrototype) {
   // Loops files and network streams; YouTube links need yt-dlp in PATH and play once.
   sourcePrototype.initVideo = function (url = '', { width = DEFAULT_WIDTH, height = DEFAULT_HEIGHT, ...params } = {}) {
     const input = YOUTUBE_PATTERN.test(url)
-      ? `yt-dlp -q -f 'best[height<=${height}]/best' -o - ${quote(url)} | ffmpeg -hide_banner -loglevel error -re -i -`
+      ? `yt-dlp -q -f ${quote(`best[height<=${height}]/best`)} -o - ${quote(url)} | ffmpeg -hide_banner -loglevel error -re -i -`
       : `ffmpeg -hide_banner -loglevel error -re -stream_loop -1 -i ${quote(url.replace(/^file:\/\//, ''))}`
     return this.initCommand(`${input} ${ffmpegOutput(width, height)}`, { width, height, ...params })
   }

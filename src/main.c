@@ -389,6 +389,24 @@ static JSValue js_video_close(JSContext *ctx, JSValueConst this, int argc, JSVal
     return JS_UNDEFINED;
 }
 
+#define MAX_CAMERAS 64
+
+// cameraOpen(index, width, height): a video source of the SDL camera (macOS, Windows; Linux uses GStreamer).
+static JSValue js_camera_open(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    int handle = video_open_camera(to_int(ctx, argv[0]), to_int(ctx, argv[1]), to_int(ctx, argv[2]));
+    if (handle < 0) return JS_ThrowInternalError(ctx, "cannot open the camera");
+    return JS_NewInt32(ctx, handle);
+}
+
+// cameras(): the names of the SDL cameras, in the order of initCam(index).
+static JSValue js_cameras(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    const char *names[MAX_CAMERAS];
+    int count = video_camera_names(names, MAX_CAMERAS);
+    JSValue array = JS_NewArray(ctx);
+    for (int i = 0; i < count; i++) JS_SetPropertyUint32(ctx, array, (uint32_t)i, JS_NewString(ctx, names[i]));
+    return array;
+}
+
 static const char *audio_device_option;
 
 static JSValue js_audio_start(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
@@ -808,6 +826,8 @@ static const JSCFunctionListEntry native_functions[] = {
     JS_CFUNC_DEF("videoUpload", 2, js_video_upload),
     JS_CFUNC_DEF("videoRunning", 1, js_video_running),
     JS_CFUNC_DEF("videoClose", 1, js_video_close),
+    JS_CFUNC_DEF("cameraOpen", 3, js_camera_open),
+    JS_CFUNC_DEF("cameras", 0, js_cameras),
     JS_CFUNC_DEF("audioStart", 0, js_audio_start),
     JS_CFUNC_DEF("audioFeatures", 0, js_audio_features),
     JS_CFUNC_DEF("fetchStart", 1, js_fetch_start),
@@ -1359,6 +1379,7 @@ int main(int argc, char **argv) {
     if (!executable_directory(directory, sizeof directory)) return 1;
     snprintf(executable_path_directory, sizeof executable_path_directory, "%s", directory);
     JS_SetPropertyStr(js, native, "directory", JS_NewString(js, directory));
+    JS_SetPropertyStr(js, native, "platform", JS_NewString(js, SDL_GetPlatform())); // Linux, macOS, Windows
     JS_SetPropertyStr(js, native, "shaderCompile", JS_NewString(js, programs_method()));
     JS_SetPropertyStr(js, native, "language", settings->language[0] ? JS_NewString(js, settings->language) : JS_NULL);
     JS_SetPropertyStr(js, native, "galleryServer", gallery_server ? JS_NewString(js, gallery_server) : JS_NULL);
