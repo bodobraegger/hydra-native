@@ -503,6 +503,16 @@ static JSValue js_patch_bay_publish(JSContext *ctx, JSValueConst this, int argc,
     return JS_NewBool(ctx, patch_bay_publish(JS_ToBool(ctx, argv[0]), width & ~1, height & ~1));
 }
 
+// patchBayVideo(channel, width, height): a video source for the frames of a stream that the helper receives.
+static JSValue js_patch_bay_video(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    const char *channel = JS_ToCString(ctx, argv[0]);
+    int stream = channel ? patch_bay_connect(channel) : -1;
+    JS_FreeCString(ctx, channel);
+    int handle = stream < 0 ? -1 : video_open_stream(stream, to_int(ctx, argv[1]), to_int(ctx, argv[2]));
+    if (handle < 0) return JS_ThrowInternalError(ctx, "cannot receive the stream");
+    return JS_NewInt32(ctx, handle);
+}
+
 static void patch_bay_line(const char *text) {
     JSValue arguments[1] = { JS_NewString(js, text) };
     call_global("__patchBay", 1, arguments);
@@ -807,6 +817,7 @@ static const JSCFunctionListEntry native_functions[] = {
     JS_CFUNC_DEF("patchBayStop", 0, js_patch_bay_stop),
     JS_CFUNC_DEF("setGalleryServer", 1, js_set_gallery_server),
     JS_CFUNC_DEF("patchBayPublish", 1, js_patch_bay_publish),
+    JS_CFUNC_DEF("patchBayVideo", 3, js_patch_bay_video),
     JS_CFUNC_DEF("httpRequest", 4, js_http_request),
     JS_CFUNC_DEF("midiStart", 0, js_midi_start),
     JS_CFUNC_DEF("midiInputs", 0, js_midi_inputs),

@@ -46,7 +46,8 @@ void publisher_stop(void);
 bool patch_bay_start(const char *script, const char *server, const char *room);
 bool patch_bay_send(const char *line);
 void patch_bay_poll(void (*line)(const char *text));
-bool patch_bay_publish(bool on, int width, int height); // opens or closes the output FIFO of the helper
+bool patch_bay_publish(bool on, int width, int height); // opens or closes the output channel of the helper
+int patch_bay_connect(const char *channel); // a stream to the local socket of the helper, or -1
 void patch_bay_stop(void);
 
 // Shader programs that compile without stopping the frames (src/programs.c). program_create() returns at once;

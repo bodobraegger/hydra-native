@@ -1,58 +1,32 @@
 // The process of tools/patch-bay.mjs (Node.js with @roamhq/wrtc): JSON lines go to its stdin, its stdout lines go to
-// js/patch-bay.js, and while a peer receives the output, the frames go into the FIFO <directory>/output.
-#define _GNU_SOURCE
-#include <errno.h>
-#include <fcntl.h>
-#include <signal.h>
+// js/patch-bay.js. Frames go through a local socket of the helper (a Unix socket, or a named pipe on Windows): each
+// connection starts with one line that names its channel, "output WIDTHxHEIGHT" for the output of hydra-native
+// while a peer receives it, or the channel of a received stream, whose frames then come back.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/wait.h>
-#include <unistd.h>
 
 #include "native.h"
+#include "process.h"
 
 #define MAX_LINE (1 << 20)
-#define STOP_WAIT_STEPS 40 // 2 s for the helper to leave the room
-#define STOP_WAIT_STEP_US 50000
+#define STOP_WAIT_MS 2000 // for the helper to leave the room
+#define SOCKET_NAME "hydra-native-patch-bay"
 
 static struct {
-    pid_t pid;
+    struct process *process;
     int input, output; // the stdin and stdout of the helper
-    char directory[512];
+    char address[512]; // of its local socket
     char *buffer;
     size_t used;
-} helper = { .pid = -1, .input = -1, .output = -1 };
+} helper = { .input = -1, .output = -1 };
 
 bool patch_bay_start(const char *script, const char *server, const char *room) {
-    if (helper.pid > 0) return true;
-    const char *runtime = getenv("XDG_RUNTIME_DIR");
-    snprintf(helper.directory, sizeof helper.directory, "%s/hydra-native-patch-bay-%d", runtime ? runtime : "/tmp", (int)getpid());
-    int to_helper[2], from_helper[2];
-    if (pipe2(to_helper, O_CLOEXEC) != 0) return false;
-    if (pipe2(from_helper, O_CLOEXEC) != 0) {
-        close(to_helper[0]);
-        close(to_helper[1]);
-        return false;
-    }
-    pid_t pid = fork();
-    if (pid == 0) {
-        dup2(to_helper[0], STDIN_FILENO);
-        dup2(from_helper[1], STDOUT_FILENO);
-        execlp("node", "node", script, server, room, helper.directory, (char *)NULL);
-        _exit(127);
-    }
-    close(to_helper[0]);
-    close(from_helper[1]);
-    if (pid < 0) {
-        close(to_helper[1]);
-        close(from_helper[0]);
-        return false;
-    }
-    fcntl(from_helper[0], F_SETFL, O_NONBLOCK);
-    helper.pid = pid;
-    helper.input = to_helper[1];
-    helper.output = from_helper[0];
+    if (helper.process) return true;
+    stream_local_address(helper.address, sizeof helper.address, SOCKET_NAME);
+    const char *argv[] = { "node", script, server, room, helper.address, NULL };
+    helper.process = process_start(argv, &helper.input, &helper.output);
+    if (!helper.process) return false;
     helper.buffer = malloc(MAX_LINE);
     helper.used = 0;
     return true;
@@ -60,21 +34,15 @@ bool patch_bay_start(const char *script, const char *server, const char *room) {
 
 bool patch_bay_send(const char *line) {
     if (helper.input < 0) return false;
-    size_t length = strlen(line);
-    for (size_t done = 0; done < length;) {
-        ssize_t count = write(helper.input, line + done, length - done);
-        if (count <= 0) return false;
-        done += (size_t)count;
-    }
-    return write(helper.input, "\n", 1) == 1;
+    return stream_write_all(helper.input, line, strlen(line)) && stream_write_all(helper.input, "\n", 1);
 }
 
 void patch_bay_poll(void (*line)(const char *text)) {
     if (helper.output < 0) return;
     for (;;) {
-        ssize_t count = read(helper.output, helper.buffer + helper.used, MAX_LINE - 1 - helper.used);
+        long count = stream_read_ready(helper.output, helper.buffer + helper.used, MAX_LINE - 1 - helper.used);
         if (count <= 0) {
-            if (count == 0 || (errno != EAGAIN && errno != EINTR)) {
+            if (count < 0) {
                 fprintf(stderr, "patch bay: the helper ended\n");
                 patch_bay_stop();
             }
@@ -93,18 +61,29 @@ void patch_bay_poll(void (*line)(const char *text)) {
     }
 }
 
+int patch_bay_connect(const char *channel) {
+    if (!helper.process) return -1;
+    int stream = stream_connect(helper.address);
+    if (stream < 0) {
+        fprintf(stderr, "patch bay: cannot connect to %s\n", helper.address);
+        return -1;
+    }
+    if (!stream_write_all(stream, channel, strlen(channel)) || !stream_write_all(stream, "\n", 1)) {
+        stream_close(stream);
+        return -1;
+    }
+    return stream;
+}
+
 bool patch_bay_publish(bool on, int width, int height) {
     publisher_stop();
-    if (!on || helper.pid <= 0) return true;
-    char path[600], size[128];
-    snprintf(path, sizeof path, "%s/output", helper.directory);
-    // The helper keeps the FIFO open for reading, so this open does not wait; then the writer thread blocks.
-    int fd = open(path, O_WRONLY | O_NONBLOCK | O_CLOEXEC);
-    if (fd < 0) return false;
-    fcntl(fd, F_SETFL, 0);
-    snprintf(size, sizeof size, "{\"type\":\"size\",\"width\":%d,\"height\":%d}", width, height);
-    if (!patch_bay_send(size) || !publisher_start(fd, width, height)) {
-        close(fd);
+    if (!on || !helper.process) return true;
+    char channel[64];
+    snprintf(channel, sizeof channel, "output %dx%d", width, height);
+    int stream = patch_bay_connect(channel);
+    if (stream < 0) return false;
+    if (!publisher_start(stream, width, height)) {
+        stream_close(stream);
         return false;
     }
     return true;
@@ -112,15 +91,12 @@ bool patch_bay_publish(bool on, int width, int height) {
 
 void patch_bay_stop(void) {
     publisher_stop();
-    if (helper.pid <= 0) return;
-    close(helper.input); // the helper leaves the room and removes its directory at the end of its input
-    close(helper.output);
-    for (int wait = 0; wait < STOP_WAIT_STEPS && waitpid(helper.pid, NULL, WNOHANG) == 0; wait++) usleep(STOP_WAIT_STEP_US);
-    if (waitpid(helper.pid, NULL, WNOHANG) == 0) {
-        kill(helper.pid, SIGKILL);
-        waitpid(helper.pid, NULL, 0);
-    }
+    if (!helper.process) return;
+    stream_close(helper.input); // the helper leaves the room and removes its socket at the end of its input
+    stream_close(helper.output);
+    process_wait(helper.process, STOP_WAIT_MS);
+    process_free(helper.process); // kills the helper if it still runs
     free(helper.buffer);
-    helper.pid = -1;
+    helper.process = NULL;
     helper.input = helper.output = -1;
 }

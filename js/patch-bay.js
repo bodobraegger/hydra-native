@@ -6,8 +6,6 @@ import { nativeVideo } from './sources.js'
 
 const WEB_EDITOR_ROOM = 'iclc'
 
-const quote = (text) => `'${String(text).replace(/'/g, "'\\''")}'`
-
 export class PatchBay extends EventEmitter {
   constructor () {
     super()
@@ -61,10 +59,10 @@ export class PatchBay extends EventEmitter {
     }
   }
 
-  // The first frame of a stream gives 'got video' as in pb-live.js; a new frame size swaps the pipe of the same
-  // video object, and hydra-synth resizes the texture in tick().
-  receiveVideo ({ nick, path, width, height }) {
-    const next = nativeVideo(`cat ${quote(path)}`, width, height)
+  // The first frame of a stream gives 'got video' as in pb-live.js; a new frame size swaps the channel of the
+  // same video object, and hydra-synth resizes the texture in tick().
+  receiveVideo ({ nick, channel, width, height }) {
+    const next = nativeVideo(native.patchBayVideo(channel, width, height), width, height)
     const video = this.videos.get(nick)
     if (video) {
       video.current.close()
