@@ -1546,6 +1546,23 @@ void ui_draw(int width, int height, double now_ms) {
 
 // ---------------------------------------------------------------- setup
 
+bool ui_text_input_rect(int *x, int *y, int *width, int *height) {
+    if (!visible || help_visible) return false;
+    float line_height = overlay_line_height();
+    *width = (int)overlay_char_width();
+    *height = (int)line_height;
+    if (prompt.kind != PROMPT_NONE) { // the end of the text in the bar
+        *x = (int)(MARGIN + (float)text_columns(prompt_field()) * overlay_char_width());
+        *y = (int)((float)last_height - bar_height() + BAR_PADDING);
+        return true;
+    }
+    size_t column, row = global_row(editor.cursor, &column);
+    if (row < scroll_row || row >= scroll_row + visible_rows() || column < scroll_column) return false;
+    *x = (int)(MARGIN + (float)(column - scroll_column) * overlay_char_width());
+    *y = (int)(MARGIN + (float)(row - scroll_row) * line_height);
+    return true;
+}
+
 void ui_set_visible(bool show) { visible = show; }
 
 void ui_show_info(void) { info_visible = true; }

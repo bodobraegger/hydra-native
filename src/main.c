@@ -474,6 +474,19 @@ static bool start_share(const char *code, const char *name) {
 
 static bool write_png(const char *path, int width, int height);
 
+// Tells the input method where the cursor is, so that its candidate window opens there, as in the browser.
+static void update_text_input_rect(int drawable_width) {
+    static SDL_Rect last;
+    int x, y, width, height, window_width, window_height;
+    if (!ui_text_input_rect(&x, &y, &width, &height)) return;
+    SDL_GetWindowSize(window, &window_width, &window_height);
+    float scale = drawable_width > 0 ? (float)window_width / (float)drawable_width : 1;
+    SDL_Rect rect = { (int)((float)x * scale), (int)((float)y * scale), (int)((float)width * scale), (int)((float)height * scale) };
+    if (rect.x == last.x && rect.y == last.y && rect.w == last.w && rect.h == last.h) return;
+    last = rect;
+    SDL_SetTextInputRect(&rect);
+}
+
 static void continue_share(int width, int height) {
     share.waiting_for_frame = false;
     char script[PATH_MAX + 64];
@@ -1297,6 +1310,7 @@ int main(int argc, char **argv) {
             save_screencap(drawable_width, drawable_height);
         }
         ui_draw(drawable_width, drawable_height, now);
+        update_text_input_rect(drawable_width);
         double after_overlay = now_ms();
         if (options.screenshot_path && now - start >= SCREENSHOT_DELAY_MS) {
             if (!write_png(options.screenshot_path, drawable_width, drawable_height)) exit_code = 1;

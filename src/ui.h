@@ -26,6 +26,8 @@ bool ui_init(const char *font_path, const char *emoji_font_path, float font_size
 bool ui_key(const SDL_KeyboardEvent *event); // true when the overlay used the key
 void ui_text_input(const char *text);
 void ui_text_editing(const char *text); // an IME composition that is not committed yet
+// The cursor in drawable pixels, where the input method shows its candidate window; false when it is hidden.
+bool ui_text_input_rect(int *x, int *y, int *width, int *height);
 void ui_mouse_button(float x, float y, bool down, int clicks, SDL_Keymod modifiers);
 void ui_mouse_motion(float x, float y);
 void ui_wheel(int lines);
