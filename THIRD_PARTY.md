@@ -14,6 +14,7 @@ a distributed hydra-native binary with its bundle falls under the AGPL-3.0.
 - stb_truetype.h 1.26 and stb_image_write.h 1.16 by Sean Barrett, public domain or MIT license,
   commit 4e9b368bfc071e97206ea5c6adba68dd0cbf8897 of https://github.com/nothings/stb.
   Glyph atlas of the code overlay (src/overlay.c) and PNG output (src/main.c).
+- stb_image.h 2.30 by Sean Barrett, public domain or MIT license, same commit. Thumbnails (src/thumbnails.c).
 - plutovg 1.3.3 by Samuel Ugochukwu, MIT license. https://github.com/sammycage/plutovg
   2D canvas (src/canvas2d.c). Its files plutovg-ft-*.c come from FreeType and are under the FreeType License (FTL);
   plutovg contains its own copy of stb_truetype.
@@ -25,6 +26,8 @@ a distributed hydra-native binary with its bundle falls under the AGPL-3.0.
   replace its dependencies regl, raf-loop and meyda.
 - js-beautify 1.15.4, MIT license. The formatter of the web editor (Shift+Ctrl+F).
 - acorn 8.19.0, astring 1.9.0 and astravel 0.5.0, MIT license. The parser and code generator of the mutator.
+- p5.js 1.6.0 (the version of public/p5.min.js in the web editor), LGPL-2.1. `make` copies lib/p5.min.js of
+  the npm package to build/p5.min.js; js/p5.js loads it on the first use of P5.
 - esbuild 0.28.2, MIT license. Build tool only, not in the output.
 
 ## Code of the hydra web editor
@@ -35,6 +38,11 @@ From https://github.com/hydra-synth/hydra (the editor of hydra.ojack.xyz), commi
   that the file header lists.
 - js/hydra-editor/UndoStack.js (src/views/editor/randomizer/UndoStack.js), unchanged.
 - js/hydra-editor/examples.json (src/stores/examples.json), the examples of the "random example" button.
+- js/hydra-editor/text-elements.js (src/stores/text-elements.js), the English texts of the info panel, unchanged.
+- The class body of P5 in js/p5.js (src/lib/p5-wrapper.js).
+- The confirmation text of the gallery share prompt in src/ui.c (src/stores/gallery-store.js).
+
+Translations of the info panel come at run time from https://github.com/hydra-synth/l10n.
 
 ## Algorithms from other projects
 

@@ -276,8 +276,7 @@ Not done:
 
 - Code folding. It does not combine well with soft wrap and was not cheap.
 - tree-sitter for highlighting and indentation. The own highlighter covers JavaScript well enough for sketches.
-- Tabs show as one column. The editor inserts two spaces for Tab.
-- The preview of an IME composition (SDL_TEXTEDITING). Dead keys and composed characters arrive as text input.
+- Tab inserts two spaces (indentUnit 2); a tab character in a file shows 4 columns wide (tabSize 4 of CodeMirror 5).
 - I did not try typing, dead keys and the mouse by hand: no input could be sent to the desktop without risk to the user's open windows.
   The key table and the commands are checked by `test/ui_test.c`; the rendering by screenshots (`--screenshot`).
 
@@ -297,7 +296,10 @@ so sketches and loaded scripts define keys with the browser API.
 | Multiple cursors, wrap, find and replace, palette, autocomplete  | 2 days      | done          |
 | Web MIDI input (ALSA sequencer)                                  | 0.5 day     | done          |
 | 2D canvas with plutovg                                           | 0.5 day     | done          |
-| p5.js as a source (needs more of the 2D canvas and DOM)          | 3 to 5 days | open          |
+| p5.js as a source (P5 global on the 2D canvas)                   | 0.5 day     | done          |
+| URLs, languages, info, extensions, gallery share, recording      | 2 days      | done          |
+| Portal picker for initScreen, MIDI output, sublime commands      | 1 day       | done          |
+| webRTC initStream and pb (needs the packages below)              | 3 to 5 days | blocked       |
 | Zero-copy PipeWire and V4L2 input (needs PipeWire headers)       | 3 to 5 days | open          |
 | Robustness for stage use (error overlay, crash recovery, tests)  | 3 to 5 days | open          |
 
@@ -307,5 +309,6 @@ No new system package is needed. These optional packages enable the next steps:
 
 ```sh
 sudo apt install libpipewire-0.3-dev libspa-0.2-dev   # zero-copy screen capture
+sudo apt install gstreamer1.0-plugins-bad gstreamer1.0-nice gir1.2-gst-plugins-bad-1.0   # webRTC (initStream)
 pipx install yt-dlp                                  # YouTube input (no sudo)
 ```
