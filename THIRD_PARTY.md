@@ -33,8 +33,8 @@ a distributed hydra-native binary with its bundle falls under the AGPL-3.0.
 
 ## JavaScript packages (installed by pnpm, bundled by esbuild)
 
-- hydra-synth, commit 9d29a9f4fd8f9081b9759943f38db36f05b9a88f of the main branch (1.4.0 and the fixes #201, #202, #203 and
-  #205), AGPL-3.0. https://github.com/hydra-synth/hydra-synth
+- hydra-synth, commit 9d29a9f4fd8f9081b9759943f38db36f05b9a88f of the main branch (1.4.0 and the
+  fixes #201, #202, #203 and #205), AGPL-3.0. https://github.com/hydra-synth/hydra-synth
   The renderer and the API; it runs unchanged. js/regl-shim.js, js/raf-loop-shim.js and js/meyda-shim.js
   replace its dependencies regl, raf-loop and meyda.
 - js-beautify 1.15.4, MIT license. The formatter of the web editor (Shift+Ctrl+F).
@@ -68,6 +68,12 @@ From https://github.com/hydra-synth/hydra-server, backend/server.js, AGPL-3.0: t
 signalling in test/signalling_server.cjs, without the TURN tokens of Twilio.
 - The class body of P5 in js/p5.js (src/lib/p5-wrapper.js).
 - The confirmation text of the gallery share prompt in src/ui.c (src/stores/gallery-store.js).
+
+From hydra-synth pull request #169 (closed, by the author of hydra-native), types/index.d.ts at commit
+40a8de992bc31da496e024a3f5dd137f4d2fba7d: the signatures of out, render and setResolution in
+js/api-signatures.js, for the signature help. The pull request has no license statement of its own; the
+repository of hydra-synth is under the AGPL-3.0.
+https://github.com/hydra-synth/hydra-synth/pull/169
 
 Translations of the info panel come at run time from https://github.com/hydra-synth/l10n.
 

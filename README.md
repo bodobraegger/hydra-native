@@ -153,6 +153,8 @@ the cursor between the commas, also in nested calls, and closes when the cursor 
 With "signatureHelp": "paren" (settings menu: "on ("), it also opens after typing "(" behind a hydra function. It
 has the look of the autocomplete style: a list box with blend mode difference, or ghost text. The definitions
 come from the running hydra-synth, so functions of `setFunction` and of extensions appear after their evaluation.
+js/api-signatures.js describes the functions outside the glsl list, such as `out`, `render`, `setResolution`,
+`hush`, the `init*` sources and `a.setBins`.
 
 Typing an opening bracket or quote adds the closing one. Find works like
 the find bar of a browser: it ignores case and accents, highlights all matches and shows their count.

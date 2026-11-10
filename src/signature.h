@@ -16,7 +16,7 @@ struct signature_input {
 
 struct signature {
     char name[SIGNATURE_NAME];
-    char kind[SIGNATURE_NAME]; // src, coord, color, combine or combineCoord
+    char kind[SIGNATURE_NAME]; // src, coord, color, combine or combineCoord; else a kind of js/api-signatures.js
     struct signature_input inputs[MAX_SIGNATURE_INPUTS];
     size_t input_count;
 };
@@ -39,7 +39,8 @@ bool signature_call_at(const char *text, size_t offset, const struct signature *
 // The argument ranges of the call whose '(' is at `open`, without the spaces around them.
 size_t signature_arguments(const char *text, size_t length, size_t open, size_t *starts, size_t *ends, size_t capacity);
 bool signature_input_is_texture(const struct signature_input *input);
-bool signature_is_chained(const struct signature *signature); // a transform of a chain, not a source
+bool signature_is_chained(const struct signature *signature); // a glsl transform of a chain
+bool signature_is_source(const struct signature *signature); // a glsl source function such as osc
 // "modulate(texture, amount = 0.1)", with the range of input `active` in [*active_start, *active_end).
 void signature_label(const struct signature *signature, size_t active, char *label, size_t size, size_t *active_start,
                      size_t *active_end);

@@ -153,7 +153,14 @@ bool signature_input_is_texture(const struct signature_input *input) {
     return !strcmp(input->type, "vec4") || !strcmp(input->type, "sampler2D");
 }
 
-bool signature_is_chained(const struct signature *signature) { return strcmp(signature->kind, "src") != 0; }
+bool signature_is_chained(const struct signature *signature) {
+    static const char *const kinds[] = { "color", "coord", "combine", "combineCoord" };
+    for (size_t i = 0; i < sizeof kinds / sizeof kinds[0]; i++)
+        if (!strcmp(signature->kind, kinds[i])) return true;
+    return false;
+}
+
+bool signature_is_source(const struct signature *signature) { return !strcmp(signature->kind, "src"); }
 
 void signature_label(const struct signature *signature, size_t active, char *label, size_t size, size_t *active_start,
                      size_t *active_end) {

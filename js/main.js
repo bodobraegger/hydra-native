@@ -1,6 +1,7 @@
 // Entry of build/hydra-bundle.js: runs the unchanged hydra-synth renderer on the native shims.
 import { onAfterFrame, RecordingContext2D } from './dom-shim.js'
 import { pendingFetches } from './network.js'
+import { apiSignatureLines } from './api-signatures.js'
 import { PatchBay } from './patch-bay.js'
 import Hydra from 'hydra-synth'
 import { installSources } from './sources.js'
@@ -135,9 +136,10 @@ window.__completionNames = () => [...new Set([...Object.keys(hydra.generator.gls
 // hydra-synth adds the texture input of combine and combineCoord functions as _c1 or _c0 (generator-factory.js).
 const formatDefault = (value) => typeof value === 'number' && !Number.isNaN(value) ? String(value) : ''
 const inputName = (name) => /^_c\d$/.test(name) ? 'texture' : name
+// The functions outside the glsl list follow in the notation of js/api-signatures.js.
 window.__functionSignatures = () => Object.values(hydra.generator.glslTransforms).map(({ name, type, inputs = [] }) =>
   [name, type, ...inputs.map((input) => `${inputName(input.name)}:${input.type}:${formatDefault(input.default)}`)].join('\t'))
-  .join('\n')
+  .concat(apiSignatureLines()).join('\n')
 
 // The helpers of a setup file (such as setup-hydra.js) that the completions of a number argument offer, when they
 // exist at run time.

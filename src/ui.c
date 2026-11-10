@@ -614,6 +614,7 @@ static bool open_typed_completion(const char *prefix, size_t length, size_t star
     struct call_context call;
     const struct signature *signature = call_at(start, &call);
     if (!signature || !call.direct || call.argument >= signature->input_count) return false;
+    if (!signature_is_source(signature) && !signature_is_chained(signature)) return false; // not a glsl function
     const struct signature_input *input = &signature->inputs[call.argument];
     if (signature_input_is_texture(input)) {
         static const char *const textures[] = { "o0", "o1", "o2", "o3", "s0", "s1", "s2", "s3" };
@@ -621,7 +622,7 @@ static bool open_typed_completion(const char *prefix, size_t length, size_t star
             if (starts_with(textures[i], prefix, length)) add_completion(textures[i], strlen(textures[i]), NULL);
         if (starts_with("src", prefix, length)) add_completion("src", 3, "src(${o0})");
         for (size_t i = 0; i < signature_count; i++)
-            if (!signature_is_chained(&signatures[i]) && starts_with(signatures[i].name, prefix, length))
+            if (signature_is_source(&signatures[i]) && starts_with(signatures[i].name, prefix, length))
                 add_function_completion(signatures[i].name, strlen(signatures[i].name));
         return true;
     }

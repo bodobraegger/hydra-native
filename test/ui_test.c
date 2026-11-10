@@ -72,7 +72,8 @@ size_t overlay_text_columns(const char *text, size_t length) { return length; }
 // The definitions of hydra-synth in the format of __functionSignatures (js/main.js); "wobble" comes with setFunction.
 #define SIGNATURES "osc\tsrc\tfrequency:float:60\tsync:float:0.1\toffset:float:0\nnoise\tsrc\tscale:float:10\toffset:float:0.1\n" \
                    "src\tsrc\ttex:sampler2D:\nmodulate\tcombineCoord\ttexture:vec4:\tamount:float:0.1\n"               \
-                   "rotate\tcoord\tangle:float:10\tspeed:float:0\n"
+                   "rotate\tcoord\tangle:float:10\tspeed:float:0\n"                                                 \
+                   "initCam\tsource\tindex?:number:\tparams?:object:\n"
 static bool set_function_called;
 
 static char *evaluate(const char *code, size_t length, const char *name) {
@@ -218,6 +219,12 @@ static void test_signatures(void) {
     for (int i = 0; i < 8; i++) key(SDLK_RIGHT, 0); // after "osc(10, "
     ui_draw(800, 600, 0);
     EXPECT_CONTAINS(drawn, "osc(frequency = 60, sync = 0.1, offset = 0)\nsync: float, default 0.1\n");
+    ui_set_code("s0.initCam()");
+    key(SDLK_END, 0);
+    key(SDLK_LEFT, 0);
+    key(SDLK_SPACE, SDL_KMOD_LCTRL | SDL_KMOD_LSHIFT); // a function outside the glsl list (js/api-signatures.js)
+    ui_draw(800, 600, 0);
+    EXPECT_CONTAINS(drawn, "initCam(index?, params?)\nindex?: number\n");
     key(SDLK_END, 0); // outside every call: the help closes
     ui_draw(800, 600, 0);
     EXPECT(strstr(drawn, "frequency = 60") == NULL);
