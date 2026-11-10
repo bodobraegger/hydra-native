@@ -22,7 +22,7 @@ It now exists; see "Parity with hydra.ojack.xyz" for each feature and "Editor, c
 With the overlay visible, a repo sketch at 1920x1080 renders at 258 fps instead of 271 fps
 (0.19 ms more per frame, of which 0.14 ms CPU), measured on a quiet machine.
 
-My recommendation: keep the Chromium variant (hydra/hydra-editor) as the main tool.
+My recommendation: keep the hydra web editor in Chromium as the main tool.
 Continue hydra-native only if 4K output, a smaller memory footprint or a browser-free stage setup becomes a real need.
 
 ## Measurements

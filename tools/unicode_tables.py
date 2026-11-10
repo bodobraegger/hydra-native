@@ -3,7 +3,7 @@
 
 usage: tools/unicode_tables.py GraphemeBreakProperty.txt emoji-data.txt EastAsianWidth.txt codemirror.js
 The data files come from https://www.unicode.org/Public/16.0.0/ucd/ (auxiliary/, emoji/ and the top level);
-codemirror.js is lib/codemirror.js of codemirror-minified 5.65.9 (node_modules of hydra-editor).
+codemirror.js is lib/codemirror.js of the npm package codemirror-minified 5.65.9.
 """
 import pathlib
 import re

@@ -1,5 +1,6 @@
 // Usage: node bench/brave-bench.mjs <sketch.js> [width height] [--vsync] [--headed]
-import { chromium } from '~/.cache/claude-playwright-runner/node_modules/playwright/index.mjs'
+// Playwright is not a dependency of hydra-native: PLAYWRIGHT_MODULE can point to the index.mjs of an installed copy.
+const { chromium } = await import(process.env.PLAYWRIGHT_MODULE ?? 'playwright')
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'

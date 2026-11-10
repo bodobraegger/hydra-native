@@ -23,7 +23,7 @@ stb and the Noto Emoji font into vendor/ and checks the SHA-256 hash of each dow
 around CMake and Ninja; `BUILD=dir` selects another build directory, which must be a direct child of this folder.
 
 ```sh
-cd hydra/hydra-native
+cd hydra-native
 make             # pnpm install, then build/hydra-native and build/hydra-bundle.js
 make test        # unit tests (ctest label "unit"): editing core, key table, audio, MIDI, portal calls
 make check       # make test, then the checks in hidden windows (ctest label "check")
@@ -252,8 +252,8 @@ Thus `a.setScale()` and `a.setCutoff()` can need other values than in the browse
 ## Benchmark
 
 ```sh
-bench/compare.sh 3 1920 1080     # native and Brave, alternating, same sketches
-build/hydra-native --no-vsync --bench 10 bench/prelude.js ../../2609-artrio.js
+bench/compare.sh 3 1920 1080 sketch.js   # native and Brave, alternating, same sketches
+build/hydra-native --no-vsync --bench 10 bench/prelude.js sketch.js
 ```
 
 `bench/prelude.js` replaces the screen captures, the extensions and the audio input of the repo sketches with stubs.

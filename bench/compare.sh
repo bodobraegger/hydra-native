@@ -5,7 +5,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 runs=${1:-3}; width=${2:-1920}; height=${3:-1080}; shift $(( $# < 3 ? $# : 3 ))
 sketches=("$@")
-[ ${#sketches[@]} -eq 0 ] && sketches=(../../2609-artrio.js ../../25.11.08-daz-kunsthaus.js)
+[ ${#sketches[@]} -eq 0 ] && { echo "usage: bench/compare.sh [runs] [width] [height] sketch.js ..." >&2; exit 2; }
 for run in $(seq "$runs"); do
   for sketch in "${sketches[@]}"; do
     native=$(timeout 60 build/hydra-native --hidden --no-vsync --no-analog-agc --size "${width}x${height}" --bench 8 bench/prelude.js "$sketch" 2>/dev/null | grep -o '"fps":[0-9.]*' | cut -d: -f2)
