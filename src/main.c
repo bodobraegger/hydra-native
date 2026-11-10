@@ -21,6 +21,7 @@
 #include "stb_image_write.h"
 
 #include "canvas2d.h"
+#include "midi.h"
 #include "native.h"
 #include "ui.h"
 #include "quickjs-libc.h"
@@ -440,6 +441,54 @@ static void fetch_done(int id, bool ok, const char *data, size_t length) {
     call_global("__fetchDone", 3, arguments);
 }
 
+#define MAX_MIDI_INPUTS 64
+
+static JSValue js_midi_start(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    return JS_NewBool(ctx, midi_start());
+}
+
+// midiInputs() returns [[id, name, manufacturer], ...] with id "client:port".
+static JSValue js_midi_inputs(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    struct midi_input inputs[MAX_MIDI_INPUTS];
+    int count = midi_inputs(inputs, MAX_MIDI_INPUTS);
+    JSValue array = JS_NewArray(ctx);
+    for (int i = 0; i < count; i++) {
+        char id[32];
+        snprintf(id, sizeof id, "%d:%d", inputs[i].client, inputs[i].port);
+        JSValue entry = JS_NewArray(ctx);
+        JS_SetPropertyUint32(ctx, entry, 0, JS_NewString(ctx, id));
+        JS_SetPropertyUint32(ctx, entry, 1, JS_NewString(ctx, inputs[i].name));
+        JS_SetPropertyUint32(ctx, entry, 2, JS_NewString(ctx, inputs[i].manufacturer));
+        JS_SetPropertyUint32(ctx, array, (uint32_t)i, entry);
+    }
+    return array;
+}
+
+static JSValue midi_messages;
+
+static void add_midi_message(int client, int port, const unsigned char *bytes, int length) {
+    char id[32];
+    snprintf(id, sizeof id, "%d:%d", client, port);
+    JSValue entry = JS_NewArray(js);
+    JS_SetPropertyUint32(js, entry, 0, JS_NewString(js, id));
+    for (int i = 0; i < length; i++) JS_SetPropertyUint32(js, entry, (uint32_t)i + 1, JS_NewInt32(js, bytes[i]));
+    JSValue length_value = JS_GetPropertyStr(js, midi_messages, "length");
+    int32_t index = 0;
+    JS_ToInt32(js, &index, length_value);
+    JS_FreeValue(js, length_value);
+    JS_SetPropertyUint32(js, midi_messages, (uint32_t)index, entry);
+}
+
+// midiPoll() returns { changed, messages: [[id, byte, ...], ...] } since the last call.
+static JSValue js_midi_poll(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    midi_messages = JS_NewArray(ctx);
+    midi_poll(add_midi_message);
+    JSValue result = JS_NewObject(ctx);
+    JS_SetPropertyStr(ctx, result, "changed", JS_NewBool(ctx, midi_inputs_changed()));
+    JS_SetPropertyStr(ctx, result, "messages", midi_messages);
+    return result;
+}
+
 static JSValue js_now(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
     return JS_NewFloat64(ctx, now_ms());
 }
@@ -506,6 +555,9 @@ static const JSCFunctionListEntry native_functions[] = {
     JS_CFUNC_DEF("audioStart", 0, js_audio_start),
     JS_CFUNC_DEF("audioFeatures", 0, js_audio_features),
     JS_CFUNC_DEF("fetchStart", 1, js_fetch_start),
+    JS_CFUNC_DEF("midiStart", 0, js_midi_start),
+    JS_CFUNC_DEF("midiInputs", 0, js_midi_inputs),
+    JS_CFUNC_DEF("midiPoll", 0, js_midi_poll),
     JS_CFUNC_DEF("now", 0, js_now),
     JS_CFUNC_DEF("screencap", 0, js_screencap),
     JS_CFUNC_DEF("readFile", 1, js_read_file),
