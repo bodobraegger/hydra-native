@@ -1,0 +1,880 @@
+// hydra-native: runs hydra-synth (bundled with a regl shim) in QuickJS and renders with GLES in an SDL window.
+#define _GNU_SOURCE
+#include <errno.h>
+#include <libgen.h>
+#include <limits.h>
+#include <poll.h>
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/un.h>
+#include <time.h>
+#include <unistd.h>
+
+#include <SDL.h>
+
+#include "native.h"
+#include "ui.h"
+#include "quickjs-libc.h"
+#include "quickjs.h"
+
+#define BUNDLE_FILE_NAME "hydra-bundle.js"
+#define SOCKET_FILE_NAME "hydra-native.sock"
+#define DEFAULT_WINDOW_WIDTH 1280
+#define DEFAULT_WINDOW_HEIGHT 720
+#define WATCH_INTERVAL_MS 250
+#define BENCH_WARMUP_MS 3000
+#define BENCH_FINISH_FRAMES 30
+#define CLIENT_TIMEOUT_SECONDS 2
+#define MAX_REPLY_SIZE 4096
+#define DEFAULT_FONT_PATH "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
+#define DEFAULT_FONT_SIZE 20.0f
+#define SCREENSHOT_DELAY_MS 1500
+
+struct options {
+    const char *files[32];
+    int file_count;
+    const char *audio_device;
+    const char *socket_path;
+    const char *font_path;
+    const char *screenshot_path;
+    float font_size;
+    int window_width;
+    int window_height;
+    double bench_seconds;
+    bool watch;
+    bool vsync;
+    bool hidden;
+    bool fullscreen;
+    bool send;
+    bool hide_code;
+};
+
+static JSRuntime *runtime;
+static JSContext *js;
+static SDL_Window *window;
+static bool quit_requested;
+static int exit_code;
+
+// ---------------------------------------------------------------- helpers
+
+static double now_ms(void) {
+    struct timespec time;
+    clock_gettime(CLOCK_MONOTONIC, &time);
+    return time.tv_sec * 1000.0 + time.tv_nsec / 1e6;
+}
+
+static char *read_file(const char *path, size_t *length) {
+    FILE *file = fopen(path, "rb");
+    if (!file) return NULL;
+    fseek(file, 0, SEEK_END);
+    long size = ftell(file);
+    fseek(file, 0, SEEK_SET);
+    char *text = malloc((size_t)size + 1);
+    size_t got = fread(text, 1, (size_t)size, file);
+    fclose(file);
+    text[got] = '\0';
+    if (length) *length = got;
+    return text;
+}
+
+static int to_int(JSContext *ctx, JSValueConst value) {
+    int32_t result = 0;
+    JS_ToInt32(ctx, &result, value);
+    return result;
+}
+
+static float to_float(JSContext *ctx, JSValueConst value) {
+    double result = 0;
+    JS_ToFloat64(ctx, &result, value);
+    return (float)result;
+}
+
+static void run_pending_jobs(void) {
+    JSContext *job_context;
+    int status;
+    while ((status = JS_ExecutePendingJob(runtime, &job_context)) != 0)
+        if (status < 0) js_std_dump_error(job_context);
+}
+
+// Evaluates code in the global scope. Returns NULL on success, else a malloc'd message with the stack.
+static char *evaluate(const char *code, size_t length, const char *name) {
+    JSValue result = JS_Eval(js, code, length, name, JS_EVAL_TYPE_GLOBAL);
+    char *message = NULL;
+    if (JS_IsException(result)) {
+        JSValue exception = JS_GetException(js);
+        const char *text = JS_ToCString(js, exception);
+        const char *stack = NULL;
+        JSValue stack_value = JS_UNDEFINED;
+        if (JS_IsError(js, exception)) {
+            stack_value = JS_GetPropertyStr(js, exception, "stack");
+            if (!JS_IsUndefined(stack_value)) stack = JS_ToCString(js, stack_value);
+        }
+        if (asprintf(&message, "%s\n%s", text ? text : "error", stack ? stack : "") < 0) message = strdup("error");
+        JS_FreeCString(js, text);
+        if (stack) JS_FreeCString(js, stack);
+        JS_FreeValue(js, stack_value);
+        JS_FreeValue(js, exception);
+    }
+    JS_FreeValue(js, result);
+    run_pending_jobs();
+    return message;
+}
+
+static char *evaluate_file(const char *path) {
+    size_t length;
+    char *code = read_file(path, &length);
+    if (!code) {
+        char *message;
+        if (asprintf(&message, "cannot read %s: %s", path, strerror(errno)) < 0) return strdup("cannot read file");
+        return message;
+    }
+    char *message = evaluate(code, length, path);
+    free(code);
+    return message;
+}
+
+// Calls a global JS function by name, used for the frame callback and input events.
+static void call_global(const char *name, int argc, JSValue *argv) {
+    JSValue global = JS_GetGlobalObject(js);
+    JSValue function = JS_GetPropertyStr(js, global, name);
+    if (JS_IsFunction(js, function)) {
+        JSValue result = JS_Call(js, function, global, argc, argv);
+        if (JS_IsException(result)) js_std_dump_error(js);
+        JS_FreeValue(js, result);
+    }
+    for (int i = 0; i < argc; i++) JS_FreeValue(js, argv[i]);
+    JS_FreeValue(js, function);
+    JS_FreeValue(js, global);
+}
+
+// ---------------------------------------------------------------- GL bindings
+
+static GLuint compile_shader(JSContext *ctx, GLenum type, const char *source, JSValue *error) {
+    GLuint shader = glCreateShader(type);
+    glShaderSource(shader, 1, &source, NULL);
+    glCompileShader(shader);
+    GLint ok;
+    glGetShaderiv(shader, GL_COMPILE_STATUS, &ok);
+    if (!ok) {
+        char log[4096];
+        glGetShaderInfoLog(shader, sizeof log, NULL, log);
+        *error = JS_ThrowSyntaxError(ctx, "%s shader: %s", type == GL_VERTEX_SHADER ? "vertex" : "fragment", log);
+        glDeleteShader(shader);
+        return 0;
+    }
+    return shader;
+}
+
+static JSValue js_create_program(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    const char *vertex_source = JS_ToCString(ctx, argv[0]);
+    const char *fragment_source = JS_ToCString(ctx, argv[1]);
+    JSValue error = JS_UNDEFINED;
+    GLuint vertex = compile_shader(ctx, GL_VERTEX_SHADER, vertex_source, &error);
+    GLuint fragment = vertex ? compile_shader(ctx, GL_FRAGMENT_SHADER, fragment_source, &error) : 0;
+    JS_FreeCString(ctx, vertex_source);
+    JS_FreeCString(ctx, fragment_source);
+    if (!fragment) {
+        if (vertex) glDeleteShader(vertex);
+        return error;
+    }
+    GLuint program = glCreateProgram();
+    glAttachShader(program, vertex);
+    glAttachShader(program, fragment);
+    glBindAttribLocation(program, 0, "position");
+    glLinkProgram(program);
+    glDeleteShader(vertex);
+    glDeleteShader(fragment);
+    GLint ok;
+    glGetProgramiv(program, GL_LINK_STATUS, &ok);
+    if (!ok) {
+        char log[4096];
+        glGetProgramInfoLog(program, sizeof log, NULL, log);
+        glDeleteProgram(program);
+        return JS_ThrowSyntaxError(ctx, "link: %s", log);
+    }
+    return JS_NewInt32(ctx, (int32_t)program);
+}
+
+static JSValue js_uniform_location(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    const char *name = JS_ToCString(ctx, argv[1]);
+    GLint location = glGetUniformLocation((GLuint)to_int(ctx, argv[0]), name);
+    JS_FreeCString(ctx, name);
+    return JS_NewInt32(ctx, location);
+}
+
+static JSValue js_use_program(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    glUseProgram((GLuint)to_int(ctx, argv[0]));
+    return JS_UNDEFINED;
+}
+
+// uniform(location, x[, y[, z[, w]]]): the argument count picks glUniform1f to glUniform4f.
+static JSValue js_uniform(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    GLint location = to_int(ctx, argv[0]);
+    float v[4] = { 0 };
+    for (int i = 1; i < argc && i <= 4; i++) v[i - 1] = to_float(ctx, argv[i]);
+    switch (argc - 1) {
+    case 1: glUniform1f(location, v[0]); break;
+    case 2: glUniform2f(location, v[0], v[1]); break;
+    case 3: glUniform3f(location, v[0], v[1], v[2]); break;
+    default: glUniform4f(location, v[0], v[1], v[2], v[3]); break;
+    }
+    return JS_UNDEFINED;
+}
+
+static JSValue js_uniform_texture(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    int unit = to_int(ctx, argv[1]);
+    glActiveTexture(GL_TEXTURE0 + (GLenum)unit);
+    glBindTexture(GL_TEXTURE_2D, (GLuint)to_int(ctx, argv[2]));
+    glUniform1i(to_int(ctx, argv[0]), unit);
+    return JS_UNDEFINED;
+}
+
+static GLint wrap_mode(int code) {
+    static const GLint modes[] = { GL_CLAMP_TO_EDGE, GL_REPEAT, GL_MIRRORED_REPEAT };
+    return code >= 0 && code < 3 ? modes[code] : GL_CLAMP_TO_EDGE;
+}
+
+// createTexture(width, height, magLinear, minLinear, wrapS, wrapT) with wrap codes 0 clamp, 1 repeat, 2 mirror.
+static JSValue js_create_texture(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    GLuint texture;
+    glGenTextures(1, &texture);
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, JS_ToBool(ctx, argv[2]) ? GL_LINEAR : GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, JS_ToBool(ctx, argv[3]) ? GL_LINEAR : GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, wrap_mode(to_int(ctx, argv[4])));
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, wrap_mode(to_int(ctx, argv[5])));
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, to_int(ctx, argv[0]), to_int(ctx, argv[1]), 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                 NULL);
+    return JS_NewInt32(ctx, (int32_t)texture);
+}
+
+static JSValue js_resize_texture(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    glBindTexture(GL_TEXTURE_2D, (GLuint)to_int(ctx, argv[0]));
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, to_int(ctx, argv[1]), to_int(ctx, argv[2]), 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                 NULL);
+    return JS_UNDEFINED;
+}
+
+static JSValue js_delete_texture(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    GLuint texture = (GLuint)to_int(ctx, argv[0]);
+    glDeleteTextures(1, &texture);
+    return JS_UNDEFINED;
+}
+
+static JSValue js_create_framebuffer(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    GLuint framebuffer;
+    glGenFramebuffers(1, &framebuffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, (GLuint)to_int(ctx, argv[0]), 0);
+    GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    if (status != GL_FRAMEBUFFER_COMPLETE) return JS_ThrowInternalError(ctx, "framebuffer incomplete: 0x%x", status);
+    return JS_NewInt32(ctx, (int32_t)framebuffer);
+}
+
+static JSValue js_bind_framebuffer(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)to_int(ctx, argv[0]));
+    glViewport(0, 0, to_int(ctx, argv[1]), to_int(ctx, argv[2]));
+    return JS_UNDEFINED;
+}
+
+static JSValue js_draw_triangle(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    return JS_UNDEFINED;
+}
+
+static JSValue js_clear(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    glClearColor(to_float(ctx, argv[0]), to_float(ctx, argv[1]), to_float(ctx, argv[2]), to_float(ctx, argv[3]));
+    glClear(GL_COLOR_BUFFER_BIT);
+    return JS_UNDEFINED;
+}
+
+// fillRects([x, y, width, height, r, g, b, a, ...]) in window pixels from the top left, for overlays.
+static JSValue js_fill_rects(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    int drawable_height;
+    SDL_GL_GetDrawableSize(window, NULL, &drawable_height);
+    JSValue length_value = JS_GetPropertyStr(ctx, argv[0], "length");
+    int64_t length = to_int(ctx, length_value);
+    JS_FreeValue(ctx, length_value);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glEnable(GL_SCISSOR_TEST);
+    for (int64_t i = 0; i + 8 <= length; i += 8) {
+        float v[8];
+        for (int k = 0; k < 8; k++) {
+            JSValue item = JS_GetPropertyUint32(ctx, argv[0], (uint32_t)(i + k));
+            v[k] = to_float(ctx, item);
+            JS_FreeValue(ctx, item);
+        }
+        glScissor((GLint)v[0], drawable_height - (GLint)(v[1] + v[3]), (GLsizei)v[2], (GLsizei)v[3]);
+        glClearColor(v[4], v[5], v[6], v[7]);
+        glClear(GL_COLOR_BUFFER_BIT);
+    }
+    glDisable(GL_SCISSOR_TEST);
+    return JS_UNDEFINED;
+}
+
+static JSValue js_read_pixel(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    unsigned char pixel[4] = { 0 };
+    glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)to_int(ctx, argv[0]));
+    glReadPixels(to_int(ctx, argv[1]), to_int(ctx, argv[2]), 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixel);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    JSValue array = JS_NewArray(ctx);
+    for (uint32_t i = 0; i < 4; i++) JS_SetPropertyUint32(ctx, array, i, JS_NewInt32(ctx, pixel[i]));
+    return array;
+}
+
+// ---------------------------------------------------------------- media and system bindings
+
+static JSValue js_video_open(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    const char *command = JS_ToCString(ctx, argv[0]);
+    int handle = video_open(command, to_int(ctx, argv[1]), to_int(ctx, argv[2]));
+    JS_FreeCString(ctx, command);
+    if (handle < 0) return JS_ThrowInternalError(ctx, "cannot start video source");
+    return JS_NewInt32(ctx, handle);
+}
+
+static JSValue js_video_upload(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    return JS_NewBool(ctx, video_upload(to_int(ctx, argv[0]), (GLuint)to_int(ctx, argv[1])));
+}
+
+static JSValue js_video_running(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    return JS_NewBool(ctx, video_is_running(to_int(ctx, argv[0])));
+}
+
+static JSValue js_video_close(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    video_close(to_int(ctx, argv[0]));
+    return JS_UNDEFINED;
+}
+
+static const char *audio_device_option;
+
+static JSValue js_audio_start(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    return JS_NewBool(ctx, audio_start(audio_device_option));
+}
+
+// Returns the shape of Meyda's analyzer.get(): { loudness: { specific, total } }, or null before the first buffer.
+static JSValue js_audio_features(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    float specific[BARK_BAND_COUNT], total;
+    if (!audio_features(specific, &total)) return JS_NULL;
+    JSValue array = JS_NewArray(ctx);
+    for (uint32_t i = 0; i < BARK_BAND_COUNT; i++) JS_SetPropertyUint32(ctx, array, i, JS_NewFloat64(ctx, specific[i]));
+    JSValue loudness = JS_NewObject(ctx);
+    JS_SetPropertyStr(ctx, loudness, "specific", array);
+    JS_SetPropertyStr(ctx, loudness, "total", JS_NewFloat64(ctx, total));
+    JSValue features = JS_NewObject(ctx);
+    JS_SetPropertyStr(ctx, features, "loudness", loudness);
+    return features;
+}
+
+static JSValue js_now(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    return JS_NewFloat64(ctx, now_ms());
+}
+
+static JSValue js_read_file(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    const char *path = JS_ToCString(ctx, argv[0]);
+    if (!path) return JS_EXCEPTION;
+    size_t length;
+    char *text = read_file(path, &length);
+    JSValue result = text ? JS_NewStringLen(ctx, text, length)
+                          : JS_ThrowReferenceError(ctx, "cannot read %s: %s", path, strerror(errno));
+    free(text);
+    JS_FreeCString(ctx, path);
+    return result;
+}
+
+static JSValue js_drawable_size(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    int width, height;
+    SDL_GL_GetDrawableSize(window, &width, &height);
+    JSValue array = JS_NewArray(ctx);
+    JS_SetPropertyUint32(ctx, array, 0, JS_NewInt32(ctx, width));
+    JS_SetPropertyUint32(ctx, array, 1, JS_NewInt32(ctx, height));
+    return array;
+}
+
+// console.warn and console.error (js/dom-shim.js) also report here, so that the overlay can show shader errors.
+static JSValue js_console_message(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    const char *text = JS_ToCString(ctx, argv[0]);
+    if (text) {
+        fprintf(stderr, "%s\n", text);
+        ui_console_message(text);
+        JS_FreeCString(ctx, text);
+    }
+    return JS_UNDEFINED;
+}
+
+static JSValue js_exit(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    exit_code = argc > 0 ? to_int(ctx, argv[0]) : 0;
+    quit_requested = true;
+    return JS_UNDEFINED;
+}
+
+static const JSCFunctionListEntry native_functions[] = {
+    JS_CFUNC_DEF("createProgram", 2, js_create_program),
+    JS_CFUNC_DEF("uniformLocation", 2, js_uniform_location),
+    JS_CFUNC_DEF("useProgram", 1, js_use_program),
+    JS_CFUNC_DEF("uniform", 5, js_uniform),
+    JS_CFUNC_DEF("uniformTexture", 3, js_uniform_texture),
+    JS_CFUNC_DEF("createTexture", 6, js_create_texture),
+    JS_CFUNC_DEF("resizeTexture", 3, js_resize_texture),
+    JS_CFUNC_DEF("deleteTexture", 1, js_delete_texture),
+    JS_CFUNC_DEF("createFramebuffer", 1, js_create_framebuffer),
+    JS_CFUNC_DEF("bindFramebuffer", 3, js_bind_framebuffer),
+    JS_CFUNC_DEF("drawTriangle", 0, js_draw_triangle),
+    JS_CFUNC_DEF("clear", 4, js_clear),
+    JS_CFUNC_DEF("fillRects", 1, js_fill_rects),
+    JS_CFUNC_DEF("readPixel", 3, js_read_pixel),
+    JS_CFUNC_DEF("videoOpen", 3, js_video_open),
+    JS_CFUNC_DEF("videoUpload", 2, js_video_upload),
+    JS_CFUNC_DEF("videoRunning", 1, js_video_running),
+    JS_CFUNC_DEF("videoClose", 1, js_video_close),
+    JS_CFUNC_DEF("audioStart", 0, js_audio_start),
+    JS_CFUNC_DEF("audioFeatures", 0, js_audio_features),
+    JS_CFUNC_DEF("now", 0, js_now),
+    JS_CFUNC_DEF("readFile", 1, js_read_file),
+    JS_CFUNC_DEF("drawableSize", 0, js_drawable_size),
+    JS_CFUNC_DEF("consoleMessage", 1, js_console_message),
+    JS_CFUNC_DEF("exit", 1, js_exit),
+};
+
+// ---------------------------------------------------------------- input events
+
+static const char *dom_key_name(SDL_Keycode key) {
+    switch (key) {
+    case SDLK_RETURN: return "Enter";
+    case SDLK_ESCAPE: return "Escape";
+    case SDLK_SPACE: return " ";
+    case SDLK_TAB: return "Tab";
+    case SDLK_BACKSPACE: return "Backspace";
+    case SDLK_UP: return "ArrowUp";
+    case SDLK_DOWN: return "ArrowDown";
+    case SDLK_LEFT: return "ArrowLeft";
+    case SDLK_RIGHT: return "ArrowRight";
+    default: return NULL;
+    }
+}
+
+static void dispatch_key(const SDL_KeyboardEvent *event) {
+    char key[32];
+    const char *special = dom_key_name(event->keysym.sym);
+    if (special) {
+        snprintf(key, sizeof key, "%s", special);
+    } else {
+        snprintf(key, sizeof key, "%s", SDL_GetKeyName(event->keysym.sym));
+        // DOM KeyboardEvent.key uses lower case letters without shift.
+        if (strlen(key) == 1 && !(event->keysym.mod & KMOD_SHIFT)) key[0] = (char)SDL_tolower(key[0]);
+    }
+    JSValue object = JS_NewObject(js);
+    JS_SetPropertyStr(js, object, "key", JS_NewString(js, key));
+    JS_SetPropertyStr(js, object, "code", JS_NewString(js, SDL_GetScancodeName(event->keysym.scancode)));
+    JS_SetPropertyStr(js, object, "ctrlKey", JS_NewBool(js, (event->keysym.mod & KMOD_CTRL) != 0));
+    JS_SetPropertyStr(js, object, "shiftKey", JS_NewBool(js, (event->keysym.mod & KMOD_SHIFT) != 0));
+    JS_SetPropertyStr(js, object, "altKey", JS_NewBool(js, (event->keysym.mod & KMOD_ALT) != 0));
+    JS_SetPropertyStr(js, object, "metaKey", JS_NewBool(js, (event->keysym.mod & KMOD_GUI) != 0));
+    JS_SetPropertyStr(js, object, "repeat", JS_NewBool(js, event->repeat != 0));
+    JSValue arguments[2] = { JS_NewString(js, event->type == SDL_KEYDOWN ? "keydown" : "keyup"), object };
+    call_global("__dispatchEvent", 2, arguments);
+}
+
+static void dispatch_mouse(const char *type, int x, int y) {
+    JSValue object = JS_NewObject(js);
+    Uint32 buttons = SDL_GetMouseState(NULL, NULL);
+    // SDL button masks are left 1, middle 2, right 4; DOM buttons are left 1, right 2, middle 4.
+    int dom_buttons = (buttons & SDL_BUTTON_LMASK ? 1 : 0) | (buttons & SDL_BUTTON_RMASK ? 2 : 0) |
+                      (buttons & SDL_BUTTON_MMASK ? 4 : 0);
+    JS_SetPropertyStr(js, object, "pageX", JS_NewInt32(js, x));
+    JS_SetPropertyStr(js, object, "pageY", JS_NewInt32(js, y));
+    JS_SetPropertyStr(js, object, "clientX", JS_NewInt32(js, x));
+    JS_SetPropertyStr(js, object, "clientY", JS_NewInt32(js, y));
+    JS_SetPropertyStr(js, object, "buttons", JS_NewInt32(js, dom_buttons));
+    JSValue arguments[2] = { JS_NewString(js, type), object };
+    call_global("__dispatchEvent", 2, arguments);
+}
+
+// Window coordinates to drawable pixels (they differ with display scaling).
+static float pixel_scale(void) {
+    int window_width, drawable_width;
+    SDL_GetWindowSize(window, &window_width, NULL);
+    SDL_GL_GetDrawableSize(window, &drawable_width, NULL);
+    return window_width > 0 ? (float)drawable_width / (float)window_width : 1.0f;
+}
+
+// The overlay gets keys and mouse first; sketches get them too, as window listeners do in the browser.
+static void handle_events(void) {
+    SDL_Event event;
+    while (SDL_PollEvent(&event)) {
+        float scale = pixel_scale();
+        switch (event.type) {
+        case SDL_QUIT: quit_requested = true; break;
+        case SDL_KEYDOWN:
+            ui_key(&event.key);
+            dispatch_key(&event.key);
+            break;
+        case SDL_KEYUP: dispatch_key(&event.key); break;
+        case SDL_TEXTINPUT: ui_text_input(event.text.text); break;
+        case SDL_MOUSEWHEEL: ui_wheel(event.wheel.y); break;
+        case SDL_MOUSEMOTION:
+            ui_mouse_motion(event.motion.x * scale, event.motion.y * scale);
+            dispatch_mouse("mousemove", event.motion.x, event.motion.y);
+            break;
+        case SDL_MOUSEBUTTONDOWN:
+        case SDL_MOUSEBUTTONUP:
+            if (event.button.button == SDL_BUTTON_LEFT)
+                ui_mouse_button(event.button.x * scale, event.button.y * scale, event.type == SDL_MOUSEBUTTONDOWN,
+                                event.button.clicks, (SDL_GetModState() & KMOD_SHIFT) != 0);
+            dispatch_mouse(event.type == SDL_MOUSEBUTTONDOWN ? "mousedown" : "mouseup", event.button.x, event.button.y);
+            break;
+        case SDL_WINDOWEVENT:
+            if (event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
+                JSValue arguments[2] = { JS_NewString(js, "resize"), JS_NewObject(js) };
+                call_global("__dispatchEvent", 2, arguments);
+            }
+            break;
+        }
+    }
+}
+
+// ---------------------------------------------------------------- code input: socket and file watch
+
+static void default_socket_path(char *path, size_t size) {
+    const char *directory = getenv("XDG_RUNTIME_DIR");
+    snprintf(path, size, "%s/%s", directory ? directory : "/tmp", SOCKET_FILE_NAME);
+}
+
+static int connect_socket(const char *path) {
+    int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    struct sockaddr_un address = { .sun_family = AF_UNIX };
+    snprintf(address.sun_path, sizeof address.sun_path, "%s", path);
+    if (connect(fd, (struct sockaddr *)&address, sizeof address) != 0) {
+        close(fd);
+        return -1;
+    }
+    return fd;
+}
+
+static int listen_socket(const char *path) {
+    int existing = connect_socket(path);
+    if (existing >= 0) {
+        close(existing);
+        fprintf(stderr, "another hydra-native listens on %s\n", path);
+        return -1;
+    }
+    unlink(path);
+    int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+    struct sockaddr_un address = { .sun_family = AF_UNIX };
+    snprintf(address.sun_path, sizeof address.sun_path, "%s", path);
+    if (bind(fd, (struct sockaddr *)&address, sizeof address) != 0 || listen(fd, 4) != 0) {
+        fprintf(stderr, "cannot listen on %s: %s\n", path, strerror(errno));
+        close(fd);
+        return -1;
+    }
+    return fd;
+}
+
+static char *read_all(int fd, size_t *length) {
+    size_t capacity = 65536, used = 0;
+    char *buffer = malloc(capacity);
+    ssize_t count;
+    while ((count = read(fd, buffer + used, capacity - used - 1)) > 0) {
+        used += (size_t)count;
+        if (used + 1 == capacity) buffer = realloc(buffer, capacity *= 2);
+    }
+    buffer[used] = '\0';
+    *length = used;
+    return buffer;
+}
+
+// ponytail: one client at a time, read synchronously with a timeout; editors send small blocks and close.
+static void serve_client(int listener) {
+    int client = accept4(listener, NULL, NULL, SOCK_CLOEXEC);
+    if (client < 0) return;
+    struct timeval timeout = { .tv_sec = CLIENT_TIMEOUT_SECONDS };
+    setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof timeout);
+    size_t length;
+    char *code = read_all(client, &length);
+    char *error = ui_evaluate_socket(code, length);
+    char reply[MAX_REPLY_SIZE];
+    snprintf(reply, sizeof reply, "%s\n", error ? error : "ok");
+    if (error) fprintf(stderr, "%s", reply);
+    if (write(client, reply, strlen(reply)) < 0) fprintf(stderr, "socket reply failed: %s\n", strerror(errno));
+    free(error);
+    free(code);
+    close(client);
+}
+
+static int send_code(const char *path) {
+    int fd = connect_socket(path);
+    if (fd < 0) {
+        fprintf(stderr, "no hydra-native listens on %s\n", path);
+        return 2;
+    }
+    size_t length;
+    char *code = read_all(STDIN_FILENO, &length);
+    bool written = write(fd, code, length) == (ssize_t)length;
+    free(code);
+    shutdown(fd, SHUT_WR);
+    char *reply = read_all(fd, &length);
+    close(fd);
+    fputs(reply, written && strncmp(reply, "ok\n", 3) == 0 ? stdout : stderr);
+    int status = written && strncmp(reply, "ok\n", 3) == 0 ? 0 : 1;
+    free(reply);
+    return status;
+}
+
+static long long modification_time(const char *path) {
+    struct stat info;
+    return stat(path, &info) == 0 ? info.st_mtim.tv_sec * 1000000000LL + info.st_mtim.tv_nsec : 0;
+}
+
+// ---------------------------------------------------------------- setup and main loop
+
+static void usage(void) {
+    fprintf(stderr,
+            "usage: hydra-native [options] [file.js ...]\n"
+            "       hydra-native --send < code.js\n"
+            "  The last file opens in the code overlay; Ctrl+S saves it. See src/keymap.c for all keys.\n"
+            "  --watch            load and evaluate the last file again when it changes on disk\n"
+            "  --font PATH        monospace TrueType font of the overlay (default %s)\n"
+            "  --font-size PIXELS font size of the overlay (default %.0f)\n"
+            "  --hide-code        start with the code overlay hidden (Ctrl+Shift+H shows it)\n"
+            "  --size WxH         window size (default %dx%d)\n"
+            "  --fullscreen       start in fullscreen\n"
+            "  --audio SOURCE     PulseAudio/PipeWire source for `a`, e.g. @DEFAULT_MONITOR@\n"
+            "  --socket PATH      code socket (default $XDG_RUNTIME_DIR/%s)\n"
+            "  --no-vsync         do not wait for the display refresh\n"
+            "  --hidden           do not show the window (checks)\n"
+            "  --bench SECONDS    measure frame rate after a warm-up, print JSON and exit\n"
+            "  --screenshot FILE  write the window content as PPM after %d ms and exit\n",
+            DEFAULT_FONT_PATH, DEFAULT_FONT_SIZE, DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT, SOCKET_FILE_NAME,
+            SCREENSHOT_DELAY_MS);
+}
+
+static bool parse_options(int argc, char **argv, struct options *options) {
+    *options = (struct options){ .window_width = DEFAULT_WINDOW_WIDTH, .window_height = DEFAULT_WINDOW_HEIGHT,
+                                 .vsync = true, .font_path = DEFAULT_FONT_PATH, .font_size = DEFAULT_FONT_SIZE };
+    for (int i = 1; i < argc; i++) {
+        const char *argument = argv[i];
+        bool has_value = i + 1 < argc;
+        if (!strcmp(argument, "--watch")) options->watch = true;
+        else if (!strcmp(argument, "--no-vsync")) options->vsync = false;
+        else if (!strcmp(argument, "--hidden")) options->hidden = true;
+        else if (!strcmp(argument, "--fullscreen")) options->fullscreen = true;
+        else if (!strcmp(argument, "--hide-code")) options->hide_code = true;
+        else if (!strcmp(argument, "--screenshot") && has_value) options->screenshot_path = argv[++i];
+        else if (!strcmp(argument, "--font") && has_value) options->font_path = argv[++i];
+        else if (!strcmp(argument, "--font-size") && has_value) options->font_size = (float)atof(argv[++i]);
+        else if (!strcmp(argument, "--send")) options->send = true;
+        else if (!strcmp(argument, "--audio") && has_value) options->audio_device = argv[++i];
+        else if (!strcmp(argument, "--socket") && has_value) options->socket_path = argv[++i];
+        else if (!strcmp(argument, "--bench") && has_value) options->bench_seconds = atof(argv[++i]);
+        else if (!strcmp(argument, "--size") && has_value) {
+            if (sscanf(argv[++i], "%dx%d", &options->window_width, &options->window_height) != 2) return false;
+        } else if (argument[0] == '-') return false;
+        else if (options->file_count < (int)(sizeof options->files / sizeof options->files[0]))
+            options->files[options->file_count++] = argument;
+    }
+    return true;
+}
+
+static bool create_window(const struct options *options) {
+    SDL_SetHint(SDL_HINT_VIDEODRIVER, "wayland,x11");
+    if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+        fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
+        return false;
+    }
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 0);
+    Uint32 flags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI;
+    if (options->hidden) flags |= SDL_WINDOW_HIDDEN;
+    if (options->fullscreen) flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
+    window = SDL_CreateWindow("hydra-native", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, options->window_width,
+                              options->window_height, flags);
+    if (!window || !SDL_GL_CreateContext(window)) {
+        fprintf(stderr, "window: %s\n", SDL_GetError());
+        return false;
+    }
+    SDL_GL_SetSwapInterval(options->vsync ? 1 : 0);
+    SDL_StartTextInput();
+
+    // Every hydra pass draws the same triangle, so its buffer stays bound at attribute 0.
+    static const GLfloat triangle[] = { -2, 0, 0, -2, 2, 2 };
+    GLuint buffer;
+    glGenBuffers(1, &buffer);
+    glBindBuffer(GL_ARRAY_BUFFER, buffer);
+    glBufferData(GL_ARRAY_BUFFER, sizeof triangle, triangle, GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, NULL);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    return true;
+}
+
+static bool executable_directory(char *directory, size_t size) {
+    char executable[PATH_MAX];
+    ssize_t length = readlink("/proc/self/exe", executable, sizeof executable - 1);
+    if (length < 0) return false;
+    executable[length] = '\0';
+    snprintf(directory, size, "%s", dirname(executable));
+    return true;
+}
+
+static bool load_bundle(const char *directory) {
+    char path[PATH_MAX + 32];
+    snprintf(path, sizeof path, "%s/%s", directory, BUNDLE_FILE_NAME);
+    char *error = evaluate_file(path);
+    if (error) {
+        fprintf(stderr, "%s\n", error);
+        free(error);
+        return false;
+    }
+    return true;
+}
+
+static bool write_screenshot(const char *path, int width, int height) {
+    unsigned char *pixels = malloc((size_t)width * (size_t)height * 4);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    FILE *file = fopen(path, "wb");
+    if (file) {
+        fprintf(file, "P6\n%d %d\n255\n", width, height);
+        for (int y = height - 1; y >= 0; y--)
+            for (int x = 0; x < width; x++) fwrite(pixels + ((size_t)y * (size_t)width + (size_t)x) * 4, 1, 3, file);
+        fclose(file);
+    }
+    free(pixels);
+    return file != NULL;
+}
+
+static void toggle_fullscreen(void) {
+    bool fullscreen = SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN_DESKTOP;
+    SDL_SetWindowFullscreen(window, fullscreen ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
+}
+
+static bool is_fullscreen(void) { return (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0; }
+
+static void request_quit(void) { quit_requested = true; }
+
+int main(int argc, char **argv) {
+    struct options options;
+    if (!parse_options(argc, argv, &options)) {
+        usage();
+        return 2;
+    }
+    char socket_path[PATH_MAX];
+    if (options.socket_path) snprintf(socket_path, sizeof socket_path, "%s", options.socket_path);
+    else default_socket_path(socket_path, sizeof socket_path);
+    if (strlen(socket_path) >= sizeof(((struct sockaddr_un *)0)->sun_path)) {
+        fprintf(stderr, "socket path too long: %s\n", socket_path);
+        return 2;
+    }
+    if (options.send) return send_code(socket_path);
+
+    signal(SIGPIPE, SIG_IGN);
+    audio_device_option = options.audio_device;
+    if (!create_window(&options)) return 1;
+
+    runtime = JS_NewRuntime();
+    js = JS_NewContext(runtime);
+    js_std_add_helpers(js, argc, argv);
+    JSValue global = JS_GetGlobalObject(js);
+    JSValue native = JS_NewObject(js);
+    JS_SetPropertyFunctionList(js, native, native_functions, sizeof native_functions / sizeof native_functions[0]);
+    char directory[PATH_MAX];
+    if (!executable_directory(directory, sizeof directory)) return 1;
+    JS_SetPropertyStr(js, native, "directory", JS_NewString(js, directory));
+    JS_SetPropertyStr(js, global, "native", native);
+    JS_FreeValue(js, global);
+    if (!load_bundle(directory)) return 1;
+
+    // The last file is the sketch of the overlay. It may not exist yet; Ctrl+S creates it.
+    const char *sketch = options.file_count ? options.files[options.file_count - 1] : NULL;
+    for (int i = 0; i < options.file_count; i++) {
+        if (options.files[i] == sketch && access(sketch, F_OK) != 0) continue;
+        char *error = evaluate_file(options.files[i]);
+        if (error) fprintf(stderr, "%s\n", error);
+        free(error);
+    }
+    static const struct ui_host host = {
+        .evaluate = evaluate,
+        .toggle_fullscreen = toggle_fullscreen,
+        .is_fullscreen = is_fullscreen,
+        .quit = request_quit,
+    };
+    if (!ui_init(options.font_path, options.font_size, sketch, &host)) return 1;
+    if (options.hide_code) ui_set_visible(false);
+    const char *watched = options.watch ? sketch : NULL;
+    long long watched_time = watched ? modification_time(watched) : 0;
+    double next_watch = 0;
+
+    int listener = listen_socket(socket_path);
+    if (listener >= 0) fprintf(stderr, "hydra-native: send code with `hydra-native --send < file.js` (%s)\n", socket_path);
+
+    double start = now_ms(), bench_start = 0, frame_js_ms = 0, frame_overlay_ms = 0;
+    long bench_frames = 0;
+    while (!quit_requested) {
+        handle_events();
+        struct pollfd poll_listener = { .fd = listener, .events = POLLIN };
+        if (listener >= 0 && poll(&poll_listener, 1, 0) > 0) serve_client(listener);
+
+        double now = now_ms();
+        if (watched && now >= next_watch) {
+            next_watch = now + WATCH_INTERVAL_MS;
+            long long current = modification_time(watched);
+            if (current != watched_time) {
+                watched_time = current;
+                ui_file_changed();
+            }
+        }
+
+        JSValue arguments[1] = { JS_NewFloat64(js, now) };
+        call_global("__frame", 1, arguments);
+        run_pending_jobs();
+        double after_js = now_ms();
+        int drawable_width, drawable_height;
+        SDL_GL_GetDrawableSize(window, &drawable_width, &drawable_height);
+        ui_draw(drawable_width, drawable_height, now);
+        double after_overlay = now_ms();
+        if (options.screenshot_path && now - start >= SCREENSHOT_DELAY_MS) {
+            if (!write_screenshot(options.screenshot_path, drawable_width, drawable_height)) exit_code = 1;
+            quit_requested = true;
+        }
+        // A hidden window does not swap, so nothing limits the queue of GPU commands. Waiting for the GPU
+        // every BENCH_FINISH_FRAMES frames makes the benchmark count rendered frames, not submitted ones.
+        if (options.bench_seconds > 0 && (bench_frames % BENCH_FINISH_FRAMES == 0)) glFinish();
+        // A hidden Wayland surface never releases its buffers, so a swap could block for ever.
+        if (!options.hidden) SDL_GL_SwapWindow(window);
+
+        if (options.bench_seconds > 0 && now - start >= BENCH_WARMUP_MS) {
+            if (bench_frames == 0) bench_start = now;
+            bench_frames++;
+            frame_js_ms += after_js - now;
+            frame_overlay_ms += after_overlay - after_js;
+            double elapsed = now - bench_start;
+            if (elapsed >= options.bench_seconds * 1000) {
+                glFinish();
+                elapsed = now_ms() - bench_start;
+                int width, height;
+                SDL_GL_GetDrawableSize(window, &width, &height);
+                printf("{\"width\":%d,\"height\":%d,\"vsync\":%s,\"fps\":%.1f,\"jsFrameMeanMs\":%.3f,"
+                       "\"overlayFrameMeanMs\":%.3f,\"renderer\":\"%s\"}\n",
+                       width, height, options.vsync ? "true" : "false", (bench_frames - 1) / (elapsed / 1000),
+                       frame_js_ms / bench_frames, frame_overlay_ms / bench_frames,
+                       (const char *)glGetString(GL_RENDERER));
+                quit_requested = true;
+            }
+        }
+    }
+
+    video_close_all();
+    if (listener >= 0) {
+        close(listener);
+        unlink(socket_path);
+    }
+    SDL_DestroyWindow(window);
+    SDL_Quit();
+    return exit_code;
+}
