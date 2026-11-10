@@ -98,8 +98,10 @@ cp "$root/vendor/sheenbidi/LICENSE" "$licenses/sheenbidi.txt"
 if [ "$system" = linux-x86_64 ]; then # the audio processing of the system, through the shim
 	cp "$root/vendor/abseil-cpp/LICENSE" "$licenses/abseil.txt"
 	cp "$root/vendor/webrtc-audio-processing/COPYING" "$licenses/webrtc-audio-processing.txt"
-else # ANGLE and SDL3 in the program folder
-	cp "$root/vendor/angle/LICENSE" "$licenses/angle.txt" 2>/dev/null || echo "ANGLE: see https://chromium.googlesource.com/angle/angle/+/refs/heads/main/LICENSE" > "$licenses/angle.txt"
+else # libremidi in the program, ANGLE and SDL3 in the program folder (their archives hold no license file)
+	cp "$root/vendor/libremidi/LICENSE.md" "$licenses/libremidi.txt"
+	echo "ANGLE (BSD-3-Clause): https://chromium.googlesource.com/angle/angle/+/refs/heads/main/LICENSE" > "$licenses/angle.txt"
+	echo "SDL3 (zlib license): https://github.com/libsdl-org/SDL/blob/main/LICENSE.txt" > "$licenses/sdl3.txt"
 fi
 sed -n '/^This software is available under 2 licenses/,$p' "$root/vendor/stb/stb_truetype.h" > "$licenses/stb.txt"
 cp "$root/vendor/fonts/NotoEmoji-OFL.txt" "$licenses/noto-emoji.txt"
