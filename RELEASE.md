@@ -129,6 +129,7 @@ Open points for the user:
 > With this release you can:
 >
 > - write a sketch in the window and evaluate a line, a block or all code, as in the web editor;
+>   the old sketch keeps running while the new shaders compile, so an evaluation causes no pause;
 > - see the parameters, types and defaults of a hydra function (Ctrl+Shift+Space), get completions that fit the
 >   argument (textures, numbers, the transforms of a chain), and insert a call with its defaults as tab stops;
 > - open a sketch file or a sketch URL of hydra.ojack.xyz, save to the file, and reload it when another
@@ -140,6 +141,8 @@ Open points for the user:
 > - share streams with the web editor and with other hydra-native windows through the patch bay
 >   (`pb`, `s0.initStream`);
 > - record the visuals as WebM, save screenshots, and share sketches to a hydra gallery server;
+> - set the opacity of the code background, and draw the background or the text with the blend mode
+>   difference, so the code stays readable over bright and dark visuals;
 > - change the theme, the font, the keys and other settings in the settings menu or in one settings file.
 >
 > Install: unpack the archive and start `bin/hydra-native`. The folder runs from any place.
@@ -213,7 +216,7 @@ Ubuntu 26.04 machine, outside of CI.
 - pnpm 11 stops the install when a dependency has build scripts that nobody reviewed (`strictDepBuilds`, default
   true). esbuild is the only dependency with an install script, and pnpm-workspace.yaml lists it with
   `allowBuilds: esbuild: false`, so it counts as reviewed. https://pnpm.io/settings/build
-  Tested locally: `pnpm install --frozen-lockfile` with pnpm 11.22 exits with 0.
+  Tested locally: `pnpm install --frozen-lockfile` with pnpm 11.28.11 exits with 0.
 
 ### Artifact
 
