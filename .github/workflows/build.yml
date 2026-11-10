@@ -44,7 +44,7 @@ jobs:
       # Opens a hidden window with ANGLE (Metal on macOS, Direct3D 11 on Windows) and reads a drawn pixel back.
       - name: Run the window test
         if: matrix.port
-        run: ctest --test-dir build -C Release -L window --output-on-failure
+        run: ctest --test-dir build -C Release -L window --verbose
 
       - name: Build the screen capture tool
         if: matrix.port
