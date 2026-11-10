@@ -1,7 +1,7 @@
 // WebGLRenderingContext (WebGL 1) for canvas.getContext('webgl'), drawn by src/webgl.c on the GLES 3 context of
 // hydra-native. It covers the calls of p5.js 1.6.0 in WEBGL mode and the usual WebGL 1 API; the canvas is a
-// source for hydra like a 2D canvas. Not covered: texSubImage2D, compressed textures, copyTexImage2D, and
-// textures from other WebGL canvases.
+// source for hydra like a 2D canvas. Not covered: texSubImage2D, compressed textures and copyTexImage2D.
+import { sourceHandle } from './canvas.js'
 import constants from './webgl-constants.js'
 
 // The order of enum simple_call in src/webgl.c.
@@ -140,8 +140,8 @@ export class WebGLRenderingContext {
       return native.glTexImage2D(this.context, target, level, internalFormat, source.width, source.height, format, type,
         source.data)
     }
-    const handle = imageHandle(source)
-    if (handle < 0) throw new TypeError('texImage2D: hydra-native takes 2D canvases, images, ImageData and video sources')
+    const handle = sourceHandle(source)
+    if (handle < 0) throw new TypeError('texImage2D: hydra-native takes canvases, images, ImageData and video sources')
     native.glTexImageSource(this.context, target, level, internalFormat, format, type, handle)
   }
 
@@ -151,18 +151,18 @@ export class WebGLRenderingContext {
 
   resize (width, height) { native.glContextResize(this.context, width, height) }
   copyTo (texture) { native.glContextCopyTo(this.context, texture.id) }
+
+  // A 2D canvas with a copy of the drawing buffer, for drawImage, patterns and texImage2D of this canvas.
+  // ponytail: reads the pixels back on every use; cache per frame if a sketch draws the canvas many times.
+  snapshot () {
+    if (this.snapshotHandle === undefined) {
+      this.snapshotHandle = native.canvasCreate(1, 1)
+      snapshots.register(this, this.snapshotHandle)
+    }
+    native.glContextReadInto(this.context, this.snapshotHandle, this.attributes.premultipliedAlpha)
+    return this.snapshotHandle
+  }
 }
+const snapshots = new FinalizationRegistry((handle) => native.canvasDestroy(handle))
 Object.assign(WebGLRenderingContext.prototype, constants)
 
-const videoFrames = new Map()
-
-function imageHandle (source) {
-  if (!source) return -1
-  if (source.nativeId && !source.webgl) return source.nativeId()
-  if (source.videoHandle !== undefined) {
-    if (!videoFrames.has(source.videoHandle)) videoFrames.set(source.videoHandle, native.canvasCreate(1, 1))
-    const handle = videoFrames.get(source.videoHandle)
-    return native.canvasVideoFrame(handle, source.videoHandle) ? handle : -1
-  }
-  return -1
-}

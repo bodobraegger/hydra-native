@@ -11,3 +11,5 @@ void canvas2d_install(JSContext *ctx, JSValue native);
 bool canvas2d_fetch_done(int fetch, bool ok, const char *data, size_t length);
 // The pixels of a canvas or image as RGBA rows from the top (malloc'd), straight or premultiplied alpha.
 unsigned char *canvas2d_rgba(int id, bool premultiplied, int *width, int *height);
+// Replaces the pixels of a canvas with RGBA pixels, straight or premultiplied alpha, rows from the top or the bottom.
+void canvas2d_put_rgba(int id, const unsigned char *rgba, int width, int height, bool premultiplied, bool flip_y);

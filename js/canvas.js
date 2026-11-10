@@ -5,9 +5,9 @@ import { WebGLRenderingContext } from './webgl.js'
 // It covers what hydra-text, hydra-canvas and s0.initCanvas() sketches use: rectangles, paths, arcs, text,
 // transforms, clipping, globalAlpha, composite operations and drawImage of other canvases.
 // Gradients (also conic), patterns, shadows, line dashes, image data, images, all composite and blend
-// operations, and drawImage of canvases, images and video sources work. Shadows and the blend modes that
-// plutovg lacks draw into a layer that src/canvas2d.c composites; such a layer ignores the clip.
-// Not covered: filter, and roundRect draws a plain rectangle.
+// operations, filters, and drawImage of canvases (also WebGL), images and video sources work. Shadows, filters
+// and the blend modes that plutovg lacks draw into a layer that src/canvas2d.c composites within the clip.
+// Not covered: filter url(), and roundRect draws a plain rectangle.
 
 const PATH_MOVE = 0
 const PATH_LINE = 1
@@ -41,6 +41,13 @@ const OPERATORS = {
   'destination-atop': 10,
   xor: 11
 }
+
+// The CSS filter functions; the index is enum filter_kind of src/canvas2d.c.
+const FILTER_FUNCTIONS = ['blur', 'brightness', 'contrast', 'grayscale', 'hue-rotate', 'invert', 'opacity', 'saturate', 'sepia',
+  'drop-shadow']
+const FILTER_DEFAULTS = { blur: 0, brightness: 1, contrast: 1, grayscale: 1, 'hue-rotate': 0, invert: 1, opacity: 1, saturate: 1, sepia: 1 }
+const ANGLE_UNITS = { deg: Math.PI / 180, rad: 1, grad: Math.PI / 200, turn: 2 * Math.PI }
+const DROP_SHADOW_COLOR = [0, 0, 0, 1] // currentcolor of a canvas without CSS
 
 const NAMED_COLORS = {
   aliceblue: 'f0f8ff', antiquewhite: 'faebd7', aqua: '00ffff', aquamarine: '7fffd4', azure: 'f0ffff', beige: 'f5f5dc',
@@ -115,6 +122,59 @@ function parseFont (value) {
   }
 }
 
+// Parses one argument of a filter function into a number, or returns NaN.
+function filterArgument (name, text) {
+  if (text === '') return FILTER_DEFAULTS[name]
+  if (name === 'blur') {
+    const match = /^([\d.]+)(px)?$/.exec(text)
+    return match && (match[2] || parseFloat(match[1]) === 0) ? parseFloat(match[1]) : NaN
+  }
+  if (name === 'hue-rotate') {
+    const match = /^(-?[\d.]+)([a-z]*)$/.exec(text)
+    if (!match) return NaN
+    const scale = match[2] ? ANGLE_UNITS[match[2]] : (parseFloat(match[1]) === 0 ? 1 : NaN)
+    return parseFloat(match[1]) * scale
+  }
+  const match = /^([\d.]+)(%?)$/.exec(text)
+  return match ? parseFloat(match[1]) / (match[2] ? 100 : 1) : NaN
+}
+
+// drop-shadow(x y [blur] [color]): the color may come first or last.
+function dropShadow (text) {
+  const tokens = text.match(/[a-z]+\([^)]*\)|\S+/gi) || []
+  const isLength = (token) => /^-?[\d.]+(px)?$/.test(token) && (token.endsWith('px') || parseFloat(token) === 0)
+  const lengths = tokens.filter(isLength).map(parseFloat)
+  const colors = tokens.filter((token) => !isLength(token))
+  const color = colors.length ? parseColor(colors[0]) : DROP_SHADOW_COLOR
+  if (!color || colors.length > 1 || (lengths.length !== 2 && lengths.length !== 3) || lengths[2] < 0) return null
+  return [lengths[0], lengths[1], lengths[2] ?? 0, ...color]
+}
+
+// Parses the filter property into the flat numbers of src/canvas2d.c (kind and 7 values per function), or null.
+function parseFilter (value) {
+  const text = String(value).trim()
+  if (text === 'none') return []
+  const values = []
+  const pattern = /([a-z-]+)\(((?:[^()]|\([^()]*\))*)\)\s*/y
+  while (pattern.lastIndex < text.length) {
+    const match = pattern.exec(text)
+    if (!match) return null
+    const [, name, argument] = match
+    const kind = FILTER_FUNCTIONS.indexOf(name)
+    if (kind < 0) return null
+    if (name === 'drop-shadow') {
+      const shadow = dropShadow(argument)
+      if (!shadow) return null
+      values.push(kind, ...shadow)
+      continue
+    }
+    const amount = filterArgument(name, argument.trim())
+    if (Number.isNaN(amount) || (name !== 'hue-rotate' && amount < 0)) return null
+    values.push(kind, amount, 0, 0, 0, 0, 0, 0)
+  }
+  return values.length ? values : null
+}
+
 function multiply ([a1, b1, c1, d1, e1, f1], [a2, b2, c2, d2, e2, f2]) {
   return [a1 * a2 + c1 * b2, b1 * a2 + d1 * b2, a1 * c2 + c1 * d2, b1 * c2 + d1 * d2,
     a1 * e2 + c1 * f2 + e1, b1 * e2 + d1 * f2 + f1]
@@ -141,7 +201,7 @@ export class Path2D {
 
 const STATE_KEYS = ['fillStyle', 'strokeStyle', 'lineWidth', 'lineCap', 'lineJoin', 'miterLimit', 'globalAlpha',
   'globalCompositeOperation', 'font', 'textAlign', 'textBaseline', 'matrix', 'shadowColor', 'shadowBlur', 'shadowOffsetX',
-  'shadowOffsetY', 'lineDash', 'lineDashOffset', 'imageSmoothingEnabled']
+  'shadowOffsetY', 'lineDash', 'lineDashOffset', 'imageSmoothingEnabled', 'filter']
 
 // The blend modes of src/canvas2d.c (enum blend_mode); they draw through a layer.
 const BLEND_MODES = {
@@ -232,6 +292,15 @@ class CanvasRenderingContext2D {
   get font () { return this._font }
   set font (value) { if (parseFont(value)) this._font = value }
 
+  // An invalid filter leaves the value unchanged, as in the browser.
+  get filter () { return this._filter }
+  set filter (value) {
+    const filters = parseFilter(value)
+    if (!filters) return
+    this._filter = String(value)
+    this.filters = filters
+  }
+
   save () {
     this.stack.push(Object.fromEntries(STATE_KEYS.map((key) => [key, this[key]])))
     native.canvasSave(this.id)
@@ -280,13 +349,13 @@ class CanvasRenderingContext2D {
     this.canvas.changed()
   }
 
-  // Runs `draw` directly, or in a layer for a shadow or a blend mode that plutovg lacks.
+  // Runs `draw` directly, or in a layer for a shadow, a filter or a blend mode that plutovg lacks.
   draw (callback) {
     const [, , , shadowAlpha] = parseColor(this.shadowColor) || [0, 0, 0, 0]
     const shadow = shadowAlpha > 0 && (this.shadowBlur > 0 || this.shadowOffsetX !== 0 || this.shadowOffsetY !== 0)
     const blend = BLEND_MODES[this.globalCompositeOperation]
     const native2d = OPERATORS[this.globalCompositeOperation] !== undefined && this.globalCompositeOperation !== 'lighter'
-    if (!shadow && (native2d || blend === undefined)) return callback()
+    if (!shadow && !this.filters.length && (native2d || blend === undefined)) return callback()
     native.canvasLayerBegin(this.id)
     this.layered = true
     this.fontApplied = null
@@ -296,8 +365,9 @@ class CanvasRenderingContext2D {
       this.layered = false
       this.fontApplied = null
       const [r, g, b, a] = shadow ? parseColor(this.shadowColor) : [0, 0, 0, 0]
-      native.canvasLayerEnd(this.id, blend ?? 0, this.globalAlpha, this.shadowBlur, this.shadowOffsetX, this.shadowOffsetY,
-        r, g, b, a)
+      const operator = native2d ? OPERATORS[this.globalCompositeOperation] : blend === undefined ? OPERATORS['source-over'] : -1
+      native.canvasLayerEnd(this.id, operator, blend ?? 0, this.shadowBlur, this.shadowOffsetX, this.shadowOffsetY, r, g, b, a,
+        this.filters)
       this.canvas.changed()
     }
   }
@@ -450,7 +520,7 @@ class CanvasRenderingContext2D {
 const videoFrames = new Map()
 
 // The native canvas handle of an image source, or -1.
-function sourceHandle (source) {
+export function sourceHandle (source) {
   if (!source) return -1
   if (source.nativeId) return source.nativeId()
   if (source.videoHandle !== undefined) {
@@ -478,7 +548,7 @@ export class CanvasElement extends Element {
   }
 
   nativeId () {
-    if (this.webgl) return -1 // drawImage and patterns of a WebGL canvas are not supported
+    if (this.webgl) return this.context.snapshot()
     if (this.handle < 0) {
       this.handle = native.canvasCreate(this._width, this._height)
       surfaces.register(this, this.handle)

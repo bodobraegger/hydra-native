@@ -234,6 +234,21 @@ WEBGL_FUNCTION(js_context_copy_to) {
     return JS_UNDEFINED;
 }
 
+// readInto(id, canvasId, premultipliedAlpha): copies the drawing buffer into a 2D canvas (rows from the top), for
+// drawImage, patterns and texImage2D of a WebGL canvas.
+WEBGL_FUNCTION(js_context_read_into) {
+    ACTIVATE();
+    GLint read_framebuffer;
+    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &read_framebuffer);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, context->framebuffer);
+    unsigned char *pixels = malloc((size_t)context->width * (size_t)context->height * 4);
+    glReadPixels(0, 0, context->width, context->height, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, (GLuint)read_framebuffer);
+    canvas2d_put_rgba(INT(1), pixels, context->width, context->height, JS_ToBool(ctx, argv[2]), true);
+    free(pixels);
+    return JS_UNDEFINED;
+}
+
 // ---------------------------------------------------------------- objects
 
 #define CREATE(name, call)                     \
@@ -693,6 +708,7 @@ static const JSCFunctionListEntry webgl_functions[] = {
     JS_CFUNC_DEF("glContextResize", 3, js_context_resize),
     JS_CFUNC_DEF("glContextDestroy", 1, js_context_destroy),
     JS_CFUNC_DEF("glContextCopyTo", 2, js_context_copy_to),
+    JS_CFUNC_DEF("glContextReadInto", 3, js_context_read_into),
     JS_CFUNC_DEF("glCreateBuffer", 1, js_create_buffer),
     JS_CFUNC_DEF("glCreateTexture", 1, js_create_texture),
     JS_CFUNC_DEF("glCreateFramebuffer", 1, js_create_framebuffer),

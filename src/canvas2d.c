@@ -21,7 +21,7 @@ struct canvas {
     plutovg_surface_t *surface;
     plutovg_canvas_t *canvas;
     int width, height;
-    // While a layer is open (shadows and blend modes that plutovg lacks), drawing goes to the layer.
+    // While a layer is open (shadows, filters and blend modes that plutovg lacks), drawing goes to the layer.
     plutovg_surface_t *main_surface;
     plutovg_canvas_t *main_canvas;
     int fetch; // an image that is downloading, else -1
@@ -448,7 +448,7 @@ CANVAS_FUNCTION(js_canvas_pattern) {
     return JS_UNDEFINED;
 }
 
-// ---------------------------------------------------------------- layers: shadows and blend modes
+// ---------------------------------------------------------------- layers: shadows, filters and blend modes
 
 // layerBegin(id): the next drawing goes to an empty layer with the same transform.
 CANVAS_FUNCTION(js_canvas_layer_begin) {
@@ -593,43 +593,192 @@ static void blur_alpha(float *alpha, int width, int height, float blur) {
     free(line);
 }
 
-// layerEnd(id, blendMode, globalAlpha, shadowBlur, shadowOffsetX, shadowOffsetY, r, g, b, a): composites the
-// layer, first its shadow (when the shadow color is not transparent), then the layer itself with the blend mode.
+// The CSS filter functions of the 2D canvas, in the order of FILTERS in js/canvas.js.
+enum filter_kind {
+    FILTER_BLUR, FILTER_BRIGHTNESS, FILTER_CONTRAST, FILTER_GRAYSCALE, FILTER_HUE_ROTATE, FILTER_INVERT, FILTER_OPACITY,
+    FILTER_SATURATE, FILTER_SEPIA, FILTER_DROP_SHADOW,
+};
+#define FILTER_VALUES 8 // kind, amount (or x, y, blur of drop-shadow), r, g, b, a of drop-shadow
+
+// The shadow of the alpha of `layer`: moved by the offset, blurred, in `color` (premultiplied ARGB pixels).
+static plutovg_surface_t *shadow_surface(plutovg_surface_t *layer, int width, int height, float blur, float offset_x,
+                                         float offset_y, plutovg_color_t color) {
+    const unsigned char *data = plutovg_surface_get_data(layer);
+    int stride = plutovg_surface_get_stride(layer);
+    float *alpha = calloc((size_t)width * (size_t)height, sizeof(float));
+    int dx = (int)lroundf(offset_x), dy = (int)lroundf(offset_y);
+    for (int y = 0; y < height; y++)
+        for (int x = 0; x < width; x++) {
+            int sx = x - dx, sy = y - dy;
+            if (sx >= 0 && sx < width && sy >= 0 && sy < height)
+                alpha[(size_t)y * (size_t)width + (size_t)x] = (float)(((const uint32_t *)(data + (size_t)sy * (size_t)stride))[sx] >> 24) / 255;
+        }
+    blur_alpha(alpha, width, height, blur);
+    plutovg_surface_t *shadow = plutovg_surface_create(width, height);
+    unsigned char *out = plutovg_surface_get_data(shadow);
+    for (int y = 0; y < height; y++)
+        for (int x = 0; x < width; x++)
+            ((uint32_t *)(out + (size_t)y * (size_t)stride))[x] = premultiplied_argb(color, alpha[(size_t)y * (size_t)width + (size_t)x]);
+    free(alpha);
+    return shadow;
+}
+
+// The color matrices of the Filter Effects specification, on straight sRGB colors.
+static void filter_matrix(enum filter_kind kind, float amount, float m[9]) {
+    float a = fminf(fmaxf(amount, 0), 1), i = 1 - a;
+    switch (kind) {
+    case FILTER_GRAYSCALE: {
+        const float values[9] = { 0.2126f + 0.7874f * i, 0.7152f - 0.7152f * i, 0.0722f - 0.0722f * i,
+                                  0.2126f - 0.2126f * i, 0.7152f + 0.2848f * i, 0.0722f - 0.0722f * i,
+                                  0.2126f - 0.2126f * i, 0.7152f - 0.7152f * i, 0.0722f + 0.9278f * i };
+        memcpy(m, values, sizeof values);
+        break;
+    }
+    case FILTER_SEPIA: {
+        const float values[9] = { 0.393f + 0.607f * i, 0.769f - 0.769f * i, 0.189f - 0.189f * i,
+                                  0.349f - 0.349f * i, 0.686f + 0.314f * i, 0.168f - 0.168f * i,
+                                  0.272f - 0.272f * i, 0.534f - 0.534f * i, 0.131f + 0.869f * i };
+        memcpy(m, values, sizeof values);
+        break;
+    }
+    case FILTER_SATURATE: {
+        float v = fmaxf(amount, 0);
+        const float values[9] = { 0.213f + 0.787f * v, 0.715f - 0.715f * v, 0.072f - 0.072f * v,
+                                  0.213f - 0.213f * v, 0.715f + 0.285f * v, 0.072f - 0.072f * v,
+                                  0.213f - 0.213f * v, 0.715f - 0.715f * v, 0.072f + 0.928f * v };
+        memcpy(m, values, sizeof values);
+        break;
+    }
+    default: { // FILTER_HUE_ROTATE, amount in radians
+        float c = cosf(amount), n = sinf(amount);
+        const float values[9] = { 0.213f + c * 0.787f - n * 0.213f, 0.715f - c * 0.715f - n * 0.715f, 0.072f - c * 0.072f + n * 0.928f,
+                                  0.213f - c * 0.213f + n * 0.143f, 0.715f + c * 0.285f + n * 0.140f, 0.072f - c * 0.072f - n * 0.283f,
+                                  0.213f - c * 0.213f - n * 0.787f, 0.715f - c * 0.715f + n * 0.715f, 0.072f + c * 0.928f + n * 0.072f };
+        memcpy(m, values, sizeof values);
+    }
+    }
+}
+
+// Applies one filter function to the premultiplied ARGB pixels of `layer`.
+static void apply_filter(plutovg_surface_t *layer, int width, int height, const float *values) {
+    enum filter_kind kind = (enum filter_kind)(int)values[0];
+    float amount = values[1];
+    unsigned char *data = plutovg_surface_get_data(layer);
+    int stride = plutovg_surface_get_stride(layer);
+    if (kind == FILTER_DROP_SHADOW) {
+        plutovg_color_t color = { values[4], values[5], values[6], values[7] };
+        plutovg_surface_t *shadow = shadow_surface(layer, width, height, values[3], values[1], values[2], color);
+        unsigned char *under = plutovg_surface_get_data(shadow);
+        for (int y = 0; y < height; y++) {
+            uint32_t *row = (uint32_t *)(data + (size_t)y * (size_t)stride), *below = (uint32_t *)(under + (size_t)y * (size_t)stride);
+            for (int x = 0; x < width; x++) row[x] = composite_pixel(below[x], row[x], BLEND_SOURCE_OVER);
+        }
+        plutovg_surface_destroy(shadow);
+        return;
+    }
+    if (kind == FILTER_BLUR) { // a Gaussian blur of every channel with the standard deviation `amount`
+        float *channel = malloc(sizeof(float) * (size_t)width * (size_t)height);
+        for (int shift = 0; shift <= 24; shift += 8) {
+            for (int y = 0; y < height; y++)
+                for (int x = 0; x < width; x++)
+                    channel[(size_t)y * (size_t)width + (size_t)x] = (float)((((uint32_t *)(data + (size_t)y * (size_t)stride))[x] >> shift) & 0xFF);
+            blur_alpha(channel, width, height, 2 * amount);
+            for (int y = 0; y < height; y++)
+                for (int x = 0; x < width; x++) {
+                    uint32_t *pixel = (uint32_t *)(data + (size_t)y * (size_t)stride) + x;
+                    uint32_t value = (uint32_t)fminf(channel[(size_t)y * (size_t)width + (size_t)x] + 0.5f, 255);
+                    *pixel = (*pixel & ~(0xFFu << shift)) | value << shift;
+                }
+        }
+        free(channel);
+        return;
+    }
+    float matrix[9];
+    bool uses_matrix = kind == FILTER_GRAYSCALE || kind == FILTER_SEPIA || kind == FILTER_SATURATE || kind == FILTER_HUE_ROTATE;
+    if (uses_matrix) filter_matrix(kind, amount, matrix);
+    float clamped = fminf(fmaxf(amount, 0), 1);
+    for (int y = 0; y < height; y++) {
+        uint32_t *row = (uint32_t *)(data + (size_t)y * (size_t)stride);
+        for (int x = 0; x < width; x++) {
+            float alpha = (float)(row[x] >> 24) / 255;
+            if (alpha == 0) continue;
+            float c[3], r[3];
+            for (int k = 0; k < 3; k++) c[k] = (float)((row[x] >> (16 - 8 * k)) & 0xFF) / 255 / alpha;
+            for (int k = 0; k < 3; k++) {
+                switch (kind) {
+                case FILTER_BRIGHTNESS: r[k] = c[k] * fmaxf(amount, 0); break;
+                case FILTER_CONTRAST: r[k] = fmaxf(amount, 0) * (c[k] - 0.5f) + 0.5f; break;
+                case FILTER_INVERT: r[k] = clamped + c[k] * (1 - 2 * clamped); break;
+                case FILTER_OPACITY: r[k] = c[k]; break;
+                default: r[k] = uses_matrix ? matrix[3 * k] * c[0] + matrix[3 * k + 1] * c[1] + matrix[3 * k + 2] * c[2] : c[k];
+                }
+            }
+            if (kind == FILTER_OPACITY) alpha *= clamped;
+            plutovg_color_t color = { fminf(fmaxf(r[0], 0), 1), fminf(fmaxf(r[1], 0), 1), fminf(fmaxf(r[2], 0), 1), 1 };
+            row[x] = premultiplied_argb(color, alpha);
+        }
+    }
+}
+
+// Composites `source` onto the main canvas within its clip: with a plutovg operator, or else with a blend mode
+// pixel by pixel, whose result then replaces the main canvas within the clip.
+static void composite_layer(struct canvas *canvas, plutovg_surface_t *source, int operator, enum blend_mode mode) {
+    plutovg_surface_t *paint = source, *blended = NULL;
+    if (operator < 0) {
+        int stride = plutovg_surface_get_stride(source);
+        blended = plutovg_surface_create(canvas->width, canvas->height);
+        const unsigned char *in = plutovg_surface_get_data(source), *under = plutovg_surface_get_data(canvas->main_surface);
+        unsigned char *out = plutovg_surface_get_data(blended);
+        for (int y = 0; y < canvas->height; y++) {
+            const uint32_t *source_row = (const uint32_t *)(in + (size_t)y * (size_t)stride);
+            const uint32_t *row = (const uint32_t *)(under + (size_t)y * (size_t)stride);
+            uint32_t *result = (uint32_t *)(out + (size_t)y * (size_t)stride);
+            for (int x = 0; x < canvas->width; x++) result[x] = composite_pixel(row[x], source_row[x], mode);
+        }
+        paint = blended;
+        operator = PLUTOVG_OPERATOR_SRC;
+    }
+    plutovg_canvas_t *target = canvas->main_canvas;
+    plutovg_canvas_save(target);
+    plutovg_canvas_reset_matrix(target);
+    plutovg_canvas_set_operator(target, (plutovg_operator_t)operator);
+    plutovg_canvas_set_opacity(target, 1);
+    plutovg_canvas_set_texture(target, paint, PLUTOVG_TEXTURE_TYPE_PLAIN, 1, NULL);
+    plutovg_canvas_fill_rect(target, 0, 0, (float)canvas->width, (float)canvas->height);
+    plutovg_canvas_restore(target);
+    if (blended) plutovg_surface_destroy(blended);
+}
+
+// layerEnd(id, operator, blendMode, shadowBlur, shadowOffsetX, shadowOffsetY, r, g, b, a, [filters]): applies the
+// filters to the layer, then composites its shadow (when the shadow color is not transparent) and the layer
+// within the clip. `operator` is a plutovg operator, or -1 for the blend mode.
 CANVAS_FUNCTION(js_canvas_layer_end) {
     CANVAS_OR_RETURN();
     if (!canvas->main_canvas) return JS_UNDEFINED;
-    enum blend_mode mode = (enum blend_mode)(int)number(ctx, argv[1]);
+    int operator = (int)number(ctx, argv[1]);
+    enum blend_mode mode = (enum blend_mode)(int)number(ctx, argv[2]);
     float shadow_blur = number(ctx, argv[3]), offset_x = number(ctx, argv[4]), offset_y = number(ctx, argv[5]);
     plutovg_color_t shadow = { number(ctx, argv[6]), number(ctx, argv[7]), number(ctx, argv[8]), number(ctx, argv[9]) };
-    int width = canvas->width, height = canvas->height;
-    unsigned char *layer = plutovg_surface_get_data(canvas->surface), *target = plutovg_surface_get_data(canvas->main_surface);
-    int stride = plutovg_surface_get_stride(canvas->surface);
-    if (shadow.a > 0) {
-        float *alpha = calloc((size_t)width * (size_t)height, sizeof(float));
-        int dx = (int)lroundf(offset_x), dy = (int)lroundf(offset_y);
-        for (int y = 0; y < height; y++)
-            for (int x = 0; x < width; x++) {
-                int sx = x - dx, sy = y - dy;
-                if (sx >= 0 && sx < width && sy >= 0 && sy < height)
-                    alpha[(size_t)y * (size_t)width + (size_t)x] =
-                        (float)(((uint32_t *)(layer + (size_t)sy * (size_t)stride))[sx] >> 24) / 255;
-            }
-        blur_alpha(alpha, width, height, shadow_blur);
-        for (int y = 0; y < height; y++) {
-            uint32_t *row = (uint32_t *)(target + (size_t)y * (size_t)stride);
-            for (int x = 0; x < width; x++) {
-                float a = alpha[(size_t)y * (size_t)width + (size_t)x];
-                if (a > 0) row[x] = composite_pixel(row[x], premultiplied_argb(shadow, a), mode == BLEND_LIGHTER ? mode : BLEND_SOURCE_OVER);
-            }
+    int64_t filter_values = 0;
+    JSValue length = JS_GetPropertyStr(ctx, argv[10], "length");
+    JS_ToInt64(ctx, &filter_values, length);
+    JS_FreeValue(ctx, length);
+    for (int64_t start = 0; start + FILTER_VALUES <= filter_values; start += FILTER_VALUES) {
+        float values[FILTER_VALUES];
+        for (int k = 0; k < FILTER_VALUES; k++) {
+            JSValue value = JS_GetPropertyUint32(ctx, argv[10], (uint32_t)(start + k));
+            values[k] = number(ctx, value);
+            JS_FreeValue(ctx, value);
         }
-        free(alpha);
+        apply_filter(canvas->surface, canvas->width, canvas->height, values);
     }
-    for (int y = 0; y < height; y++) {
-        uint32_t *source = (uint32_t *)(layer + (size_t)y * (size_t)stride);
-        uint32_t *row = (uint32_t *)(target + (size_t)y * (size_t)stride);
-        for (int x = 0; x < width; x++)
-            if (source[x] >> 24) row[x] = composite_pixel(row[x], source[x], mode);
+    if (shadow.a > 0) {
+        plutovg_surface_t *shadow_layer = shadow_surface(canvas->surface, canvas->width, canvas->height, shadow_blur, offset_x,
+                                                         offset_y, shadow);
+        composite_layer(canvas, shadow_layer, operator, mode);
+        plutovg_surface_destroy(shadow_layer);
     }
+    composite_layer(canvas, canvas->surface, operator, mode);
     plutovg_canvas_destroy(canvas->canvas);
     plutovg_surface_destroy(canvas->surface);
     canvas->surface = canvas->main_surface;
@@ -704,18 +853,26 @@ CANVAS_FUNCTION(js_canvas_put_image_data) {
 
 // ---------------------------------------------------------------- images and video frames
 
-// Copies straight RGBA pixels into a canvas surface (premultiplied ARGB).
-static void fill_surface(struct canvas *canvas, const unsigned char *rgba, int width, int height) {
+// Copies RGBA pixels (straight or premultiplied alpha, rows from the top or the bottom) into a canvas surface.
+static void fill_surface(struct canvas *canvas, const unsigned char *rgba, int width, int height, bool premultiplied, bool flip_y) {
     create_surface(canvas, width, height);
     unsigned char *data = plutovg_surface_get_data(canvas->surface);
     int stride = plutovg_surface_get_stride(canvas->surface);
     for (int y = 0; y < height; y++)
         for (int x = 0; x < width; x++) {
-            const unsigned char *in = rgba + ((size_t)y * (size_t)width + (size_t)x) * 4;
-            unsigned a = in[3];
-            ((uint32_t *)(data + (size_t)y * (size_t)stride))[x] =
-                a << 24 | (in[0] * a / 255) << 16 | (in[1] * a / 255) << 8 | (in[2] * a / 255);
+            const unsigned char *in = rgba + ((size_t)(flip_y ? height - 1 - y : y) * (size_t)width + (size_t)x) * 4;
+            unsigned a = in[3], r = in[0], g = in[1], b = in[2];
+            if (!premultiplied) {
+                r = r * a / 255;
+                g = g * a / 255;
+                b = b * a / 255;
+            }
+            ((uint32_t *)(data + (size_t)y * (size_t)stride))[x] = a << 24 | r << 16 | g << 8 | b;
         }
+}
+
+void canvas2d_put_rgba(int id, const unsigned char *rgba, int width, int height, bool premultiplied, bool flip_y) {
+    if (id >= 0 && id < MAX_CANVASES && canvases[id].canvas) fill_surface(&canvases[id], rgba, width, height, premultiplied, flip_y);
 }
 
 static void image_done(int id, bool ok) {
@@ -733,7 +890,7 @@ static bool decode_into(struct canvas *canvas, const unsigned char *data, size_t
     int width, height, channels;
     unsigned char *rgba = stbi_load_from_memory(data, (int)length, &width, &height, &channels, 4);
     if (!rgba) return false;
-    fill_surface(canvas, rgba, width, height);
+    fill_surface(canvas, rgba, width, height, false, false);
     stbi_image_free(rgba);
     return true;
 }
@@ -825,7 +982,7 @@ CANVAS_FUNCTION(js_canvas_video_frame) {
     if (!video_size(handle, &width, &height)) return JS_FALSE;
     unsigned char *rgba = malloc((size_t)width * (size_t)height * 4);
     bool ok = video_copy_frame(handle, rgba);
-    if (ok) fill_surface(canvas, rgba, width, height);
+    if (ok) fill_surface(canvas, rgba, width, height, false, false);
     free(rgba);
     return JS_NewBool(ctx, ok);
 }
@@ -853,7 +1010,7 @@ static const JSCFunctionListEntry canvas_functions[] = {
     JS_CFUNC_DEF("canvasPattern", 3, js_canvas_pattern),
     JS_CFUNC_DEF("canvasDash", 3, js_canvas_dash),
     JS_CFUNC_DEF("canvasLayerBegin", 1, js_canvas_layer_begin),
-    JS_CFUNC_DEF("canvasLayerEnd", 10, js_canvas_layer_end),
+    JS_CFUNC_DEF("canvasLayerEnd", 11, js_canvas_layer_end),
     JS_CFUNC_DEF("canvasGetImageData", 5, js_canvas_get_image_data),
     JS_CFUNC_DEF("canvasPutImageData", 10, js_canvas_put_image_data),
     JS_CFUNC_DEF("canvasImageLoad", 1, js_canvas_image_load),

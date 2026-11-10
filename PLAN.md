@@ -162,21 +162,21 @@ gallery and signalling server (hydra-synth/hydra-server) and from the CodeMirror
 
 ### Hydra API and inputs
 
-| Feature                        | hydra-native                            | Identical                            |
-| ------------------------------ | --------------------------------------- | ------------------------------------ |
-| hydra-synth API                | the same hydra-synth 1.4.0              | yes                                  |
-| setResolution, top-level await | stretched canvas, async global eval     | yes                                  |
-| loadScript (paths and URLs)    | file or curl, global eval               | yes                                  |
-| initCam, initVideo, initImage  | GStreamer, ffmpeg                       | yes (YouTube needs yt-dlp)           |
-| initScreen                     | portal picker                           | yes                                  |
-| initCanvas, 2D canvas          | plutovg: gradients, shadows, image data | no: filter is missing                |
-| P5 (p5.js 1.6.0), 2D mode      | on the 2D canvas                        | yes                                  |
-| P5 WEBGL mode                  | WebGL 1 on GLES 3                       | no: text and drawImage of WebGL      |
-| a (audio FFT)                  | Meyda feature, browser NS and AGC       | no: own NS and AGC2 code, not WebRTC |
-| Web MIDI input and output      | ALSA sequencer                          | yes                                  |
-| screencap(), vidRecorder       | PNG and js; WebM VP9 through ffmpeg     | yes                                  |
-| setTimeout, setInterval        | between frames, about 1 ms late         | yes, except while a frame draws      |
-| initStream and pb (webRTC)     | none                                    | no: blocked, see below               |
+| Feature                        | hydra-native                               | Identical                            |
+| ------------------------------ | ------------------------------------------ | ------------------------------------ |
+| hydra-synth API                | the same hydra-synth 1.4.0                 | yes                                  |
+| setResolution, top-level await | stretched canvas, async global eval        | yes                                  |
+| loadScript (paths and URLs)    | file or curl, global eval                  | yes                                  |
+| initCam, initVideo, initImage  | GStreamer, ffmpeg                          | yes (YouTube needs yt-dlp)           |
+| initScreen                     | portal picker                              | yes                                  |
+| initCanvas, 2D canvas          | plutovg: gradients, shadows, filters, clip | yes (filter url() is missing)        |
+| P5 (p5.js 1.6.0), 2D mode      | on the 2D canvas                           | yes                                  |
+| P5 WEBGL mode                  | WebGL 1 on GLES 3                          | no: text with loadFont               |
+| a (audio FFT)                  | Meyda feature, browser NS and AGC          | no: own NS and AGC2 code, not WebRTC |
+| Web MIDI input and output      | ALSA sequencer                             | yes                                  |
+| screencap(), vidRecorder       | PNG and js; WebM VP9 through ffmpeg        | yes                                  |
+| setTimeout, setInterval        | between frames, about 1 ms late            | yes, except while a frame draws      |
+| initStream and pb (webRTC)     | none                                       | no: blocked, see below               |
 
 `initStream` and `pb` are not built. A receiver needs a WebRTC stack (ICE, DTLS-SRTP, VP8). Without system packages
 there are two ways, a prebuilt WebRTC binary for Node.js (@roamhq/wrtc, with the socket.io-client 2 and simple-peer
