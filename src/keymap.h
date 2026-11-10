@@ -34,6 +34,10 @@
     X(TOGGLE_HELP, "help: keys and commands") \
     X(TOGGLE_INFO, "info panel and language") \
     X(TOGGLE_EXTENSIONS, "extensions and libraries") \
+    X(TOGGLE_SETTINGS, "settings: font, theme and autocomplete") \
+    X(NEXT_THEME, "next color theme") \
+    X(TOGGLE_AUTOCOMPLETE_STYLE, "autocomplete as a list or as ghost text") \
+    X(TOGGLE_AUTOCOMPLETE_TRIGGER, "autocomplete on Ctrl+Space or while typing") \
     X(SELECT_NEXT_OCCURRENCE, "select the word, then add the next occurrence") \
     X(FIND, "find") \
     X(OPEN_URL, "open the hydra.ojack.xyz URL in the clipboard, like pasting it into the address bar") \

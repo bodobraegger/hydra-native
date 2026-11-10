@@ -11,6 +11,7 @@
 
 bool overlay_init(const char *font_path, const char *emoji_font_path, float font_size);
 bool overlay_set_font_size(float font_size);
+bool overlay_set_font(const char *font_path); // the code font; false keeps the old one
 float overlay_font_size(void);
 float overlay_char_width(void);
 float overlay_line_height(void);

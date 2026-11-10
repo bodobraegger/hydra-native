@@ -344,6 +344,15 @@ bool overlay_set_font_size(float font_size) {
     return true;
 }
 
+bool overlay_set_font(const char *font_path) {
+    struct font font = { 0 };
+    if (!load_font(&font, font_path, 0) || font.color) return false;
+    free(fonts[0].data);
+    if (fonts[0].shaper) hb_font_destroy(fonts[0].shaper);
+    fonts[0] = font;
+    return overlay_set_font_size(current_font_size); // new metrics and an empty atlas
+}
+
 bool overlay_init(const char *font_path, const char *emoji_font_path, float font_size) {
     current_font_size = font_size;
     if (!load_font(&fonts[0], font_path, 0)) {

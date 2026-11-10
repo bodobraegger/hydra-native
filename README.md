@@ -63,6 +63,12 @@ The window title shows the hydra.ojack.xyz URL of the code after each run of all
 the web editor does. Ctrl+Shift+L copies that URL, and Ctrl+Shift+O opens the URL in the clipboard.
 PLAN.md compares every feature with the web editor.
 
+The "settings" entry of the toolbar (Ctrl+,) chooses the color theme (hydra, contrast, solarized, paper), the
+autocomplete style and trigger, the font size and the font from the installed monospace fonts (fc-list). Each
+choice applies at once and goes into ~/.config/hydra-native/settings (or $XDG_CONFIG_HOME/hydra-native/settings),
+a file of key=value lines: font, font_size, theme, autocomplete_style (list or ghost) and autocomplete_trigger
+(manual or typing). hydra-native reads it at the start; --font, --font-size and --theme override it for one run.
+
 The editor has multiple cursors, find and replace, go to line, a command palette and autocomplete of hydra
 names and of the words of the file. Typing an opening bracket or quote adds the closing one. Find works like
 the find bar of a browser: it ignores case and accents, highlights all matches and shows their count.
@@ -99,7 +105,7 @@ Keys marked "always" also work while the overlay is hidden.
 | Ctrl+Alt+Enter, Ctrl+Shift+Enter               | evaluate all (always)                                  |
 | Ctrl+Shift+H                                   | hide or show the code (always)                         |
 | Ctrl+S; Ctrl+Shift+S                           | save; save a screenshot and the code (always)          |
-| F1; Ctrl+Shift+P                               | help; command palette (always)                         |
+| F1; Ctrl+Shift+P; Ctrl+,                       | help; command palette; settings (always)               |
 | Ctrl+Shift+L; Ctrl+Shift+O; Ctrl+Shift+G       | copy the URL; open a URL; share with the gallery       |
 | F7; F8, Shift+F8, Ctrl+F8; Ctrl+Shift+Delete   | example; mutate, undo, change a function; clear all    |
 | F11; Ctrl+Q                                    | fullscreen; quit (always)                              |

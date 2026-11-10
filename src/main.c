@@ -26,6 +26,7 @@
 #include "midi.h"
 #include "native.h"
 #include "thumbnails.h"
+#include "settings.h"
 #include "ui.h"
 #include "quickjs-libc.h"
 #include "quickjs.h"
@@ -39,8 +40,6 @@
 #define BENCH_FINISH_FRAMES 30
 #define CLIENT_TIMEOUT_SECONDS 2
 #define MAX_REPLY_SIZE 4096
-#define DEFAULT_FONT_PATH "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
-#define DEFAULT_FONT_SIZE 20.0f
 #define SCREENSHOT_DELAY_MS 1500
 
 struct options {
@@ -49,7 +48,8 @@ struct options {
     const char *audio_device;
     bool no_analog_agc;
     const char *socket_path;
-    const char *font_path;
+    const char *font_path; // NULL, 0 and NULL: the settings file decides
+    const char *theme;
     const char *screenshot_path;
     const char *language;
     const char *l10n_url;
@@ -982,6 +982,8 @@ static void usage(void) {
             "  --watch            load and evaluate the last file again when it changes on disk\n"
             "  --font PATH        monospace TrueType font of the overlay (default %s)\n"
             "  --font-size PIXELS font size of the overlay (default %.0f)\n"
+            "  --theme NAME       color theme of the overlay: hydra (default), contrast, solarized, paper\n"
+            "                     These three override the settings menu (~/.config/hydra-native/settings) for one run.\n"
             "  --hide-code        start with the code overlay hidden (Ctrl+Shift+H shows it)\n"
             "  --lang CODE        language of the info panel (ja es ar id pt-br ch ko fr de; default: $LANG)\n"
             "  --l10n-url URL     load the language of --lang from this editor.json\n"
@@ -995,13 +997,13 @@ static void usage(void) {
             "  --hidden           do not show the window (checks)\n"
             "  --bench SECONDS    measure frame rate after a warm-up, print JSON and exit\n"
             "  --screenshot FILE  write the window content with the code as PNG after %d ms and exit\n",
-            DEFAULT_FONT_PATH, DEFAULT_FONT_SIZE, DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT, SOCKET_FILE_NAME,
+            SETTINGS_DEFAULT_FONT, (double)SETTINGS_DEFAULT_FONT_SIZE, DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT, SOCKET_FILE_NAME,
             SCREENSHOT_DELAY_MS);
 }
 
 static bool parse_options(int argc, char **argv, struct options *options) {
     *options = (struct options){ .window_width = DEFAULT_WINDOW_WIDTH, .window_height = DEFAULT_WINDOW_HEIGHT,
-                                 .vsync = true, .font_path = DEFAULT_FONT_PATH, .font_size = DEFAULT_FONT_SIZE };
+                                 .vsync = true };
     for (int i = 1; i < argc; i++) {
         const char *argument = argv[i];
         bool has_value = i + 1 < argc;
@@ -1017,6 +1019,7 @@ static bool parse_options(int argc, char **argv, struct options *options) {
         else if (!strcmp(argument, "--screenshot") && has_value) options->screenshot_path = argv[++i];
         else if (!strcmp(argument, "--font") && has_value) options->font_path = argv[++i];
         else if (!strcmp(argument, "--font-size") && has_value) options->font_size = (float)atof(argv[++i]);
+        else if (!strcmp(argument, "--theme") && has_value) options->theme = argv[++i];
         else if (!strcmp(argument, "--send")) options->send = true;
         else if (!strcmp(argument, "--audio") && has_value) options->audio_device = argv[++i];
         else if (!strcmp(argument, "--socket") && has_value) options->socket_path = argv[++i];
@@ -1319,7 +1322,17 @@ int main(int argc, char **argv) {
     };
     char emoji_font[PATH_MAX + 64];
     snprintf(emoji_font, sizeof emoji_font, "%s/../vendor/fonts/NotoEmoji.ttf", directory);
-    if (!ui_init(options.font_path, emoji_font, options.font_size, sketch, &host)) return 1;
+    // The settings of the settings menu, with the options of this run on top.
+    struct settings stored, active;
+    char settings_file[PATH_MAX];
+    settings_defaults(&stored);
+    if (settings_path(settings_file, sizeof settings_file)) settings_load(&stored, settings_file);
+    else settings_file[0] = '\0';
+    active = stored;
+    if (options.font_path) snprintf(active.font, sizeof active.font, "%s", options.font_path);
+    if (options.font_size > 0) active.font_size = options.font_size;
+    if (options.theme) snprintf(active.theme, sizeof active.theme, "%s", options.theme);
+    if (!ui_init(&stored, &active, settings_file[0] ? settings_file : NULL, emoji_font, sketch, &host)) return 1;
     if (url_code) {
         ui_set_code(url_code);
         if (!strncmp(url_code, SHOW_CODE_FALSE, strlen(SHOW_CODE_FALSE))) ui_set_visible(false);

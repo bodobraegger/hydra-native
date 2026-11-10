@@ -33,31 +33,44 @@
 #define MAX_PALETTE_ROWS 12
 #define MAX_ROWS_PER_LINE 1024
 
-#define COLOR_LINE_BACKGROUND 0x000000B8u
-#define COLOR_SELECTION 0x3D6FD6C0u
-#define COLOR_FLASH 0xFFFFFF70u
-#define COLOR_BRACKET 0xFFFFFF55u
-#define COLOR_CURSOR 0xFFFFFFFFu
-#define COLOR_TEXT 0xF2F2F2FFu
-#define COLOR_KEYWORD 0xFF7AC6FFu
-#define COLOR_NUMBER 0xFFB86CFFu
-#define COLOR_STRING 0xB5E655FFu
-#define COLOR_COMMENT 0xA0A0A0FFu
-#define COLOR_FUNCTION 0x6FDCF2FFu
-#define COLOR_BAR_BACKGROUND 0x000000D8u
-#define COLOR_ERROR 0xFF6B6BFFu
-#define COLOR_INFO 0xE6E6E6FFu
-#define COLOR_TOOLBAR 0x000000B8u
-#define COLOR_POPUP_BACKGROUND 0x101010F0u
-#define COLOR_POPUP_SELECTED 0x3D6FD6FFu
-#define COLOR_HELP_BACKGROUND 0x000000E0u
-#define COLOR_HELP_KEYS 0x6FDCF2FFu
-#define COLOR_BOOKMARK 0x6FDCF2FFu
-#define COLOR_MATCH 0xFFFF00FFu // the find highlights of Chrome: yellow, the active match orange, black text
-#define COLOR_MATCH_ACTIVE 0xFF9632FFu
-#define COLOR_MATCH_TEXT 0x000000FFu
-// Bracket pair colors by nesting depth, like VS Code.
-static const uint32_t bracket_colors[] = { 0xFFD700FFu, 0xDA70D6FFu, 0x179FFFFFu };
+// A color theme of the settings menu; colors are RGBA. The code floats over the visuals, so backgrounds are
+// translucent in the dark themes.
+struct theme {
+    const char *name;
+    uint32_t line_background, selection, flash, bracket, cursor, text, keyword, number, string, comment, function;
+    uint32_t bar_background, error, info, toolbar, popup_background, popup_selected, help_background, help_keys;
+    uint32_t bookmark, match, match_active, match_text, ghost;
+    uint32_t brackets[3]; // bracket pair colors by nesting depth, like VS Code
+};
+
+static const struct theme themes[] = {
+    { "hydra", 0x000000B8u, 0x3D6FD6C0u, 0xFFFFFF70u, 0xFFFFFF55u, 0xFFFFFFFFu, 0xF2F2F2FFu, 0xFF7AC6FFu, 0xFFB86CFFu,
+      0xB5E655FFu, 0xA0A0A0FFu, 0x6FDCF2FFu, 0x000000D8u, 0xFF6B6BFFu, 0xE6E6E6FFu, 0x000000B8u, 0x101010F0u,
+      0x3D6FD6FFu, 0x000000E0u, 0x6FDCF2FFu, 0x6FDCF2FFu, 0xFFFF00FFu, 0xFF9632FFu, 0x000000FFu, 0xF2F2F280u,
+      { 0xFFD700FFu, 0xDA70D6FFu, 0x179FFFFFu } },
+    { "contrast", 0x000000FFu, 0x0050FFFFu, 0xFFFFFFA0u, 0xFFFFFF90u, 0xFFFF00FFu, 0xFFFFFFFFu, 0xFF5FFFFFu, 0xFFAF00FFu,
+      0x5FFF5FFFu, 0xBCBCBCFFu, 0x5FFFFFFFu, 0x000000FFu, 0xFF3030FFu, 0xFFFFFFFFu, 0x000000FFu, 0x000000FFu,
+      0x0050FFFFu, 0x000000F0u, 0x5FFFFFFFu, 0x5FFFFFFFu, 0xFFFF00FFu, 0xFF9632FFu, 0x000000FFu, 0xFFFFFF90u,
+      { 0xFFFF00FFu, 0xFF5FFFFFu, 0x5FAFFFFFu } },
+    { "solarized", 0x002B36D0u, 0x268BD2A0u, 0xEEE8D570u, 0x93A1A160u, 0xEEE8D5FFu, 0x93A1A1FFu, 0x859900FFu, 0xD33682FFu,
+      0x2AA198FFu, 0x586E75FFu, 0x268BD2FFu, 0x002B36E8u, 0xDC322FFFu, 0xEEE8D5FFu, 0x073642D0u, 0x073642F0u,
+      0x268BD2FFu, 0x002B36F0u, 0xB58900FFu, 0xB58900FFu, 0xB58900FFu, 0xCB4B16FFu, 0x002B36FFu, 0x93A1A180u,
+      { 0xB58900FFu, 0x6C71C4FFu, 0x2AA198FFu } },
+    { "paper", 0xFFFFFFD8u, 0xA8C7FAD0u, 0x00000040u, 0x00000040u, 0x000000FFu, 0x1F1F1FFFu, 0xA626A4FFu, 0x986801FFu,
+      0x50A14FFFu, 0x8A8A8AFFu, 0x4078F2FFu, 0xFFFFFFE8u, 0xCA1243FFu, 0x1F1F1FFFu, 0xFFFFFFD8u, 0xF5F5F5F8u,
+      0xA8C7FAFFu, 0xFFFFFFF0u, 0x4078F2FFu, 0x4078F2FFu, 0xFFFF00FFu, 0xFF9632FFu, 0x000000FFu, 0x1F1F1F70u,
+      { 0x986801FFu, 0xA626A4FFu, 0x4078F2FFu } },
+};
+#define THEME_COUNT (sizeof themes / sizeof themes[0])
+
+static const struct theme *theme = &themes[0];
+
+static const struct theme *find_theme(const char *name) {
+    for (size_t i = 0; i < THEME_COUNT; i++)
+        if (!strcmp(themes[i].name, name)) return &themes[i];
+    return NULL;
+}
+
 // The text of clear() in the web editor.
 #define CLEARED_CODE "\n \n // Type some code on a new line (such as \"osc().out()\"), and press CTRL+shift+enter"
 
@@ -81,6 +94,9 @@ static const char *const share_confirmation[] = {
 };
 
 static struct ui_host host;
+// The settings file as stored, and the settings of this run (command line options on top).
+static struct settings stored_settings, active_settings;
+static char *settings_file;
 static struct editor editor;
 static char *file_path;
 static bool visible = true;
@@ -97,6 +113,7 @@ static bool suppress_text; // the key press before this text input was a command
 static bool help_visible;
 static bool info_visible;
 static bool extensions_visible;
+static bool settings_visible;
 #define MAX_PANEL_BUTTONS 256
 #define EXTENSION_ROWS 3
 // Clickable areas of the extensions panel, with the action that src/ui.c runs on a click.
@@ -541,13 +558,46 @@ static void accept_prompt(int direction) {
 
 // ---------------------------------------------------------------- commands
 
+// Writes the settings file after a change of the settings menu or of the font size.
+static void save_settings(void) {
+    if (settings_file && !settings_save(&stored_settings, settings_file)) ui_show_message("cannot save the settings file", true);
+}
+
 static void change_font_size(float step) {
     if (overlay_set_font_size(overlay_font_size() + step)) {
         char text[64];
         snprintf(text, sizeof text, "font size %.0f px", overlay_font_size());
         ui_show_message(text, false);
         layout.valid = false;
+        stored_settings.font_size = active_settings.font_size = overlay_font_size();
+        save_settings();
     }
+}
+
+static void set_theme(const struct theme *next) {
+    theme = next;
+    snprintf(stored_settings.theme, sizeof stored_settings.theme, "%s", next->name);
+    snprintf(active_settings.theme, sizeof active_settings.theme, "%s", next->name);
+    save_settings();
+}
+
+static void set_autocomplete(enum autocomplete_style style, enum autocomplete_trigger trigger) {
+    close_completion();
+    stored_settings.autocomplete_style = active_settings.autocomplete_style = style;
+    stored_settings.autocomplete_trigger = active_settings.autocomplete_trigger = trigger;
+    save_settings();
+    char text[128];
+    snprintf(text, sizeof text, "autocomplete: %s, %s", style == AUTOCOMPLETE_GHOST ? "ghost text" : "list",
+             trigger == AUTOCOMPLETE_TYPING ? "while typing" : "Ctrl+Space");
+    ui_show_message(text, false);
+}
+
+static void set_font(const char *path) {
+    if (!overlay_set_font(path)) return ui_show_message("cannot use this font", true);
+    snprintf(stored_settings.font, sizeof stored_settings.font, "%s", path);
+    snprintf(active_settings.font, sizeof active_settings.font, "%s", path);
+    layout.valid = false;
+    save_settings();
 }
 
 // Formats with js-beautify, like the web editor (see __format in js/main.js).
@@ -611,6 +661,7 @@ static void escape(void) {
     else if (help_visible) help_visible = false;
     else if (info_visible) info_visible = false;
     else if (extensions_visible) extensions_visible = false;
+    else if (settings_visible) settings_visible = false;
     else if (visible && editor_selection_count(&editor) > 1) editor_collapse_to_first(&editor);
     else if (visible && editor_has_selection(&editor)) editor_set_cursor(&editor, editor.cursor, false);
     else if (host.is_fullscreen()) host.toggle_fullscreen();
@@ -684,13 +735,33 @@ static void run_command(enum command command, bool extend) {
     case COMMAND_TOGGLE_HELP: help_visible = !help_visible; return;
     case COMMAND_TOGGLE_EXTENSIONS:
         extensions_visible = !extensions_visible;
-        info_visible = false;
+        info_visible = settings_visible = false;
         info_scroll = 0;
         return;
     case COMMAND_TOGGLE_INFO:
         info_visible = !info_visible;
-        extensions_visible = false;
+        extensions_visible = settings_visible = false;
         info_scroll = 0;
+        return;
+    case COMMAND_TOGGLE_SETTINGS:
+        settings_visible = !settings_visible;
+        info_visible = extensions_visible = false;
+        info_scroll = 0;
+        return;
+    case COMMAND_NEXT_THEME: {
+        set_theme(&themes[(size_t)(theme - themes + 1) % THEME_COUNT]);
+        char text[96];
+        snprintf(text, sizeof text, "theme %s", theme->name);
+        ui_show_message(text, false);
+        return;
+    }
+    case COMMAND_TOGGLE_AUTOCOMPLETE_STYLE:
+        set_autocomplete(active_settings.autocomplete_style == AUTOCOMPLETE_LIST ? AUTOCOMPLETE_GHOST : AUTOCOMPLETE_LIST,
+                         active_settings.autocomplete_trigger);
+        return;
+    case COMMAND_TOGGLE_AUTOCOMPLETE_TRIGGER:
+        set_autocomplete(active_settings.autocomplete_style,
+                         active_settings.autocomplete_trigger == AUTOCOMPLETE_MANUAL ? AUTOCOMPLETE_TYPING : AUTOCOMPLETE_MANUAL);
         return;
     case COMMAND_SELECT_NEXT_OCCURRENCE: editor_select_next_occurrence(&editor); break;
     case COMMAND_FIND: open_prompt(PROMPT_FIND); break;
@@ -870,6 +941,7 @@ static const struct toolbar_item toolbar[] = {
     { "example", "toolbar.shuffle", COMMAND_SHOW_EXAMPLE, COMMAND_SHOW_EXAMPLE, COMMAND_SHOW_EXAMPLE },
     { "mutate", "toolbar.random", COMMAND_MUTATE, COMMAND_MUTATE_UNDO, COMMAND_MUTATE_TRANSFORM },
     { "share", "toolbar.upload", COMMAND_GALLERY_SHARE, COMMAND_GALLERY_SHARE, COMMAND_GALLERY_SHARE },
+    { "settings", NULL, COMMAND_TOGGLE_SETTINGS, COMMAND_TOGGLE_SETTINGS, COMMAND_TOGGLE_SETTINGS }, // not in the web editor
     { "?", "toolbar.show-info", COMMAND_TOGGLE_INFO, COMMAND_TOGGLE_HELP, COMMAND_TOGGLE_HELP },
 };
 #define TOOLBAR_COUNT (sizeof toolbar / sizeof toolbar[0])
@@ -906,21 +978,21 @@ static void draw_toolbar(void) {
     for (size_t i = 0; i < TOOLBAR_COUNT; i++) {
         if (!toolbar_shown(i)) continue;
         float width, x = toolbar_x(i, &width);
-        overlay_rect(x, MARGIN, width, overlay_line_height(), COLOR_TOOLBAR);
+        overlay_rect(x, MARGIN, width, overlay_line_height(), theme->toolbar);
         overlay_text(x + overlay_char_width() / 2, MARGIN, toolbar[i].label, strlen(toolbar[i].label), 0, 64, NULL,
-                     COLOR_INFO);
+                     theme->info);
         bool hover = pointer_y >= MARGIN && pointer_y <= MARGIN + overlay_line_height() && pointer_x >= x &&
                      pointer_x <= x + width;
         if (!hover) continue;
         const char *title = toolbar[i].command == COMMAND_TOGGLE_INFO && info_visible ? "toolbar.hide-info" : toolbar[i].title;
-        char *text = host.call("__translate", title);
+        char *text = title ? host.call("__translate", title) : strdup(command_description(toolbar[i].command));
         if (!text) continue;
         float tooltip_width = overlay_text_shaped_width(text, strlen(text), false);
         float left = x + width - tooltip_width;
         if (left < MARGIN) left = MARGIN;
         float top = MARGIN + overlay_line_height() + TEXT_PADDING;
-        overlay_rect(left - TEXT_PADDING, top, tooltip_width + 2 * TEXT_PADDING, overlay_line_height(), COLOR_POPUP_BACKGROUND);
-        overlay_text_shaped(left, top, text, strlen(text), false, COLOR_TEXT);
+        overlay_rect(left - TEXT_PADDING, top, tooltip_width + 2 * TEXT_PADDING, overlay_line_height(), theme->popup_background);
+        overlay_text_shaped(left, top, text, strlen(text), false, theme->text);
         free(text);
     }
 }
@@ -986,13 +1058,13 @@ static void draw_info_line(const char *text, size_t length, void *data) {
     float line_width = overlay_text_shaped_width(text, length, layout_state->rtl);
     float x = layout_state->rtl ? layout_state->left + layout_state->width - line_width : layout_state->left;
     overlay_text_shaped(x, layout_state->top + overlay_line_height() * (float)layout_state->row++, text, length,
-                        layout_state->rtl, COLOR_TEXT);
+                        layout_state->rtl, theme->text);
 }
 
 static void draw_info(void) {
     float left, top, width, height, line_height = overlay_line_height(), char_width = overlay_char_width();
     info_panel(&left, &top, &width, &height);
-    overlay_rect(left, top, width, height, COLOR_HELP_BACKGROUND);
+    overlay_rect(left, top, width, height, theme->help_background);
     char *languages = host.call("__languages", "");
     float x = left + char_width;
     language_button_count = 0;
@@ -1009,8 +1081,8 @@ static void draw_info(void) {
         language_buttons[language_button_count].x = x;
         language_buttons[language_button_count++].width = name_width;
         overlay_rect(x, top + line_height / 2, name_width, line_height,
-                     selected && *selected == '1' ? COLOR_POPUP_SELECTED : COLOR_TOOLBAR);
-        overlay_text_shaped(x + char_width / 2, top + line_height / 2, name, strlen(name), false, COLOR_TEXT);
+                     selected && *selected == '1' ? theme->popup_selected : theme->toolbar);
+        overlay_text_shaped(x + char_width / 2, top + line_height / 2, name, strlen(name), false, theme->text);
         x += name_width + char_width;
     }
     free(languages);
@@ -1040,8 +1112,8 @@ static void add_panel_button(float x, float y, float width, float height, const 
 static float panel_label(float x, float y, const char *text, bool selected, const char *action) {
     size_t columns = overlay_text_columns(text, strlen(text)) + 1;
     float width = (float)columns * overlay_char_width();
-    overlay_rect(x, y, width, overlay_line_height(), selected ? COLOR_POPUP_SELECTED : COLOR_TOOLBAR);
-    overlay_text(x + overlay_char_width() / 2, y, text, strlen(text), 0, columns, NULL, COLOR_TEXT);
+    overlay_rect(x, y, width, overlay_line_height(), selected ? theme->popup_selected : theme->toolbar);
+    overlay_text(x + overlay_char_width() / 2, y, text, strlen(text), 0, columns, NULL, theme->text);
     add_panel_button(x, y, width, overlay_line_height(), action);
     return x + width + overlay_char_width();
 }
@@ -1051,7 +1123,7 @@ static float panel_label(float x, float y, const char *text, bool selected, cons
 static void draw_extensions(void) {
     float left, top, width, height, line_height = overlay_line_height(), char_width = overlay_char_width();
     info_panel(&left, &top, &width, &height);
-    overlay_rect(left, top, width, height, COLOR_HELP_BACKGROUND);
+    overlay_rect(left, top, width, height, theme->help_background);
     panel_button_count = 0;
     char *panel = host.call("__extensionsPanel", "");
     if (!panel) return;
@@ -1077,7 +1149,7 @@ static void draw_extensions(void) {
             const char *state = !strcmp(fields[1], "loading") ? "loading the list from github..."
                                 : !strcmp(fields[1], "failed") ? "cannot load the list: hydra-native needs the network for it"
                                                                 : "";
-            overlay_text(left + char_width, y + 1.5f * line_height, state, strlen(state), 0, text_columns, NULL, COLOR_INFO);
+            overlay_text(left + char_width, y + 1.5f * line_height, state, strlen(state), 0, text_columns, NULL, theme->info);
             row = 1;
         } else if (!strcmp(fields[0], "entry") && count >= 5) {
             size_t index = entry++;
@@ -1088,8 +1160,8 @@ static void draw_extensions(void) {
             if (texture) overlay_image(left + char_width, entry_top, thumbnail_size, thumbnail_size, texture);
             char title[512];
             snprintf(title, sizeof title, "%s - %s", fields[1], fields[2]);
-            overlay_text(text_left, entry_top, title, strlen(title), 0, text_columns, NULL, COLOR_HELP_KEYS);
-            overlay_text(text_left, entry_top + line_height, fields[3], strlen(fields[3]), 0, text_columns, NULL, COLOR_TEXT);
+            overlay_text(text_left, entry_top, title, strlen(title), 0, text_columns, NULL, theme->help_keys);
+            overlay_text(text_left, entry_top + line_height, fields[3], strlen(fields[3]), 0, text_columns, NULL, theme->text);
             float button_x = text_left;
             snprintf(action, sizeof action, "add %zu", index);
             button_x = panel_label(button_x, entry_top + 2 * line_height, "+", false, action);
@@ -1175,13 +1247,127 @@ static bool info_click(float x, float y) {
     return true;
 }
 
+// ---------------------------------------------------------------- settings panel
+
+#define MAX_FONT_CHOICES 256
+
+// The monospace fonts of fontconfig, one file per family (a regular style when there is one).
+static struct {
+    char family[128];
+    char file[512];
+    bool regular;
+} font_choices[MAX_FONT_CHOICES];
+static size_t font_choice_count;
+static bool font_choices_loaded;
+
+static void load_font_choices(void) {
+    font_choices_loaded = true;
+    FILE *pipe = popen("fc-list -f '%{family[0]}\t%{style[0]}\t%{file}\n' :spacing=mono", "r");
+    if (!pipe) return;
+    char line[1024];
+    while (fgets(line, sizeof line, pipe)) {
+        line[strcspn(line, "\n")] = '\0';
+        char *style = strchr(line, '\t'), *file = style ? strchr(style + 1, '\t') : NULL;
+        if (!file) continue;
+        *style++ = '\0';
+        *file++ = '\0';
+        const char *extension = strrchr(file, '.');
+        if (strstr(line, "Emoji")) continue; // color glyphs only, no code font
+        if (!extension || (strcasecmp(extension, ".ttf") && strcasecmp(extension, ".otf") && strcasecmp(extension, ".ttc"))) continue;
+        bool regular = !strcmp(style, "Regular") || !strcmp(style, "Book") || !strcmp(style, "Roman");
+        size_t i = 0;
+        while (i < font_choice_count && strcmp(font_choices[i].family, line)) i++;
+        if (i == MAX_FONT_CHOICES || (i < font_choice_count && (font_choices[i].regular || !regular))) continue;
+        snprintf(font_choices[i].family, sizeof font_choices[i].family, "%.127s", line);
+        snprintf(font_choices[i].file, sizeof font_choices[i].file, "%.511s", file);
+        font_choices[i].regular = regular;
+        if (i == font_choice_count) font_choice_count++;
+    }
+    pclose(pipe);
+    // Sorted by family name.
+    for (size_t i = 1; i < font_choice_count; i++)
+        for (size_t k = i; k > 0 && strcasecmp(font_choices[k - 1].family, font_choices[k].family) > 0; k--) {
+            typeof(font_choices[0]) swap = font_choices[k];
+            font_choices[k] = font_choices[k - 1];
+            font_choices[k - 1] = swap;
+        }
+}
+
+// The settings menu: theme, autocomplete, font size and font, saved in the settings file at once.
+static void draw_settings(void) {
+    float left, top, width, height, line_height = overlay_line_height(), char_width = overlay_char_width();
+    info_panel(&left, &top, &width, &height);
+    overlay_rect(left, top, width, height, theme->help_background);
+    panel_button_count = 0;
+    if (!font_choices_loaded) load_font_choices();
+    float label_x = left + char_width, value_x = left + 15 * char_width, y = top + line_height / 2;
+    char action[32];
+    const char *labels[] = { "theme", "autocomplete", "trigger", "font size", "font" };
+    for (size_t row = 0; row < sizeof labels / sizeof labels[0]; row++)
+        overlay_text(label_x, y + (float)row * 1.5f * line_height, labels[row], strlen(labels[row]), 0, 14, NULL, theme->help_keys);
+    float x = value_x;
+    for (size_t i = 0; i < THEME_COUNT; i++) {
+        snprintf(action, sizeof action, "theme %zu", i);
+        x = panel_label(x, y, themes[i].name, theme == &themes[i], action);
+    }
+    y += 1.5f * line_height;
+    x = panel_label(value_x, y, "list", active_settings.autocomplete_style == AUTOCOMPLETE_LIST, "style 0");
+    panel_label(x, y, "ghost text", active_settings.autocomplete_style == AUTOCOMPLETE_GHOST, "style 1");
+    y += 1.5f * line_height;
+    x = panel_label(value_x, y, "Ctrl+Space", active_settings.autocomplete_trigger == AUTOCOMPLETE_MANUAL, "trigger 0");
+    panel_label(x, y, "while typing", active_settings.autocomplete_trigger == AUTOCOMPLETE_TYPING, "trigger 1");
+    y += 1.5f * line_height;
+    char size[16];
+    snprintf(size, sizeof size, "%.0f px", overlay_font_size());
+    x = panel_label(value_x, y, "-", false, "size -");
+    overlay_text(x, y, size, strlen(size), 0, 8, NULL, theme->text);
+    panel_label(x + 7 * char_width, y, "+", false, "size +");
+    y += 1.5f * line_height;
+    size_t rows = (size_t)((top + height - y - line_height / 2) / line_height);
+    if (info_scroll > font_choice_count) info_scroll = font_choice_count;
+    for (size_t i = info_scroll, row = 0; i < font_choice_count && row < rows; i++, row++) {
+        snprintf(action, sizeof action, "font %zu", i);
+        panel_label(value_x, y + (float)row * line_height, font_choices[i].family, !strcmp(font_choices[i].file, active_settings.font),
+                    action);
+    }
+}
+
+static void run_settings_action(const char *action) {
+    size_t index = (size_t)atol(strchr(action, ' ') + 1);
+    if (!strncmp(action, "theme ", 6) && index < THEME_COUNT) set_theme(&themes[index]);
+    else if (!strncmp(action, "style ", 6)) set_autocomplete((enum autocomplete_style)index, active_settings.autocomplete_trigger);
+    else if (!strncmp(action, "trigger ", 8)) set_autocomplete(active_settings.autocomplete_style, (enum autocomplete_trigger)index);
+    else if (!strcmp(action, "size -")) change_font_size(-FONT_SIZE_STEP);
+    else if (!strcmp(action, "size +")) change_font_size(FONT_SIZE_STEP);
+    else if (!strncmp(action, "font ", 5) && index < font_choice_count) set_font(font_choices[index].file);
+}
+
+static bool settings_click(float x, float y) {
+    float left, top, width, height;
+    info_panel(&left, &top, &width, &height);
+    if (x < left || x > left + width || y < top || y > top + height) {
+        settings_visible = false;
+        return false;
+    }
+    for (size_t i = 0; i < panel_button_count; i++) {
+        if (x >= panel_buttons[i].x && x <= panel_buttons[i].x + panel_buttons[i].width && y >= panel_buttons[i].y &&
+            y <= panel_buttons[i].y + panel_buttons[i].height) {
+            char action[32];
+            snprintf(action, sizeof action, "%s", panel_buttons[i].action);
+            run_settings_action(action);
+            break;
+        }
+    }
+    return true;
+}
+
 // ---------------------------------------------------------------- help
 
 static void draw_help(int width, int height) {
-    overlay_rect(0, 0, (float)width, (float)height, COLOR_HELP_BACKGROUND);
+    overlay_rect(0, 0, (float)width, (float)height, theme->help_background);
     float line_height = overlay_line_height(), char_width = overlay_char_width();
     const char *title = "hydra-native: live coding with hydra-synth. F1 or Escape closes this help.";
-    overlay_text(MARGIN, MARGIN, title, strlen(title), 0, visible_columns(), NULL, COLOR_TEXT);
+    overlay_text(MARGIN, MARGIN, title, strlen(title), 0, visible_columns(), NULL, theme->text);
     size_t rows = (size_t)(((float)height - 3 * MARGIN - line_height) / line_height);
     if (rows == 0) rows = 1;
     size_t entries = COMMAND_COUNT - 1, columns = (entries + rows - 1) / rows;
@@ -1193,10 +1379,10 @@ static void draw_help(int width, int height) {
         if (!keys[0]) snprintf(keys, sizeof keys, "(palette)");
         float x = MARGIN + (float)((entry / rows) * column_width) * char_width;
         float y = MARGIN + line_height * (1.5f + (float)(entry % rows));
-        overlay_text(x, y, keys, strlen(keys), 0, keys_width - 1, NULL, COLOR_HELP_KEYS);
+        overlay_text(x, y, keys, strlen(keys), 0, keys_width - 1, NULL, theme->help_keys);
         const char *description = command_description(command);
         overlay_text(x + (float)keys_width * char_width, y, description, strlen(description), 0,
-                     column_width - keys_width - 1, NULL, COLOR_TEXT);
+                     column_width - keys_width - 1, NULL, theme->text);
     }
 }
 
@@ -1215,6 +1401,7 @@ void ui_mouse_button(float x, float y, bool down, int clicks, SDL_Keymod modifie
     if (toolbar_click(x, y, modifiers)) return;
     if (info_visible && info_click(x, y)) return;
     if (extensions_visible && extensions_click(x, y)) return;
+    if (settings_visible && settings_click(x, y)) return;
     close_completion();
     size_t offset = offset_at_point(x, y);
     mouse.dragging = true;
@@ -1257,7 +1444,7 @@ void ui_mouse_motion(float x, float y) {
 
 void ui_wheel(int lines) {
     if (!visible) return;
-    if (info_visible || extensions_visible) {
+    if (info_visible || extensions_visible || settings_visible) {
         long target = (long)info_scroll - (long)lines * WHEEL_ROWS;
         info_scroll = target < 0 ? 0 : (size_t)target;
         return;
@@ -1290,16 +1477,16 @@ static void highlight_line(struct highlight_state *state, const char *text, size
     size_t i = 0;
     while (i < length) {
         size_t start = i;
-        uint32_t color = COLOR_TEXT;
+        uint32_t color = theme->text;
         unsigned char c = (unsigned char)text[i];
         char next = i + 1 < length ? text[i + 1] : '\0';
         if (state->block_comment) {
-            color = COLOR_COMMENT;
+            color = theme->comment;
             while (i < length && !(text[i] == '*' && i + 1 < length && text[i + 1] == '/')) i++;
             if (i < length) { i += 2; state->block_comment = false; }
         } else if (state->template_string || c == '\'' || c == '"' || c == '`') {
             char quote = state->template_string ? '`' : (char)c;
-            color = COLOR_STRING;
+            color = theme->string;
             if (!state->template_string) i++;
             state->template_string = false;
             while (i < length && text[i] != quote) i += text[i] == '\\' ? 2 : 1;
@@ -1307,28 +1494,28 @@ static void highlight_line(struct highlight_state *state, const char *text, size
             else if (quote == '`') state->template_string = true;
             if (i > length) i = length;
         } else if (c == '/' && next == '/') {
-            color = COLOR_COMMENT;
+            color = theme->comment;
             i = length;
         } else if (c == '/' && next == '*') {
             state->block_comment = true;
             i += 2;
-            if (out) out[start] = out[start + 1] = COLOR_COMMENT;
+            if (out) out[start] = out[start + 1] = theme->comment;
             continue;
         } else if (isdigit(c) || (c == '.' && isdigit((unsigned char)next))) {
-            color = COLOR_NUMBER;
+            color = theme->number;
             while (i < length && (isalnum((unsigned char)text[i]) || text[i] == '.')) i++;
         } else if (is_identifier_start(c)) {
             while (i < length && is_identifier_char((unsigned char)text[i])) i++;
             size_t after = i;
             while (after < length && text[after] == ' ') after++;
-            if (is_keyword(text + start, i - start)) color = COLOR_KEYWORD;
-            else if (after < length && text[after] == '(') color = COLOR_FUNCTION;
+            if (is_keyword(text + start, i - start)) color = theme->keyword;
+            else if (after < length && text[after] == '(') color = theme->function;
         } else if (strchr("([{", c)) {
-            color = bracket_colors[state->bracket_depth++ % 3];
+            color = theme->brackets[state->bracket_depth++ % 3];
             i++;
         } else if (strchr(")]}", c)) {
             if (state->bracket_depth > 0) state->bracket_depth--;
-            color = bracket_colors[state->bracket_depth % 3];
+            color = theme->brackets[state->bracket_depth % 3];
             i++;
         } else {
             i++;
@@ -1359,10 +1546,10 @@ static size_t text_columns(const char *text) { return overlay_text_columns(text,
 // The bar at the bottom; the columns [selected_from, selected_to) of the text get the selection color.
 static void draw_bar(int width, int height, const char *text, uint32_t color, size_t selected_from, size_t selected_to) {
     float y = (float)height - bar_height();
-    overlay_rect(0, y, (float)width, bar_height(), COLOR_BAR_BACKGROUND);
+    overlay_rect(0, y, (float)width, bar_height(), theme->bar_background);
     if (selected_to > selected_from)
         overlay_rect(MARGIN + (float)selected_from * overlay_char_width(), y + BAR_PADDING,
-                     (float)(selected_to - selected_from) * overlay_char_width(), overlay_line_height(), COLOR_SELECTION);
+                     (float)(selected_to - selected_from) * overlay_char_width(), overlay_line_height(), theme->selection);
     overlay_text(MARGIN, y + BAR_PADDING, text, strlen(text), 0, visible_columns(), NULL, color);
 }
 
@@ -1381,22 +1568,22 @@ static void draw_bidi_row(size_t line, size_t row_start, size_t row_end, size_t 
     struct editor_cell *cells;
     size_t count = editor_row_cells(&editor, line, row_start, row_end, indent, &cells);
     size_t row_columns = count ? cells[count - 1].column + cells[count - 1].width - indent : 0;
-    if (row_columns > 0) column_rect(y, indent, indent + row_columns, COLOR_LINE_BACKGROUND);
+    if (row_columns > 0) column_rect(y, indent, indent + row_columns, theme->line_background);
     if (now < flash_until && flash_start != flash_end && flash_start <= row_end && flash_end >= row_start)
-        column_rect(y, indent, indent + (row_columns > 0 ? row_columns : 1), COLOR_FLASH);
+        column_rect(y, indent, indent + (row_columns > 0 ? row_columns : 1), theme->flash);
     for (size_t i = 0; i < selection_count; i++) {
         size_t start = selections[i].cursor < selections[i].anchor ? selections[i].cursor : selections[i].anchor;
         size_t end = selections[i].cursor < selections[i].anchor ? selections[i].anchor : selections[i].cursor;
         if (start == end) continue;
-        cell_rects(y, cells, count, start, end, COLOR_SELECTION);
-        if (last_row && end > row_end && start <= row_end) column_rect(y, indent + row_columns, indent + row_columns + 1, COLOR_SELECTION);
+        cell_rects(y, cells, count, start, end, theme->selection);
+        if (last_row && end > row_end && start <= row_end) column_rect(y, indent + row_columns, indent + row_columns + 1, theme->selection);
     }
     for (size_t i = 0; i < match_count; i++)
-        cell_rects(y, cells, count, matches[i].start, matches[i].end, i == active_match ? COLOR_MATCH_ACTIVE : COLOR_MATCH);
+        cell_rects(y, cells, count, matches[i].start, matches[i].end, i == active_match ? theme->match_active : theme->match);
     if (bracket >= 0)
         for (int k = 0; k < 2; k++) {
             size_t position = (size_t)(k ? bracket_self : bracket);
-            cell_rects(y, cells, count, position, position + 1, COLOR_BRACKET);
+            cell_rects(y, cells, count, position, position + 1, theme->bracket);
         }
     for (size_t i = 0; i < count;) {
         size_t end = i + 1, first = cells[i].start, last = cells[i].end;
@@ -1411,7 +1598,7 @@ static void draw_bidi_row(size_t line, size_t row_start, size_t row_end, size_t 
             if (cells[i].level % 2)
                 overlay_text_fitted(x, y, editor.text + first, last - first, (float)width * overlay_char_width(), colors[first - line_start]);
             else
-                overlay_text(x, y, editor.text + first, last - first, 0, width, colors + (first - line_start), COLOR_TEXT);
+                overlay_text(x, y, editor.text + first, last - first, 0, width, colors + (first - line_start), theme->text);
         }
         i = end;
     }
@@ -1431,36 +1618,36 @@ static void draw_row(size_t line, size_t row_start, size_t row_end, size_t inden
     if (row_columns > 0 && to > from) {
         float x = MARGIN + (float)(from - scroll_column) * overlay_char_width();
         overlay_rect(x - TEXT_PADDING, y, (float)(to - from) * overlay_char_width() + 2 * TEXT_PADDING, overlay_line_height(),
-                     COLOR_LINE_BACKGROUND);
+                     theme->line_background);
     }
     if (now < flash_until && flash_start != flash_end && flash_start <= row_end && flash_end >= row_start)
-        column_rect(y, indent, indent + (row_columns > 0 ? row_columns : 1), COLOR_FLASH);
+        column_rect(y, indent, indent + (row_columns > 0 ? row_columns : 1), theme->flash);
     for (size_t i = 0; i < selection_count; i++) {
         size_t start = selections[i].cursor < selections[i].anchor ? selections[i].cursor : selections[i].anchor;
         size_t end = selections[i].cursor < selections[i].anchor ? selections[i].anchor : selections[i].cursor;
         if (start == end || start > row_end || end <= row_start || (start == row_end && !last_row)) continue;
         size_t from = indent + (start > row_start ? columns_between(row_start, start) : 0);
         size_t to = indent + (end > row_end ? row_columns + (last_row ? 1 : 0) : columns_between(row_start, end));
-        column_rect(y, from, to, COLOR_SELECTION);
+        column_rect(y, from, to, theme->selection);
     }
     for (size_t i = 0; i < match_count; i++) {
         size_t start = matches[i].start, end = matches[i].end;
         if (start >= row_end || end <= row_start) continue;
         size_t from = indent + (start > row_start ? columns_between(row_start, start) : 0);
         size_t to = indent + (end > row_end ? row_columns : columns_between(row_start, end));
-        column_rect(y, from, to, i == active_match ? COLOR_MATCH_ACTIVE : COLOR_MATCH);
+        column_rect(y, from, to, i == active_match ? theme->match_active : theme->match);
     }
     long positions[2] = { bracket, bracket_self };
     for (int k = 0; k < 2; k++) {
         if (bracket < 0 || positions[k] < (long)row_start || positions[k] >= (long)row_end) continue;
         size_t column = indent + columns_between(row_start, (size_t)positions[k]);
-        column_rect(y, column, column + 1, COLOR_BRACKET);
+        column_rect(y, column, column + 1, theme->bracket);
     }
     size_t skip = scroll_column > indent ? scroll_column - indent : 0;
     size_t shift = indent > scroll_column ? indent - scroll_column : 0;
     size_t columns = visible_columns() > shift ? visible_columns() - shift : 0;
     overlay_text(MARGIN + (float)shift * overlay_char_width(), y, editor.text + row_start, row_end - row_start, skip,
-                 columns, colors + (row_start - line_start), COLOR_TEXT);
+                 columns, colors + (row_start - line_start), theme->text);
 }
 
 static void draw_code(void) {
@@ -1493,7 +1680,7 @@ static void draw_code(void) {
         highlight_line(&state, editor.text + line_start, line_end - line_start, colors);
         for (size_t i = 0; i < match_count; i++)
             for (size_t k = matches[i].start; k < matches[i].end; k++)
-                if (k >= line_start && k < line_end) colors[k - line_start] = COLOR_MATCH_TEXT;
+                if (k >= line_start && k < line_end) colors[k - line_start] = theme->match_text;
         size_t row_count = editor_wrap_rows(&editor, line, starts, MAX_ROWS_PER_LINE);
         if (row_count > MAX_ROWS_PER_LINE) row_count = MAX_ROWS_PER_LINE;
         size_t indent = editor_row_indent(&editor, line);
@@ -1511,7 +1698,7 @@ static void draw_code(void) {
         if (row < scroll_row || row >= scroll_row + rows || x < scroll_column || x > scroll_column + visible_columns())
             continue;
         overlay_rect(MARGIN + (float)(x - scroll_column) * overlay_char_width() - CURSOR_WIDTH / 2,
-                     MARGIN + (float)(row - scroll_row) * line_height, CURSOR_WIDTH, line_height, COLOR_CURSOR);
+                     MARGIN + (float)(row - scroll_row) * line_height, CURSOR_WIDTH, line_height, theme->cursor);
     }
     // Bookmarks: a mark in the left margin of the first row of the line.
     for (size_t i = 0; i < editor.bookmark_count; i++) {
@@ -1519,7 +1706,7 @@ static void draw_code(void) {
         if (line >= layout.line_count || layout.first_row[line] < scroll_row || layout.first_row[line] >= scroll_row + rows)
             continue;
         overlay_rect(MARGIN / 4, MARGIN + (float)(layout.first_row[line] - scroll_row) * line_height + line_height / 4,
-                     MARGIN / 2, line_height / 2, COLOR_BOOKMARK);
+                     MARGIN / 2, line_height / 2, theme->bookmark);
     }
     // The IME composition, underlined at the cursor, until the input method commits it.
     if (composition[0]) {
@@ -1528,9 +1715,9 @@ static void draw_code(void) {
             float left = MARGIN + (float)(x - scroll_column) * overlay_char_width();
             float top = MARGIN + (float)(row - scroll_row) * line_height;
             size_t length = strlen(composition), columns = text_columns(composition);
-            overlay_rect(left, top, (float)columns * overlay_char_width(), line_height, COLOR_POPUP_BACKGROUND);
-            overlay_text(left, top, composition, length, 0, columns, NULL, COLOR_TEXT);
-            overlay_rect(left, top + line_height - 2, (float)columns * overlay_char_width(), 2, COLOR_TEXT);
+            overlay_rect(left, top, (float)columns * overlay_char_width(), line_height, theme->popup_background);
+            overlay_text(left, top, composition, length, 0, columns, NULL, theme->text);
+            overlay_rect(left, top + line_height - 2, (float)columns * overlay_char_width(), 2, theme->text);
         }
     }
     free(selections);
@@ -1551,18 +1738,18 @@ static void draw_completion(void) {
     for (size_t i = 0; i < completion.count; i++) {
         float y = top + (float)i * line_height;
         overlay_rect(left - TEXT_PADDING, y, (float)(width + 1) * char_width + 2 * TEXT_PADDING, line_height,
-                     i == completion.selected ? COLOR_POPUP_SELECTED : COLOR_POPUP_BACKGROUND);
-        overlay_text(left, y, completion.items[i], strlen(completion.items[i]), 0, width, NULL, COLOR_TEXT);
+                     i == completion.selected ? theme->popup_selected : theme->popup_background);
+        overlay_text(left, y, completion.items[i], strlen(completion.items[i]), 0, width, NULL, theme->text);
     }
 }
 
 static void draw_prompt(int width, int height) {
     char text[2 * MAX_PROMPT + 128], count[48] = "";
-    uint32_t color = COLOR_INFO;
+    uint32_t color = theme->info;
     if (find_open() && prompt.query[0]) {
         // The match count of the find bar: "0/0" in red when nothing matches.
         snprintf(count, sizeof count, "   %zu/%zu", active_match < match_count ? active_match + 1 : 0, match_count);
-        if (!match_count) color = COLOR_ERROR;
+        if (!match_count) color = theme->error;
     }
     switch (prompt.kind) {
     case PROMPT_FIND: snprintf(text, sizeof text, "find: %s%s   (Enter: next, Shift+Enter: previous)", prompt.query, count); break;
@@ -1575,11 +1762,11 @@ static void draw_prompt(int width, int height) {
         float line_height = overlay_line_height(), y = (float)height - bar_height();
         size_t lines = sizeof share_confirmation / sizeof share_confirmation[0], columns = visible_columns();
         float top = y - (float)(lines + 1) * line_height;
-        overlay_rect(0, top, (float)width, (float)(lines + 1) * line_height, COLOR_POPUP_BACKGROUND);
+        overlay_rect(0, top, (float)width, (float)(lines + 1) * line_height, theme->popup_background);
         (void)columns;
         for (size_t i = 0; i < lines; i++)
             overlay_text_shaped(MARGIN, top + (float)i * line_height + line_height / 2, share_confirmation[i],
-                                strlen(share_confirmation[i]), false, COLOR_TEXT);
+                                strlen(share_confirmation[i]), false, theme->text);
         snprintf(text, sizeof text, "name: %s   (Enter: OK, Escape: cancel)", prompt.query);
         break;
     }
@@ -1593,8 +1780,8 @@ static void draw_prompt(int width, int height) {
             command_keys((enum command)command, keys, sizeof keys);
             snprintf(row, sizeof row, "%-48s %s", command_description((enum command)command), keys);
             float row_y = y - (float)(shown + 1) * line_height;
-            overlay_rect(0, row_y, (float)width, line_height, shown == prompt.palette_index ? COLOR_POPUP_SELECTED : COLOR_POPUP_BACKGROUND);
-            overlay_text(MARGIN, row_y, row, strlen(row), 0, visible_columns(), NULL, COLOR_TEXT);
+            overlay_rect(0, row_y, (float)width, line_height, shown == prompt.palette_index ? theme->popup_selected : theme->popup_background);
+            overlay_text(MARGIN, row_y, row, strlen(row), 0, visible_columns(), NULL, theme->text);
             shown++;
         }
         break;
@@ -1622,11 +1809,12 @@ void ui_draw(int width, int height, double now_ms) {
     draw_code();
     if (info_visible) draw_info();
     if (extensions_visible) draw_extensions();
+    if (settings_visible) draw_settings();
     draw_toolbar();
     draw_completion();
     if (prompt.kind != PROMPT_NONE) draw_prompt(width, height);
     else if (message[0] && (message_is_error || now < message_until))
-        draw_bar(width, height, message, message_is_error ? COLOR_ERROR : COLOR_INFO, 0, 0);
+        draw_bar(width, height, message, message_is_error ? theme->error : theme->info, 0, 0);
     overlay_end(width, height);
 }
 
@@ -1680,9 +1868,17 @@ void ui_set_code(const char *code) { editor_set_text(&editor, code, strlen(code)
 
 const char *ui_code(void) { return editor.text; }
 
-bool ui_init(const char *font_path, const char *emoji_font_path, float font_size, const char *path,
-             const struct ui_host *ui_host) {
+bool ui_init(const struct settings *stored, const struct settings *active, const char *settings_path,
+             const char *emoji_font_path, const char *path, const struct ui_host *ui_host) {
     host = *ui_host;
+    stored_settings = *stored;
+    active_settings = *active;
+    settings_file = settings_path ? strdup(settings_path) : NULL;
+    theme = find_theme(active->theme);
+    if (!theme) {
+        fprintf(stderr, "no theme %s, using %s\n", active->theme, themes[0].name);
+        theme = &themes[0];
+    }
     editor_init(&editor);
     if (path) {
         file_path = strdup(path);
@@ -1691,5 +1887,5 @@ bool ui_init(const char *font_path, const char *emoji_font_path, float font_size
         if (text) editor_set_text(&editor, text, length);
         free(text);
     }
-    return overlay_init(font_path, emoji_font_path, font_size);
+    return overlay_init(active->font, emoji_font_path, active->font_size);
 }

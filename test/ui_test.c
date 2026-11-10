@@ -7,6 +7,7 @@
 #include <unistd.h>
 
 #include "../src/overlay.h"
+#include "../src/settings.h"
 #include "../src/ui.h"
 
 static int failures;
@@ -21,6 +22,14 @@ static char next_error[256];
         }                                                                                                  \
     } while (0)
 
+#define EXPECT(condition)                                                     \
+    do {                                                                      \
+        if (!(condition)) {                                                   \
+            fprintf(stderr, "%s:%d: expected %s\n", __FILE__, __LINE__, #condition); \
+            failures++;                                                       \
+        }                                                                     \
+    } while (0)
+
 #define EXPECT_CONTAINS(actual, part)                                                                     \
     do {                                                                                                  \
         if (!strstr(actual, part)) {                                                                      \
@@ -33,6 +42,7 @@ static char next_error[256];
 
 bool overlay_init(const char *font_path, const char *emoji_font_path, float font_size) { return true; }
 bool overlay_set_font_size(float font_size) { return true; }
+bool overlay_set_font(const char *font_path) { return true; }
 float overlay_font_size(void) { return 20; }
 float overlay_char_width(void) { return 10; }
 float overlay_line_height(void) { return 20; }
@@ -124,8 +134,26 @@ int main(void) {
     int fd = mkstemp(path);
     close(fd);
     write_file(path, "osc(10)\n  .out()\n\nnoise().out()");
+    // The settings file lives in a temporary XDG_CONFIG_HOME, never in the real configuration of the user.
+    char config[] = "/tmp/hydra-native-ui-test-config-XXXXXX", settings_file[256];
+    EXPECT(mkdtemp(config) != NULL);
+    setenv("XDG_CONFIG_HOME", config, 1);
+    EXPECT(settings_path(settings_file, sizeof settings_file));
+    EXPECT_STRING(settings_file + strlen(config), "/hydra-native/settings");
+    struct settings stored;
+    settings_defaults(&stored);
+    stored.font_size = 24;
+    snprintf(stored.theme, sizeof stored.theme, "solarized");
+    EXPECT(settings_save(&stored, settings_file));
+    struct settings loaded;
+    settings_defaults(&loaded);
+    EXPECT(settings_load(&loaded, settings_file));
+    EXPECT(loaded.font_size == 24 && !strcmp(loaded.theme, "solarized") && loaded.autocomplete_style == AUTOCOMPLETE_LIST &&
+           loaded.autocomplete_trigger == AUTOCOMPLETE_MANUAL);
+    struct settings active = loaded;
+    snprintf(active.theme, sizeof active.theme, "contrast"); // like --theme contrast for one run
     static const struct ui_host host = { evaluate, nothing, never, nothing, call, nothing, share, set_title };
-    ui_init("unused.ttf", NULL, 20, path, &host);
+    ui_init(&loaded, &active, settings_file, NULL, path, &host);
     ui_draw(800, 600, 0);
 
     key(SDLK_RETURN, KMOD_LALT); // the block around the cursor (line 0)
@@ -273,6 +301,26 @@ int main(void) {
     key(SDLK_RETURN, 0);
     EXPECT_STRING(shared_name, "my name");
 
+    // The settings menu saves at once: the next theme after "contrast" (the theme of this run) is "solarized"; the
+    // stored font size stays, the option of the run is not saved.
+    key(SDLK_p, KMOD_LCTRL | KMOD_LSHIFT);
+    type("next color theme");
+    key(SDLK_RETURN, 0);
+    settings_defaults(&loaded);
+    EXPECT(settings_load(&loaded, settings_file));
+    EXPECT_STRING(loaded.theme, "solarized");
+    EXPECT(loaded.font_size == 24);
+    key(SDLK_p, KMOD_LCTRL | KMOD_LSHIFT);
+    type("autocomplete as a list or as ghost");
+    key(SDLK_RETURN, 0);
+    settings_defaults(&loaded);
+    settings_load(&loaded, settings_file);
+    EXPECT(loaded.autocomplete_style == AUTOCOMPLETE_GHOST);
+
+    unlink(settings_file);
+    *strrchr(settings_file, '/') = '\0';
+    rmdir(settings_file);
+    rmdir(config);
     unlink(path);
     if (failures) {
         fprintf(stderr, "ui_test: %d failures\n", failures);

@@ -6,6 +6,8 @@
 
 #include <SDL.h>
 
+#include "settings.h"
+
 struct ui_host {
     // Evaluates code in the global scope; returns NULL or a malloc'd error message.
     char *(*evaluate)(const char *code, size_t length, const char *name);
@@ -23,8 +25,10 @@ struct ui_host {
 };
 
 // `file_path` may be NULL (no file) or a path that does not exist yet (Ctrl+S creates it).
-bool ui_init(const char *font_path, const char *emoji_font_path, float font_size, const char *file_path,
-             const struct ui_host *host);
+// `stored` is the content of the settings file at `settings_file` (NULL: none), `active` the settings of this run
+// (the options --font, --font-size and --theme on top). The settings menu changes both and saves `stored`.
+bool ui_init(const struct settings *stored, const struct settings *active, const char *settings_file,
+             const char *emoji_font_path, const char *file_path, const struct ui_host *host);
 bool ui_key(const SDL_KeyboardEvent *event); // true when the overlay used the key
 void ui_text_input(const char *text);
 void ui_text_editing(const char *text); // an IME composition that is not committed yet
