@@ -16,27 +16,34 @@ audio, libremidi, libav in the process, libcurl, quickjs-ng and libdatachannel.
 
 ## By module
 
-| Part                            | Linux now                           | macOS and Windows                           |
-| ------------------------------- | ----------------------------------- | ------------------------------------------- |
-| window, input, clipboard, IME   | SDL3                                | SDL3 (the same code on all three)           |
-| GLES 3 context                  | EGL with Mesa                       | ANGLE (Metal, Direct3D 11)                  |
-| child processes and pipes       | fork, exec, pipe2, memfd            | SDL3 SDL_Process                            |
-| paths of settings and resources | XDG_CONFIG_HOME, /proc/self/exe     | SDL_GetPrefPath, SDL_GetBasePath            |
-| downloads (fetch, loadScript)   | curl processes (src/fetch.c)        | libcurl in the process                      |
-| JavaScript                      | QuickJS                             | quickjs-ng (also builds with MSVC)          |
-| audio input and `a`             | PulseAudio simple API (src/audio.c) | miniaudio or SDL3 audio                     |
-| WebRTC audio processing         | system libwebrtc-audio-processing-1 | the same library, built and bundled         |
-| analog gain control             | PulseAudio source volume            | Core Audio, WASAPI endpoint volume          |
-| MIDI                            | ALSA sequencer (src/midi.c)         | libremidi                                   |
-| camera, video files, recording  | gst-launch-1.0 and ffmpeg processes | libav in the process, platform cameras      |
-| screen capture                  | portal and Mutter (src/capture.h)   | ScreenCaptureKit, Windows.Graphics.Capture  |
-| webRTC patch bay                | node with @roamhq/wrtc              | libdatachannel in the process               |
-| fonts                           | fontconfig (fc-match, fc-list)      | CoreText, DirectWrite, or bundled fonts     |
-| code socket (--send)            | Unix socket                         | Unix socket on macOS, named pipe on Windows |
-| opening URLs                    | xdg-open                            | SDL_OpenURL of SDL3                         |
-| signals at exit                 | SIGINT, SIGTERM                     | SDL_EVENT_QUIT, console control handler     |
+| Part                           | Linux now                           | macOS and Windows                           |
+| ------------------------------ | ----------------------------------- | ------------------------------------------- |
+| window, input, clipboard, IME  | SDL3                                | SDL3 (the same code on all three)           |
+| GLES 3 context                 | EGL with Mesa                       | ANGLE (Metal, Direct3D 11)                  |
+| curl processes                 | SDL_Process, memfd for the body     | SDL_Process, a pipe or file for the body    |
+| program folder, downloads      | SDL_GetBasePath, SDL_GetUserFolder  | the same                                    |
+| settings file                  | XDG_CONFIG_HOME/hydra-native        | SDL_GetPrefPath                             |
+| downloads (fetch, loadScript)  | curl processes (src/fetch.c)        | libcurl in the process                      |
+| JavaScript                     | QuickJS                             | quickjs-ng (also builds with MSVC)          |
+| audio input and `a`            | PulseAudio simple API (src/audio.c) | miniaudio or SDL3 audio                     |
+| WebRTC audio processing        | system libwebrtc-audio-processing-1 | the same library, built and bundled         |
+| analog gain control            | PulseAudio source volume            | Core Audio, WASAPI endpoint volume          |
+| MIDI                           | ALSA sequencer (src/midi.c)         | libremidi                                   |
+| camera, video files, recording | gst-launch-1.0 and ffmpeg processes | libav in the process, platform cameras      |
+| screen capture                 | portal and Mutter (src/capture.h)   | ScreenCaptureKit, Windows.Graphics.Capture  |
+| webRTC patch bay               | node with @roamhq/wrtc              | libdatachannel in the process               |
+| fonts                          | fontconfig (fc-match, fc-list)      | CoreText, DirectWrite, or bundled fonts     |
+| code socket (--send)           | Unix socket                         | Unix socket on macOS, named pipe on Windows |
+| opening URLs                   | SDL_OpenURL                         | the same                                    |
+| signals at exit                | SIGINT, SIGTERM                     | SDL_EVENT_QUIT, console control handler     |
 
 ## Notes per platform
+
+Child processes: the curl downloads run through SDL_Process. Video sources, the recorder, the patch bay and the
+screen capture still use fork, because SDL_Process cannot start a process group (`initCommand` runs shell
+pipelines such as `yt-dlp | ffmpeg`, and video_close stops the whole group), and because these modules are
+Linux only: the table above replaces them with libav, libdatachannel and the capture backends. The settings stay
+in XDG_CONFIG_HOME on Linux, because SDL_GetPrefPath gives the data folder (XDG_DATA_HOME) there.
 
 macOS: ANGLE on Metal gives GLES 3. ScreenCaptureKit needs the screen recording permission, and the camera
 needs the camera permission in Info.plist. The analog gain control sets the input volume through Core Audio.

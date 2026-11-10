@@ -1,7 +1,6 @@
 // hydra-native: runs hydra-synth (bundled with a regl shim) in QuickJS and renders with GLES in an SDL window.
 #define _GNU_SOURCE
 #include <errno.h>
-#include <libgen.h>
 #include <limits.h>
 #include <poll.h>
 #include <signal.h>
@@ -693,35 +692,21 @@ static JSValue js_midi_poll(JSContext *ctx, JSValueConst this, int argc, JSValue
     return result;
 }
 
-static char *read_all(int fd, size_t *length);
-
 // fetchSync(url) waits for curl; only for loading a sketch by URL, as the start waits for it anyway.
 static JSValue js_fetch_sync(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
     const char *url = JS_ToCString(ctx, argv[0]);
     if (!url) return JS_EXCEPTION;
-    char *argv_curl[] = { "curl", "-fsSL", "--max-time", "15", "--", (char *)url, NULL };
-    int pipe_fds[2];
-    if (pipe(pipe_fds) != 0) {
-        JS_FreeCString(ctx, url);
-        return JS_ThrowInternalError(ctx, "cannot start curl");
-    }
-    pid_t pid = fork();
-    if (pid == 0) {
-        dup2(pipe_fds[1], STDOUT_FILENO);
-        close(pipe_fds[0]);
-        execvp(argv_curl[0], argv_curl);
-        _exit(127);
-    }
-    close(pipe_fds[1]);
+    const char *argv_curl[] = { "curl", "-fsSL", "--max-time", "15", "--", url, NULL };
+    SDL_Process *process = SDL_CreateProcess(argv_curl, true);
     JS_FreeCString(ctx, url);
-    size_t length;
-    char *data = read_all(pipe_fds[0], &length);
-    close(pipe_fds[0]);
-    int status = 0;
-    waitpid(pid, &status, 0);
-    JSValue result = WIFEXITED(status) && WEXITSTATUS(status) == 0 ? JS_NewStringLen(ctx, data, length)
-                                                                     : JS_ThrowInternalError(ctx, "the request failed");
-    free(data);
+    if (!process) return JS_ThrowInternalError(ctx, "cannot start curl: %s", SDL_GetError());
+    size_t length = 0;
+    int status = -1;
+    char *data = SDL_ReadProcess(process, &length, &status);
+    SDL_DestroyProcess(process);
+    JSValue result = data && status == 0 ? JS_NewStringLen(ctx, data, length)
+                                         : JS_ThrowInternalError(ctx, "the request failed");
+    SDL_free(data);
     return result;
 }
 
@@ -1154,11 +1139,9 @@ static void set_window_icon(const char *directory) {
 }
 
 static bool executable_directory(char *directory, size_t size) {
-    char executable[PATH_MAX];
-    ssize_t length = readlink("/proc/self/exe", executable, sizeof executable - 1);
-    if (length < 0) return false;
-    executable[length] = '\0';
-    snprintf(directory, size, "%s", dirname(executable));
+    const char *base = SDL_GetBasePath(); // ends with a slash
+    if (!base) return false;
+    snprintf(directory, size, "%.*s", (int)strlen(base) - 1, base);
     return true;
 }
 
@@ -1224,16 +1207,15 @@ static JSValue js_record_stop(JSContext *ctx, JSValueConst this, int argc, JSVal
     return JS_NewString(ctx, recording_path);
 }
 
-// Like screencap() of the web editor: the visuals without the code as PNG, and the code as .js,
-// named hydra-Y-M-D-H.M.S, in ~/Downloads (or the current directory).
-// The base name of downloads, like in the web editor: hydra-Y-M-D-H.M.S in ~/Downloads (or the current directory).
+// The base name of downloads, like in the web editor: hydra-Y-M-D-H.M.S in the downloads folder of the
+// user (XDG user dirs on Linux), or in the current directory.
 static void download_base(char *base, size_t size) {
     time_t seconds = time(NULL);
     struct tm *local = localtime(&seconds);
-    const char *home = getenv("HOME");
+    const char *downloads = SDL_GetUserFolder(SDL_FOLDER_DOWNLOADS); // ends with a slash
     char directory[PATH_MAX];
-    snprintf(directory, sizeof directory, "%s/Downloads", home ? home : ".");
-    if (access(directory, W_OK) != 0) snprintf(directory, sizeof directory, ".");
+    if (downloads && access(downloads, W_OK) == 0) snprintf(directory, sizeof directory, "%.*s", (int)strlen(downloads) - 1, downloads);
+    else snprintf(directory, sizeof directory, ".");
     snprintf(base, size, "%s/hydra-%d-%d-%d-%d.%d.%d", directory, local->tm_year + 1900, local->tm_mon + 1,
              local->tm_mday, local->tm_hour, local->tm_min, local->tm_sec);
 }

@@ -1312,15 +1312,6 @@ static void draw_extensions(void) {
     free(panel);
 }
 
-// Opens a URL in the browser of the desktop, like window.open() in the web editor.
-static void open_in_browser(const char *url) {
-    pid_t pid = fork();
-    if (pid == 0) {
-        setsid();
-        execlp("xdg-open", "xdg-open", url, (char *)NULL);
-        _exit(127);
-    }
-}
 
 static void run_panel_action(const char *action) {
     char *result = NULL;
@@ -1336,7 +1327,7 @@ static void run_panel_action(const char *action) {
         free(code);
         extensions_visible = false;
     } else if (!strncmp(action, "docs ", 5) && (result = host.call("__extensionDocumentation", action + 5))) {
-        open_in_browser(result);
+        SDL_OpenURL(result);
     } else if (!strncmp(action, "example ", 8) && (result = host.call("__extensionExample", action + 8))) {
         // 'load and eval code'
         editor_replace_text(&editor, result, strlen(result));

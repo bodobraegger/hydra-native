@@ -1,15 +1,13 @@
 // Child processes whose output the main loop reads without blocking: downloads with curl (loadScript, languages,
-// extensions, thumbnails) and helpers.
+// extensions, thumbnails, fetch and XMLHttpRequest).
 #define _GNU_SOURCE
-#include <errno.h>
-#include <fcntl.h>
-#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
-#include <sys/wait.h>
 #include <unistd.h>
+
+#include <SDL3/SDL.h>
 
 #include "native.h"
 
@@ -18,8 +16,8 @@
 #define MAX_REQUEST_HEADERS 64
 
 struct fetch {
-    pid_t pid;
-    int fd;
+    SDL_Process *process;
+    SDL_IOStream *output; // non-blocking
     char *data;
     size_t length;
     size_t capacity;
@@ -27,42 +25,40 @@ struct fetch {
 
 static struct fetch *fetches[MAX_FETCHES];
 
-int process_start(char *const argv[]) {
+// `input` (or nothing, if NULL) becomes the standard input of the process.
+static int process_start(char *const argv[], SDL_IOStream *input) {
     int id = 0;
     while (id < MAX_FETCHES && fetches[id]) id++;
-    int pipe_fds[2];
-    if (id == MAX_FETCHES || pipe2(pipe_fds, O_CLOEXEC) != 0) return -1;
-    pid_t pid = fork();
-    if (pid == 0) {
-        dup2(pipe_fds[1], STDOUT_FILENO);
-        execvp(argv[0], argv);
-        _exit(127);
+    if (id == MAX_FETCHES) return -1;
+    SDL_PropertiesID properties = SDL_CreateProperties();
+    SDL_SetPointerProperty(properties, SDL_PROP_PROCESS_CREATE_ARGS_POINTER, (void *)argv);
+    SDL_SetNumberProperty(properties, SDL_PROP_PROCESS_CREATE_STDOUT_NUMBER, SDL_PROCESS_STDIO_APP);
+    if (input) {
+        SDL_SetNumberProperty(properties, SDL_PROP_PROCESS_CREATE_STDIN_NUMBER, SDL_PROCESS_STDIO_REDIRECT);
+        SDL_SetPointerProperty(properties, SDL_PROP_PROCESS_CREATE_STDIN_POINTER, input);
     }
-    close(pipe_fds[1]);
-    if (pid < 0) {
-        close(pipe_fds[0]);
-        return -1;
-    }
-    fcntl(pipe_fds[0], F_SETFL, O_NONBLOCK);
+    SDL_Process *process = SDL_CreateProcessWithProperties(properties);
+    SDL_DestroyProperties(properties);
+    if (!process) return -1;
     struct fetch *fetch = calloc(1, sizeof *fetch);
-    fetch->pid = pid;
-    fetch->fd = pipe_fds[0];
+    fetch->process = process;
+    fetch->output = SDL_GetProcessOutput(process);
     fetches[id] = fetch;
     return id;
 }
 
 int fetch_start(const char *url) {
     char *argv[] = { "curl", "-fsSL", "--max-time", FETCH_TIMEOUT_SECONDS, "--", (char *)url, NULL };
-    return process_start(argv);
+    return process_start(argv, NULL);
 }
 
 int http_start(const char *url, const char *method, const char *const *headers, size_t header_count, const void *body,
                size_t body_length) {
-    // The body goes to curl as an inherited memory file, so no file on disk holds it.
-    int body_fd = -1;
-    char body_argument[32];
+    // The body goes to the standard input of curl from a memory file, so no file on disk holds it, and the main
+    // loop does not wait for curl to read it.
+    SDL_IOStream *input = NULL;
     if (body) {
-        body_fd = memfd_create("hydra-native-request", 0);
+        int body_fd = memfd_create("hydra-native-request", MFD_CLOEXEC);
         if (body_fd < 0) return -1;
         for (size_t written = 0; written < body_length;) {
             ssize_t count = write(body_fd, (const char *)body + written, body_length - written);
@@ -72,8 +68,11 @@ int http_start(const char *url, const char *method, const char *const *headers, 
             }
             written += (size_t)count;
         }
-        lseek(body_fd, 0, SEEK_SET);
-        snprintf(body_argument, sizeof body_argument, "@/dev/fd/%d", body_fd);
+        char path[32];
+        snprintf(path, sizeof path, "/dev/fd/%d", body_fd);
+        input = SDL_IOFromFile(path, "rb"); // a new open file at offset 0
+        close(body_fd);
+        if (!input) return -1;
     }
     // -D - writes the header blocks (one per redirect) before the body; without -f an error status is a response.
     const char *argv[16 + 2 * MAX_REQUEST_HEADERS] = { "curl", "-sSL", "-D", "-", "--max-time", FETCH_TIMEOUT_SECONDS };
@@ -89,13 +88,13 @@ int http_start(const char *url, const char *method, const char *const *headers, 
     }
     if (body) {
         argv[count++] = "--data-binary";
-        argv[count++] = body_argument;
+        argv[count++] = "@-";
     }
     argv[count++] = "--";
     argv[count++] = url;
     argv[count] = NULL;
-    int id = process_start((char *const *)argv);
-    if (body_fd >= 0) close(body_fd);
+    int id = process_start((char *const *)argv, input);
+    if (input) SDL_CloseIO(input);
     return id;
 }
 
@@ -108,17 +107,17 @@ void fetch_poll(void (*done)(int id, bool ok, const char *data, size_t length)) 
                 fetch->capacity = fetch->capacity ? fetch->capacity * 2 : 65536 * 2;
                 fetch->data = realloc(fetch->data, fetch->capacity);
             }
-            ssize_t count = read(fetch->fd, fetch->data + fetch->length, fetch->capacity - fetch->length - 1);
+            size_t count = SDL_ReadIO(fetch->output, fetch->data + fetch->length, fetch->capacity - fetch->length - 1);
             if (count > 0) {
-                fetch->length += (size_t)count;
+                fetch->length += count;
                 continue;
             }
-            if (count < 0 && (errno == EAGAIN || errno == EINTR)) break;
-            int status = 0;
-            waitpid(fetch->pid, &status, 0);
-            close(fetch->fd);
+            if (SDL_GetIOStatus(fetch->output) == SDL_IO_STATUS_NOT_READY) break;
+            int status = -1;
+            SDL_WaitProcess(fetch->process, true, &status);
+            SDL_DestroyProcess(fetch->process);
             fetch->data[fetch->length] = '\0';
-            done(id, WIFEXITED(status) && WEXITSTATUS(status) == 0, fetch->data, fetch->length);
+            done(id, status == 0, fetch->data, fetch->length);
             free(fetch->data);
             free(fetch);
             fetches[id] = NULL;
@@ -131,9 +130,9 @@ void fetch_stop_all(void) {
     for (int id = 0; id < MAX_FETCHES; id++) {
         struct fetch *fetch = fetches[id];
         if (!fetch) continue;
-        kill(fetch->pid, SIGTERM);
-        waitpid(fetch->pid, NULL, 0);
-        close(fetch->fd);
+        SDL_KillProcess(fetch->process, false);
+        SDL_WaitProcess(fetch->process, true, NULL);
+        SDL_DestroyProcess(fetch->process);
         free(fetch->data);
         free(fetch);
         fetches[id] = NULL;
