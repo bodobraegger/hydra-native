@@ -69,7 +69,7 @@ function(vendor_archive name url sha256 marker)
   file(GLOB top LIST_DIRECTORIES true ${extract}/*)
   list(LENGTH top count)
   file(REMOVE_RECURSE ${VENDOR}/${name})
-  if(count EQUAL 1 AND IS_DIRECTORY ${top})
+  if(count EQUAL 1 AND IS_DIRECTORY "${top}")
     file(RENAME ${top} ${VENDOR}/${name})
     file(REMOVE_RECURSE ${extract})
   else() # an archive without one top folder
