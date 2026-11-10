@@ -167,11 +167,12 @@ gallery and signalling server (hydra-synth/hydra-server) and from the CodeMirror
 | hydra-synth API                | the same hydra-synth 1.4.0                 | yes                                  |
 | setResolution, top-level await | stretched canvas, async global eval        | yes                                  |
 | loadScript (paths and URLs)    | file or curl, global eval                  | yes                                  |
+| fetch, XMLHttpRequest          | GET of files and URLs (curl)               | no: GET only, no HTTP status         |
 | initCam, initVideo, initImage  | GStreamer, ffmpeg                          | yes (YouTube needs yt-dlp)           |
 | initScreen                     | portal picker                              | yes                                  |
 | initCanvas, 2D canvas          | plutovg: gradients, shadows, filters, clip | yes (filter url() is missing)        |
 | P5 (p5.js 1.6.0), 2D mode      | on the 2D canvas                           | yes                                  |
-| P5 WEBGL mode                  | WebGL 1 on GLES 3                          | no: text with loadFont               |
+| P5 WEBGL mode                  | WebGL 1 on GLES 3, text with loadFont      | yes                                  |
 | a (audio FFT)                  | Meyda feature, browser NS and AGC          | no: own NS and AGC2 code, not WebRTC |
 | Web MIDI input and output      | ALSA sequencer                             | yes                                  |
 | screencap(), vidRecorder       | PNG and js; WebM VP9 through ffmpeg        | yes                                  |
@@ -189,9 +190,8 @@ local copy of the hydra-server signalling code with socket.io 2 and two native i
 
 Other differences that remain:
 
-- The 2D canvas has no `filter`; layers for shadows and blend modes ignore the clip.
-- p5 WEBGL mode has no text (it needs loadFont of opentype.js fonts) and no drawImage of a WebGL canvas into
-  a 2D canvas; texSubImage2D is missing.
+- `fetch` and `XMLHttpRequest` send only GET requests. A failed download, also with an HTTP error status, is a
+  network error, while the browser gives a response with the status.
 - Network data (thumbnails, languages, extensions) needs the network once; languages stay cached.
 
 ## Video input

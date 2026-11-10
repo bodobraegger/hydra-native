@@ -79,7 +79,13 @@ window.requestAnimationFrame = (callback) => {
   return id
 }
 window.cancelAnimationFrame = (id) => { frameCallbacks = frameCallbacks.filter((item) => item.id !== id) }
-window.queueMicrotask = (callback) => Promise.resolve().then(callback)
+// The native Promise: core-js in p5.js schedules its own promises with queueMicrotask.
+const NativePromise = Promise
+window.queueMicrotask = (callback) => { NativePromise.resolve().then(callback) }
+// Browsers have this event; without it, core-js in p5.js replaces the native Promise.
+window.PromiseRejectionEvent = class PromiseRejectionEvent {
+  constructor (type, init = {}) { Object.assign(this, { type, promise: init.promise, reason: init.reason }) }
+}
 
 export function onAfterFrame (callback) {
   afterFrameCallbacks.push(callback)

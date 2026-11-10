@@ -1,8 +1,28 @@
 // A small DOM element for the shims: enough of the node, attribute, class and style API for hydra-synth,
 // its extensions and p5.js. Nothing is shown; the 2D canvas subclass in js/canvas.js draws for real.
 
-export class Element {
+// addEventListener and dispatchEvent for elements and XMLHttpRequest; a handler property such as `onload` runs too.
+export class EventTarget {
+  constructor () { this.listeners = new Map() }
+
+  addEventListener (type, listener) {
+    if (!this.listeners.has(type)) this.listeners.set(type, [])
+    this.listeners.get(type).push(listener)
+  }
+
+  removeEventListener (type, listener) {
+    this.listeners.set(type, (this.listeners.get(type) || []).filter((item) => item !== listener))
+  }
+
+  dispatchEvent (event) {
+    for (const listener of this.listeners.get(event.type) || []) listener.call(this, event)
+    return true
+  }
+}
+
+export class Element extends EventTarget {
   constructor (tagName) {
+    super()
     this.tagName = String(tagName).toUpperCase()
     this.nodeName = this.tagName
     this.nodeType = 1
@@ -22,7 +42,6 @@ export class Element {
       contains: (name) => element.className.split(/\s+/).includes(name),
       toggle: (name) => element.classList.contains(name) ? (element.classList.remove(name), false) : (element.classList.add(name), true)
     }
-    this.listeners = new Map()
   }
 
   appendChild (child) {
@@ -52,20 +71,6 @@ export class Element {
   getAttribute (name) { return name in this.attributes ? this.attributes[name] : null }
   hasAttribute (name) { return name in this.attributes }
   removeAttribute (name) { delete this.attributes[name] }
-  addEventListener (type, listener) {
-    if (!this.listeners.has(type)) this.listeners.set(type, [])
-    this.listeners.get(type).push(listener)
-  }
-
-  removeEventListener (type, listener) {
-    this.listeners.set(type, (this.listeners.get(type) || []).filter((item) => item !== listener))
-  }
-
-  dispatchEvent (event) {
-    for (const listener of this.listeners.get(event.type) || []) listener(event)
-    return true
-  }
-
   descendants () { return this.children.flatMap((child) => child.descendants ? [child, ...child.descendants()] : []) }
   getElementsByTagName (name) {
     return this.descendants().filter((element) => name === '*' || element.tagName === String(name).toUpperCase())

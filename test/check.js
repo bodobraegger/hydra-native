@@ -68,10 +68,43 @@ function canvasChecks () {
   context.drawImage(webglCanvas, 0, 0)
   expect('WebGL canvas, top', pixel(1, 0), [0, 255, 0, 255])
   expect('WebGL canvas, bottom', pixel(1, 3), [255, 0, 0, 255])
+
+  const texture = gl.createTexture()
+  gl.bindTexture(gl.TEXTURE_2D, texture)
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 2, 2, 0, gl.RGBA, gl.UNSIGNED_BYTE, null)
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 1, 1, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 0, 255, 255]))
+  const framebuffer = gl.createFramebuffer()
+  gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer)
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0)
+  const texel = new Uint8Array(4)
+  gl.readPixels(1, 1, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, texel)
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+  expect('texSubImage2D', Array.from(texel), [255, 0, 255, 255])
   return failures
 }
 
+// fetch and XMLHttpRequest of a local file, as text and as bytes (p5.js loadFont reads fonts so).
+function networkChecks () {
+  const path = native.directory + '/p5.min.js'
+  const text = fetch(path).then((response) => response.text())
+  const bytes = new Promise((resolve) => {
+    const request = new XMLHttpRequest()
+    request.open('GET', path)
+    request.responseType = 'arraybuffer'
+    request.onload = () => resolve(request.response)
+    request.onerror = () => resolve(null)
+    request.send()
+  })
+  return Promise.all([text, bytes]).then(([code, buffer]) => {
+    const failures = []
+    if (!code.includes('p5')) failures.push('fetch: no text')
+    if (!(buffer instanceof ArrayBuffer) || buffer.byteLength < code.length) failures.push('XMLHttpRequest: no bytes')
+    return failures
+  }, (error) => [`fetch: ${error.message}`])
+}
+
 const canvasFailures = canvasChecks()
+networkChecks().then((failures) => canvasFailures.push(...failures))
 
 setTimeout(() => {
   const x = Math.floor(width / 2), y = Math.floor(height / 2)

@@ -490,8 +490,10 @@ static void fetch_done(int id, bool ok, const char *data, size_t length) {
         ui_share_done(ok, data);
         return;
     }
-    JSValue arguments[3] = { JS_NewInt32(js, id), JS_NewBool(js, ok), JS_NewStringLen(js, data, length) };
-    call_global("__fetchDone", 3, arguments);
+    // The text for scripts and JSON, the bytes for binary files such as the fonts of p5.js loadFont.
+    JSValue arguments[4] = { JS_NewInt32(js, id), JS_NewBool(js, ok), JS_NewStringLen(js, data, length),
+                             JS_NewArrayBufferCopy(js, (const uint8_t *)data, length) };
+    call_global("__fetchDone", 4, arguments);
 }
 
 #define MAX_MIDI_PORTS 64
@@ -637,13 +639,15 @@ static JSValue js_now(JSContext *ctx, JSValueConst this, int argc, JSValueConst 
     return JS_NewFloat64(ctx, now_ms());
 }
 
+// readFile(path, binary): the text of a file, or its bytes as an ArrayBuffer when `binary` is true.
 static JSValue js_read_file(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
     const char *path = JS_ToCString(ctx, argv[0]);
     if (!path) return JS_EXCEPTION;
     size_t length;
     char *text = read_file(path, &length);
-    JSValue result = text ? JS_NewStringLen(ctx, text, length)
-                          : JS_ThrowReferenceError(ctx, "cannot read %s: %s", path, strerror(errno));
+    bool binary = argc > 1 && JS_ToBool(ctx, argv[1]);
+    JSValue result = !text ? JS_ThrowReferenceError(ctx, "cannot read %s: %s", path, strerror(errno))
+                     : binary ? JS_NewArrayBufferCopy(ctx, (const uint8_t *)text, length) : JS_NewStringLen(ctx, text, length);
     free(text);
     JS_FreeCString(ctx, path);
     return result;
@@ -713,7 +717,7 @@ static const JSCFunctionListEntry native_functions[] = {
     JS_CFUNC_DEF("screencap", 0, js_screencap),
     JS_CFUNC_DEF("recordStart", 0, js_record_start),
     JS_CFUNC_DEF("recordStop", 0, js_record_stop),
-    JS_CFUNC_DEF("readFile", 1, js_read_file),
+    JS_CFUNC_DEF("readFile", 2, js_read_file),
     JS_CFUNC_DEF("drawableSize", 0, js_drawable_size),
     JS_CFUNC_DEF("consoleMessage", 1, js_console_message),
     JS_CFUNC_DEF("exit", 1, js_exit),

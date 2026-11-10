@@ -1,5 +1,6 @@
 // Entry of build/hydra-bundle.js: runs the unchanged hydra-synth renderer on the native shims.
 import { onAfterFrame, RecordingContext2D } from './dom-shim.js'
+import { pendingFetches } from './network.js'
 import Hydra from 'hydra-synth'
 import { installSources } from './sources.js'
 import beautify from 'js-beautify'
@@ -27,14 +28,6 @@ hydra.synth.screencap = window.screencap = () => native.screencap()
 hydra.synth.vidRecorder = window.vidRecorder = { start: () => native.recordStart(), stop: () => native.recordStop() }
 
 const URL_PATTERN = /^https?:\/\//
-const pendingFetches = new Map()
-
-// src/main.c calls this when a download of native.fetchStart() ends.
-window.__fetchDone = (id, ok, text) => {
-  const callback = pendingFetches.get(id)
-  pendingFetches.delete(id)
-  if (callback) callback(ok, text)
-}
 
 function runScript (code, url) {
   try {

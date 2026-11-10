@@ -144,7 +144,8 @@ Window and area streams start at once.
 `p5 = new P5()` creates a p5.js 1.6.0 sketch, as in the web editor, in 2D mode or with `new P5({ mode: 'WEBGL' })`
 in WEBGL mode; `s0.init({ src: p5.canvas })` uses it as a source.
 The 2D canvas has gradients, patterns, shadows, filters, image data, images and all blend modes, and it draws
-WebGL canvases with `drawImage`. `canvas.getContext('webgl')` gives a WebGL 1 context. `vidRecorder.start()` and `vidRecorder.stop()` record the visuals to a WebM file
+WebGL canvases with `drawImage`. `canvas.getContext('webgl')` gives a WebGL 1 context.
+`fetch()` and `XMLHttpRequest` read files and download URLs (GET only), so p5 `loadFont` and `loadJSON` work. `vidRecorder.start()` and `vidRecorder.stop()` record the visuals to a WebM file
 (VP9, 25 fps) in ~/Downloads. `navigator.requestMIDIAccess()` gives MIDI input and output through ALSA.
 
 The audio object `a` is the one of hydra-synth (`a.show()`, `a.setBins()`, `a.setSmooth()`, `a.fft`).
