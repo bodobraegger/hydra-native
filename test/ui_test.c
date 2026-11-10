@@ -34,6 +34,8 @@ void overlay_text(float x, float y, const char *text, size_t length, size_t firs
                   const uint32_t *colors, uint32_t color) {}
 void overlay_end(int width, int height) {}
 int overlay_columns(int codepoint) { return 1; }
+void overlay_image(float x, float y, float width, float height, unsigned texture) {}
+unsigned thumbnail_texture(const char *url) { return 0; }
 size_t overlay_text_columns(const char *text, size_t length) { return length; }
 
 static char *evaluate(const char *code, size_t length, const char *name) {

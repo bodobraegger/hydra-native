@@ -53,6 +53,15 @@ static float current_font_size, char_width, ascent, line_height;
 static GLuint atlas, program, vertex_array, vertex_buffer;
 static GLint screen_location;
 static struct vertex *vertices;
+// Images (RGBA textures, such as extension thumbnails) draw after the text, one draw call each.
+#define MAX_IMAGES 64
+static struct {
+    float x, y, width, height;
+    unsigned texture;
+} images[MAX_IMAGES];
+static int image_count;
+static GLuint image_program;
+static GLint image_screen_location;
 static bool atlas_full;
 static size_t vertex_count, vertex_capacity;
 
@@ -66,6 +75,14 @@ static const char *vertex_source =
     "  vec2 p = position / screen * 2.0 - 1.0;\n"
     "  gl_Position = vec4(p.x, -p.y, 0.0, 1.0);\n"
     "}\n";
+
+static const char *image_fragment_source =
+    "#version 300 es\n"
+    "precision mediump float;\n"
+    "in vec2 v_uv; in vec4 v_color;\n"
+    "uniform sampler2D atlas;\n"
+    "out vec4 out_color;\n"
+    "void main() { out_color = texture(atlas, v_uv) * v_color; }\n";
 
 static const char *fragment_source =
     "#version 300 es\n"
@@ -225,6 +242,14 @@ bool overlay_init(const char *font_path, float font_size) {
     glBindAttribLocation(program, 2, "color");
     glLinkProgram(program);
     screen_location = glGetUniformLocation(program, "screen");
+    image_program = glCreateProgram();
+    glAttachShader(image_program, compile(GL_VERTEX_SHADER, vertex_source));
+    glAttachShader(image_program, compile(GL_FRAGMENT_SHADER, image_fragment_source));
+    glBindAttribLocation(image_program, 0, "position");
+    glBindAttribLocation(image_program, 1, "uv");
+    glBindAttribLocation(image_program, 2, "color");
+    glLinkProgram(image_program);
+    image_screen_location = glGetUniformLocation(image_program, "screen");
 
     // A vertex array object of its own leaves the attribute state of the hydra passes untouched.
     glGenVertexArrays(1, &vertex_array);
@@ -245,7 +270,14 @@ float overlay_font_size(void) { return current_font_size; }
 float overlay_char_width(void) { return char_width; }
 float overlay_line_height(void) { return line_height; }
 
-void overlay_begin(void) { vertex_count = 0; }
+void overlay_begin(void) {
+    vertex_count = 0;
+    image_count = 0;
+}
+
+void overlay_image(float x, float y, float width, float height, unsigned texture) {
+    if (image_count < MAX_IMAGES) images[image_count++] = (typeof(images[0])){ x, y, width, height, texture };
+}
 
 static void push_quad(float x0, float y0, float x1, float y1, float u0, float v0, float u1, float v1, uint32_t color) {
     if (vertex_count + 6 > vertex_capacity) {
@@ -327,6 +359,19 @@ void overlay_end(int width, int height) {
     glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);
     glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(vertex_count * sizeof *vertices), vertices, GL_STREAM_DRAW);
     glDrawArrays(GL_TRIANGLES, 0, (GLsizei)vertex_count);
+    if (image_count) {
+        size_t first = vertex_count;
+        for (int i = 0; i < image_count; i++)
+            push_quad(images[i].x, images[i].y, images[i].x + images[i].width, images[i].y + images[i].height, 0, 0, 1, 1,
+                      0xFFFFFFFFu);
+        glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(vertex_count * sizeof *vertices), vertices, GL_STREAM_DRAW);
+        glUseProgram(image_program);
+        glUniform2f(image_screen_location, (float)width, (float)height);
+        for (int i = 0; i < image_count; i++) {
+            glBindTexture(GL_TEXTURE_2D, images[i].texture);
+            glDrawArrays(GL_TRIANGLES, (GLint)(first + 6 * (size_t)i), 6);
+        }
+    }
     glBindVertexArray(0);
     glDisable(GL_BLEND);
 }

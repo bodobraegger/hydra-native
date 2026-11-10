@@ -8,11 +8,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <sys/types.h>
 #include <unistd.h>
 
 #include "editor.h"
 #include "keymap.h"
 #include "overlay.h"
+#include "thumbnails.h"
 #include "unicode.h"
 
 #define MARGIN 12.0f
@@ -80,6 +82,15 @@ static char console_message[MAX_MESSAGE];
 static bool suppress_text; // the key press before this text input was a command
 static bool help_visible;
 static bool info_visible;
+static bool extensions_visible;
+#define MAX_PANEL_BUTTONS 256
+#define EXTENSION_ROWS 3
+// Clickable areas of the extensions panel, with the action that src/ui.c runs on a click.
+static struct {
+    float x, y, width, height;
+    char action[32]; // "category N", "add N", "docs N", "example N M"
+} panel_buttons[MAX_PANEL_BUTTONS];
+static size_t panel_button_count;
 static size_t info_scroll;
 static float pointer_x, pointer_y; // the last mouse position, for toolbar tooltips
 
@@ -510,6 +521,7 @@ static void escape(void) {
     else if (prompt.kind != PROMPT_NONE) prompt.kind = PROMPT_NONE;
     else if (help_visible) help_visible = false;
     else if (info_visible) info_visible = false;
+    else if (extensions_visible) extensions_visible = false;
     else if (visible && editor_selection_count(&editor) > 1) editor_collapse_to_first(&editor);
     else if (visible && editor_has_selection(&editor)) editor_set_cursor(&editor, editor.cursor, false);
     else if (host.is_fullscreen()) host.toggle_fullscreen();
@@ -563,8 +575,14 @@ static void run_command(enum command command, bool extend) {
     case COMMAND_MUTATE_TRANSFORM: replace_with("__mutateTransform", "mutator: the code does not parse"); break;
     case COMMAND_MUTATE_UNDO: replace_with("__mutateUndo", "mutator: nothing to undo"); break;
     case COMMAND_TOGGLE_HELP: help_visible = !help_visible; return;
+    case COMMAND_TOGGLE_EXTENSIONS:
+        extensions_visible = !extensions_visible;
+        info_visible = false;
+        info_scroll = 0;
+        return;
     case COMMAND_TOGGLE_INFO:
         info_visible = !info_visible;
+        extensions_visible = false;
         info_scroll = 0;
         return;
     case COMMAND_SELECT_NEXT_OCCURRENCE: editor_select_next_occurrence(&editor); break;
@@ -739,6 +757,7 @@ struct toolbar_item {
 static const struct toolbar_item toolbar[] = {
     { "run", "toolbar.run", COMMAND_EVAL_ALL, COMMAND_EVAL_ALL, COMMAND_EVAL_ALL },
     { "clear", "toolbar.clear", COMMAND_CLEAR_ALL, COMMAND_CLEAR_ALL, COMMAND_CLEAR_ALL },
+    { "extensions", "toolbar.load-extension", COMMAND_TOGGLE_EXTENSIONS, COMMAND_TOGGLE_EXTENSIONS, COMMAND_TOGGLE_EXTENSIONS },
     { "example", "toolbar.shuffle", COMMAND_SHOW_EXAMPLE, COMMAND_SHOW_EXAMPLE, COMMAND_SHOW_EXAMPLE },
     { "mutate", "toolbar.random", COMMAND_MUTATE, COMMAND_MUTATE_UNDO, COMMAND_MUTATE_TRANSFORM },
     { "?", "toolbar.show-info", COMMAND_TOGGLE_INFO, COMMAND_TOGGLE_HELP, COMMAND_TOGGLE_HELP },
@@ -852,6 +871,138 @@ static void draw_info(void) {
     free(text);
 }
 
+static void add_panel_button(float x, float y, float width, float height, const char *action) {
+    if (panel_button_count == MAX_PANEL_BUTTONS) return;
+    panel_buttons[panel_button_count].x = x;
+    panel_buttons[panel_button_count].y = y;
+    panel_buttons[panel_button_count].width = width;
+    panel_buttons[panel_button_count].height = height;
+    snprintf(panel_buttons[panel_button_count++].action, sizeof panel_buttons[0].action, "%s", action);
+}
+
+static float panel_label(float x, float y, const char *text, bool selected, const char *action) {
+    size_t columns = overlay_text_columns(text, strlen(text)) + 1;
+    float width = (float)columns * overlay_char_width();
+    overlay_rect(x, y, width, overlay_line_height(), selected ? COLOR_POPUP_SELECTED : COLOR_TOOLBAR);
+    overlay_text(x + overlay_char_width() / 2, y, text, strlen(text), 0, columns, NULL, COLOR_TEXT);
+    add_panel_button(x, y, width, overlay_line_height(), action);
+    return x + width + overlay_char_width();
+}
+
+// The extensions window of the web editor (src/views/extension-info.js): categories, then per entry a thumbnail,
+// "name - author", the description, and buttons to add its load code, open its documentation and run its examples.
+static void draw_extensions(void) {
+    float left, top, width, height, line_height = overlay_line_height(), char_width = overlay_char_width();
+    info_panel(&left, &top, &width, &height);
+    overlay_rect(left, top, width, height, COLOR_HELP_BACKGROUND);
+    panel_button_count = 0;
+    char *panel = host.call("__extensionsPanel", "");
+    if (!panel) return;
+    float x = left + char_width, y = top + line_height / 2;
+    size_t entry = 0, row = 0, rows = (size_t)((height - 2 * line_height) / line_height);
+    float thumbnail_size = (EXTENSION_ROWS - 0.5f) * line_height, text_left = left + char_width + thumbnail_size + char_width;
+    size_t text_columns = (size_t)((left + width - text_left) / char_width) - 1;
+    char *saveptr;
+    for (char *line = strtok_r(panel, "\n", &saveptr); line; line = strtok_r(NULL, "\n", &saveptr)) {
+        char *fields[6] = { 0 };
+        size_t count = 0;
+        for (char *field = line; field && count < 6; count++) {
+            fields[count] = field;
+            field = strchr(field, '\t');
+            if (field) *field++ = '\0';
+        }
+        char action[32];
+        if (!strcmp(fields[0], "category") && count >= 3) {
+            snprintf(action, sizeof action, "category %zu", entry++);
+            x = panel_label(x, y, fields[1], fields[2][0] == '1', action);
+        } else if (!strcmp(fields[0], "state") && count >= 2) {
+            entry = 0;
+            const char *state = !strcmp(fields[1], "loading") ? "loading the list from github..."
+                                : !strcmp(fields[1], "failed") ? "cannot load the list: hydra-native needs the network for it"
+                                                                : "";
+            overlay_text(left + char_width, y + 1.5f * line_height, state, strlen(state), 0, text_columns, NULL, COLOR_INFO);
+            row = 1;
+        } else if (!strcmp(fields[0], "entry") && count >= 5) {
+            size_t index = entry++;
+            if (index < info_scroll) continue;
+            if (row + EXTENSION_ROWS > rows) continue;
+            float entry_top = y + line_height * (float)(row + 1);
+            unsigned texture = count >= 6 && fields[5][0] ? thumbnail_texture(fields[5]) : 0;
+            if (texture) overlay_image(left + char_width, entry_top, thumbnail_size, thumbnail_size, texture);
+            char title[512];
+            snprintf(title, sizeof title, "%s - %s", fields[1], fields[2]);
+            overlay_text(text_left, entry_top, title, strlen(title), 0, text_columns, NULL, COLOR_HELP_KEYS);
+            overlay_text(text_left, entry_top + line_height, fields[3], strlen(fields[3]), 0, text_columns, NULL, COLOR_TEXT);
+            float button_x = text_left;
+            snprintf(action, sizeof action, "add %zu", index);
+            button_x = panel_label(button_x, entry_top + 2 * line_height, "+", false, action);
+            snprintf(action, sizeof action, "docs %zu", index);
+            button_x = panel_label(button_x, entry_top + 2 * line_height, "docs", false, action);
+            for (long example = 0; example < atol(fields[4]); example++) {
+                char label[24];
+                snprintf(label, sizeof label, "%ld", example + 1);
+                snprintf(action, sizeof action, "example %zu %ld", index, example);
+                button_x = panel_label(button_x, entry_top + 2 * line_height, label, false, action);
+            }
+            row += EXTENSION_ROWS + 1;
+        }
+    }
+    free(panel);
+}
+
+// Opens a URL in the browser of the desktop, like window.open() in the web editor.
+static void open_in_browser(const char *url) {
+    pid_t pid = fork();
+    if (pid == 0) {
+        setsid();
+        execlp("xdg-open", "xdg-open", url, (char *)NULL);
+        _exit(127);
+    }
+}
+
+static void run_panel_action(const char *action) {
+    char *result = NULL;
+    if (!strncmp(action, "category ", 9)) {
+        info_scroll = 0;
+        free(host.call("__extensionsPanel", action + 9));
+    } else if (!strncmp(action, "add ", 4) && (result = host.call("__extensionLoadCode", action + 4))) {
+        // 'editor: add code to top' of the web editor (CodeMirror 5 version).
+        size_t length = strlen(result) + editor.length + 4;
+        char *code = malloc(length + 1);
+        snprintf(code, length + 1, "\n%s\n\n%s\n", result, editor.text);
+        editor_replace_text(&editor, code, strlen(code));
+        free(code);
+        extensions_visible = false;
+    } else if (!strncmp(action, "docs ", 5) && (result = host.call("__extensionDocumentation", action + 5))) {
+        open_in_browser(result);
+    } else if (!strncmp(action, "example ", 8) && (result = host.call("__extensionExample", action + 8))) {
+        // 'load and eval code'
+        editor_replace_text(&editor, result, strlen(result));
+        evaluate_range(0, editor.length);
+        extensions_visible = false;
+    }
+    free(result);
+}
+
+static bool extensions_click(float x, float y) {
+    float left, top, width, height;
+    info_panel(&left, &top, &width, &height);
+    if (x < left || x > left + width || y < top || y > top + height) {
+        extensions_visible = false;
+        return false;
+    }
+    for (size_t i = 0; i < panel_button_count; i++) {
+        if (x >= panel_buttons[i].x && x <= panel_buttons[i].x + panel_buttons[i].width && y >= panel_buttons[i].y &&
+            y <= panel_buttons[i].y + panel_buttons[i].height) {
+            char action[32];
+            snprintf(action, sizeof action, "%s", panel_buttons[i].action);
+            run_panel_action(action);
+            break;
+        }
+    }
+    return true;
+}
+
 static bool info_click(float x, float y) {
     float left, top, width, height;
     info_panel(&left, &top, &width, &height);
@@ -906,6 +1057,7 @@ void ui_mouse_button(float x, float y, bool down, int clicks, SDL_Keymod modifie
     }
     if (toolbar_click(x, y, modifiers)) return;
     if (info_visible && info_click(x, y)) return;
+    if (extensions_visible && extensions_click(x, y)) return;
     close_completion();
     size_t offset = offset_at_point(x, y);
     mouse.dragging = true;
@@ -948,7 +1100,7 @@ void ui_mouse_motion(float x, float y) {
 
 void ui_wheel(int lines) {
     if (!visible) return;
-    if (info_visible) {
+    if (info_visible || extensions_visible) {
         long target = (long)info_scroll - (long)lines * WHEEL_ROWS;
         info_scroll = target < 0 ? 0 : (size_t)target;
         return;
@@ -1231,6 +1383,7 @@ void ui_draw(int width, int height, double now_ms) {
     }
     draw_code();
     if (info_visible) draw_info();
+    if (extensions_visible) draw_extensions();
     draw_toolbar();
     draw_completion();
     if (prompt.kind != PROMPT_NONE) draw_prompt(width, height);

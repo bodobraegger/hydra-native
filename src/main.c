@@ -23,6 +23,7 @@
 #include "canvas2d.h"
 #include "midi.h"
 #include "native.h"
+#include "thumbnails.h"
 #include "ui.h"
 #include "quickjs-libc.h"
 #include "quickjs.h"
@@ -439,6 +440,7 @@ static JSValue js_fetch_start(JSContext *ctx, JSValueConst this, int argc, JSVal
 }
 
 static void fetch_done(int id, bool ok, const char *data, size_t length) {
+    if (thumbnails_fetch_done(id, ok, data, length)) return;
     JSValue arguments[3] = { JS_NewInt32(js, id), JS_NewBool(js, ok), JS_NewStringLen(js, data, length) };
     call_global("__fetchDone", 3, arguments);
 }
