@@ -120,19 +120,23 @@ Open points for the user:
 > **hydra-native 0.1.0**
 >
 > hydra-native runs Hydra sketches in a native window on Linux, without a browser.
-> It runs the unchanged hydra-synth 1.4.0, so sketches of hydra.ojack.xyz work as they are.
+> It runs the unchanged hydra-synth code of its main branch (1.4.0 with four fixes), so sketches of
+> hydra.ojack.xyz work as they are. A hydra function passed without parentheses, such as
+> `osc().modulate(noise)`, shows an error that names it.
 > A code editor in the window shows the sketch over the visuals, with the keys, the toolbar and the panels of
 > the web editor.
 >
 > With this release you can:
 >
 > - write a sketch in the window and evaluate a line, a block or all code, as in the web editor;
+> - see the parameters, types and defaults of a hydra function (Ctrl+Shift+Space), get completions that fit the
+>   argument (textures, numbers, the transforms of a chain), and insert a call with its defaults as tab stops;
 > - open a sketch file or a sketch URL of hydra.ojack.xyz, save to the file, and reload it when another
 >   editor saves it (`--watch`);
 > - send code from Pulsar, Neovim or another editor through a Unix socket (`hydra-native --send`);
 > - use a webcam, a video file, an image, the screen, a monitor, an area or a window as a source;
 > - use the microphone or the system output for `a`, with the audio processing of Chrome;
-> - use MIDI input and output, P5 and the 2D canvas;
+> - use MIDI input and output, with the arrival time of each message, P5 and the 2D canvas;
 > - share streams with the web editor and with other hydra-native windows through the patch bay
 >   (`pb`, `s0.initStream`);
 > - record the visuals as WebM, save screenshots, and share sketches to a hydra gallery server;
