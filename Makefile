@@ -29,18 +29,18 @@ all: build/hydra-native build/hydra-bundle.js build/p5.min.js vendor/fonts/NotoE
 
 $(QUICKJS_DIR)/quickjs.c:
 	mkdir -p vendor
-	curl -fsSL https://bellard.org/quickjs/quickjs-$(QUICKJS_VERSION).tar.xz | tar -xJ -C vendor
+	curl -fsSL --retry 3 --retry-all-errors https://bellard.org/quickjs/quickjs-$(QUICKJS_VERSION).tar.xz | tar -xJ -C vendor
 	mv vendor/quickjs-$(QUICKJS_VERSION) $(QUICKJS_DIR)
 
 STB_COMMIT := 4e9b368bfc071e97206ea5c6adba68dd0cbf8897
 
 vendor/stb/%.h:
 	mkdir -p vendor/stb
-	curl -fsSL https://raw.githubusercontent.com/nothings/stb/$(STB_COMMIT)/$*.h -o $@
+	curl -fsSL --retry 3 --retry-all-errors https://raw.githubusercontent.com/nothings/stb/$(STB_COMMIT)/$*.h -o $@
 
 $(HARFBUZZ_DIR)/src/harfbuzz.cc:
 	mkdir -p vendor
-	curl -fsSL https://github.com/harfbuzz/harfbuzz/releases/download/$(HARFBUZZ_VERSION)/harfbuzz-$(HARFBUZZ_VERSION).tar.xz | tar -xJ -C vendor
+	curl -fsSL --retry 3 --retry-all-errors https://github.com/harfbuzz/harfbuzz/releases/download/$(HARFBUZZ_VERSION)/harfbuzz-$(HARFBUZZ_VERSION).tar.xz | tar -xJ -C vendor
 	mv vendor/harfbuzz-$(HARFBUZZ_VERSION) $(HARFBUZZ_DIR)
 
 build/harfbuzz.o: $(HARFBUZZ_DIR)/src/harfbuzz.cc
@@ -49,13 +49,13 @@ build/harfbuzz.o: $(HARFBUZZ_DIR)/src/harfbuzz.cc
 
 $(WEBRTC_APM_DIR)/webrtc/modules/audio_processing/include/audio_processing.h:
 	mkdir -p vendor
-	curl -fsSL https://freedesktop.org/software/pulseaudio/webrtc-audio-processing/webrtc-audio-processing-$(WEBRTC_APM_VERSION).tar.xz | tar -xJ -C vendor
+	curl -fsSL --retry 3 --retry-all-errors https://freedesktop.org/software/pulseaudio/webrtc-audio-processing/webrtc-audio-processing-$(WEBRTC_APM_VERSION).tar.xz | tar -xJ -C vendor
 	mv vendor/webrtc-audio-processing-$(WEBRTC_APM_VERSION) $(WEBRTC_APM_DIR)
 	touch $@
 
 $(ABSEIL_DIR)/absl/types/optional.h:
 	mkdir -p vendor
-	curl -fsSL https://github.com/abseil/abseil-cpp/archive/$(ABSEIL_VERSION).tar.gz | tar -xz -C vendor
+	curl -fsSL --retry 3 --retry-all-errors https://github.com/abseil/abseil-cpp/archive/$(ABSEIL_VERSION).tar.gz | tar -xz -C vendor
 	mv vendor/abseil-cpp-$(ABSEIL_VERSION) $(ABSEIL_DIR)
 	touch $@
 
@@ -66,7 +66,7 @@ build/libhydra-webrtc-apm.so: src/webrtc_apm.cc src/webrtc_apm.h $(WEBRTC_APM_DI
 
 $(SHEENBIDI_DIR)/Source/SheenBidi.c:
 	mkdir -p vendor
-	curl -fsSL https://github.com/Tehreer/SheenBidi/archive/refs/tags/v$(SHEENBIDI_VERSION).tar.gz | tar -xz -C vendor
+	curl -fsSL --retry 3 --retry-all-errors https://github.com/Tehreer/SheenBidi/archive/refs/tags/v$(SHEENBIDI_VERSION).tar.gz | tar -xz -C vendor
 	mv vendor/SheenBidi-$(SHEENBIDI_VERSION) $(SHEENBIDI_DIR)
 
 build/sheenbidi.o: $(SHEENBIDI_DIR)/Source/SheenBidi.c
@@ -75,12 +75,12 @@ build/sheenbidi.o: $(SHEENBIDI_DIR)/Source/SheenBidi.c
 
 vendor/fonts/NotoEmoji.ttf:
 	mkdir -p vendor/fonts
-	curl -fsSL "$(EMOJI_FONT_URL)/NotoEmoji%5Bwght%5D.ttf" -o $@
-	curl -fsSL "$(EMOJI_FONT_URL)/OFL.txt" -o vendor/fonts/NotoEmoji-OFL.txt
+	curl -fsSL --retry 3 --retry-all-errors "$(EMOJI_FONT_URL)/NotoEmoji%5Bwght%5D.ttf" -o $@
+	curl -fsSL --retry 3 --retry-all-errors "$(EMOJI_FONT_URL)/OFL.txt" -o vendor/fonts/NotoEmoji-OFL.txt
 
 $(PLUTOVG_DIR)/include/plutovg.h:
 	mkdir -p vendor
-	curl -fsSL https://github.com/sammycage/plutovg/archive/refs/tags/v$(PLUTOVG_VERSION).tar.gz | tar -xz -C vendor
+	curl -fsSL --retry 3 --retry-all-errors https://github.com/sammycage/plutovg/archive/refs/tags/v$(PLUTOVG_VERSION).tar.gz | tar -xz -C vendor
 	mv vendor/plutovg-$(PLUTOVG_VERSION) $(PLUTOVG_DIR)
 
 $(PLUTOVG_SOURCES): $(PLUTOVG_DIR)/include/plutovg.h
