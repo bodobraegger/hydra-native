@@ -17,6 +17,13 @@ const rawVideoCaps = (width, height) => `video/x-raw,format=RGBA,width=${width},
 const ffmpegOutput = (width, height) => `-vf scale=${width}:${height} -pix_fmt rgba -f rawvideo -`
 const screencast = (...args) => `${quote(native.directory + '/hydra-native-capture')} ${args.join(' ')}`
 
+// Whether `program` is in PATH; otherwise a warning in the error bar names the call that needs it.
+function requireProgram (program, call) {
+  if (native.findProgram(program)) return true
+  console.warn(`${call} needs ${program} in PATH`)
+  return false
+}
+
 // Capture devices: on Linux in the order of their /dev/video number (metadata nodes, index 1, are skipped),
 // elsewhere the names of the SDL cameras.
 function cameraDevices () {
@@ -69,6 +76,7 @@ export function installSources (sourcePrototype) {
     if (native.platform !== 'Linux') {
       return initHandle(this, () => native.cameraOpen(index, width, height), width, height, params)
     }
+    if (!requireProgram('gst-launch-1.0', 'initCam')) return
     const device = devices[index]
     return this.initCommand(`gst-launch-1.0 -q v4l2src device=${device} ! decodebin ! videoconvert ! videoscale ! ` +
       `${rawVideoCaps(width, height)} ! fdsink fd=1 sync=false`, { width, height, ...params })
@@ -100,13 +108,16 @@ export function installSources (sourcePrototype) {
 
   // Loops files and network streams; YouTube links need yt-dlp in PATH and play once.
   sourcePrototype.initVideo = function (url = '', { width = DEFAULT_WIDTH, height = DEFAULT_HEIGHT, ...params } = {}) {
-    const input = YOUTUBE_PATTERN.test(url)
+    const youtube = YOUTUBE_PATTERN.test(url)
+    if (!requireProgram('ffmpeg', 'initVideo') || (youtube && !requireProgram('yt-dlp', 'initVideo'))) return
+    const input = youtube
       ? `yt-dlp -q -f ${quote(`best[height<=${height}]/best`)} -o - ${quote(url)} | ffmpeg -hide_banner -loglevel error -re -i -`
       : `ffmpeg -hide_banner -loglevel error -re -stream_loop -1 -i ${quote(url.replace(/^file:\/\//, ''))}`
     return this.initCommand(`${input} ${ffmpegOutput(width, height)}`, { width, height, ...params })
   }
 
   sourcePrototype.initImage = function (url = '', { width = DEFAULT_WIDTH, height = DEFAULT_HEIGHT, ...params } = {}) {
+    if (!requireProgram('ffmpeg', 'initImage')) return
     return this.initCommand(`ffmpeg -hide_banner -loglevel error -i ${quote(url.replace(/^file:\/\//, ''))} ` +
       `-frames:v 1 ${ffmpegOutput(width, height)}`, { width, height, ...params })
   }

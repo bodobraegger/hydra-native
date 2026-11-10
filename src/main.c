@@ -25,6 +25,7 @@
 #include "webgl.h"
 #include "midi.h"
 #include "native.h"
+#include "process.h"
 #include "overlay.h"
 #include "thumbnails.h"
 #include "settings.h"
@@ -405,6 +406,13 @@ static JSValue js_cameras(JSContext *ctx, JSValueConst this, int argc, JSValueCo
     JSValue array = JS_NewArray(ctx);
     for (int i = 0; i < count; i++) JS_SetPropertyUint32(ctx, array, (uint32_t)i, JS_NewString(ctx, names[i]));
     return array;
+}
+
+static JSValue js_find_program(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    const char *name = JS_ToCString(ctx, argv[0]);
+    bool found = name && process_find_program(name);
+    JS_FreeCString(ctx, name);
+    return JS_NewBool(ctx, found);
 }
 
 static const char *audio_device_option;
@@ -828,6 +836,7 @@ static const JSCFunctionListEntry native_functions[] = {
     JS_CFUNC_DEF("videoClose", 1, js_video_close),
     JS_CFUNC_DEF("cameraOpen", 3, js_camera_open),
     JS_CFUNC_DEF("cameras", 0, js_cameras),
+    JS_CFUNC_DEF("findProgram", 1, js_find_program),
     JS_CFUNC_DEF("audioStart", 0, js_audio_start),
     JS_CFUNC_DEF("audioFeatures", 0, js_audio_features),
     JS_CFUNC_DEF("fetchStart", 1, js_fetch_start),
@@ -1218,6 +1227,7 @@ static JSValue js_record_start(JSContext *ctx, JSValueConst this, int argc, JSVa
     snprintf(recording_path, sizeof recording_path, "%s.webm", base);
     int width, height;
     SDL_GetWindowSizeInPixels(window, &width, &height);
+    if (!process_find_program("ffmpeg")) return JS_ThrowInternalError(ctx, "vidRecorder needs ffmpeg in PATH");
     if (!recorder_start(recording_path, width & ~1, height & ~1)) return JS_ThrowInternalError(ctx, "cannot record");
     return JS_UNDEFINED;
 }
