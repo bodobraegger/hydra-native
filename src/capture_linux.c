@@ -32,6 +32,7 @@
 #define PORTAL_SOURCES_MONITOR_AND_WINDOW (1u | 2u)
 #define PORTAL_CURSOR_EMBEDDED 2u
 #define PORTAL_RESPONSE_SUCCESS 0u
+#define PORTAL_CLOSE_TIMEOUT_MS 1000
 #define DRY_RUN_NODE 42u
 #define PIPELINE_CHECK_MS 200
 
@@ -39,10 +40,28 @@ static GDBusConnection *bus;
 static GMainLoop *loop;
 static struct process *pipeline;
 static int exit_status;
+// While a portal request waits for its answer, its own loop runs and its dialog (the picker) may be open.
+static GMainLoop *request_loop;
+static char request_path[256];
+static bool stopping;
 
+// SIGTERM, SIGINT or the end of the program that reads our frames: close an open picker, then end every loop.
+// Without the request loop, a stop during the picker did nothing, and the program waiting for us blocked.
 static gboolean quit_loop(gpointer data) {
+    stopping = true;
+    if (bus && request_path[0]) {
+        GVariant *reply = g_dbus_connection_call_sync(bus, PORTAL_BUS_NAME, request_path, PORTAL_REQUEST_INTERFACE, "Close",
+                                                      NULL, NULL, G_DBUS_CALL_FLAGS_NONE, PORTAL_CLOSE_TIMEOUT_MS, NULL, NULL);
+        if (reply) g_variant_unref(reply);
+    }
+    if (request_loop) g_main_loop_quit(request_loop);
     g_main_loop_quit(loop);
     return G_SOURCE_CONTINUE;
+}
+
+static gboolean output_closed(gint fd, GIOCondition condition, gpointer data) {
+    quit_loop(NULL);
+    return G_SOURCE_REMOVE;
 }
 
 // gst-launch-1.0 with pipewiresrc for `node` (through the PipeWire remote `fd` of the portal, or -1 for the
@@ -251,11 +270,15 @@ static uint32_t portal_request(const char *method, const char *session, GVariant
     struct portal_answer answer = { g_main_loop_new(NULL, FALSE), 1, NULL };
     guint subscription = g_dbus_connection_signal_subscribe(bus, PORTAL_BUS_NAME, PORTAL_REQUEST_INTERFACE, "Response", path, NULL,
                                                             G_DBUS_SIGNAL_FLAGS_NONE, portal_response, &answer, NULL);
-    GVariant *reply = call(PORTAL_BUS_NAME, PORTAL_PATH, PORTAL_SCREENCAST_INTERFACE, method, arguments, "(o)");
+    GVariant *reply = stopping ? NULL : call(PORTAL_BUS_NAME, PORTAL_PATH, PORTAL_SCREENCAST_INTERFACE, method, arguments, "(o)");
     g_variant_unref(arguments);
     if (reply) {
         g_variant_unref(reply);
-        g_main_loop_run(answer.loop);
+        snprintf(request_path, sizeof request_path, "%s", path);
+        request_loop = answer.loop;
+        if (!stopping) g_main_loop_run(answer.loop);
+        request_loop = NULL;
+        request_path[0] = '\0';
     }
     g_dbus_connection_signal_unsubscribe(bus, subscription);
     g_main_loop_unref(answer.loop);
@@ -345,6 +368,8 @@ int capture_run(const struct capture_request *request, int output) {
     loop = g_main_loop_new(NULL, FALSE);
     g_unix_signal_add(SIGTERM, quit_loop, NULL);
     g_unix_signal_add(SIGINT, quit_loop, NULL);
+    // Also when the reader dies without a signal to us, for example after a second Ctrl+C.
+    g_unix_fd_add(output, G_IO_HUP | G_IO_ERR, output_closed, NULL);
     if (!request->dry_run) {
         GError *error = NULL;
         bus = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, &error);

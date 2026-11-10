@@ -382,6 +382,8 @@ add_custom_target(unit-tests DEPENDS ${UNIT_TESTS} hydra-native-capture)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   add_test(NAME portal COMMAND python3 ${CMAKE_SOURCE_DIR}/test/portal_test.py)
   set_tests_properties(portal PROPERTIES LABELS unit)
+  add_test(NAME portal-stop COMMAND python3 ${CMAKE_SOURCE_DIR}/test/portal_stop_test.py)
+  set_tests_properties(portal-stop PROPERTIES LABELS unit)
 endif()
 
 # The checks run the program in hidden windows, with a settings folder of their own.
