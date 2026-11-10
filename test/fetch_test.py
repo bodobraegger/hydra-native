@@ -89,7 +89,7 @@ threading.Thread(target=server.serve_forever, daemon=True).start()
 with tempfile.TemporaryDirectory() as directory:
     sketch = pathlib.Path(directory, "fetch.js")
     sketch.write_text(SCRIPT % f"http://127.0.0.1:{server.server_address[1]}", encoding="utf-8")
-    run = subprocess.run([str(ROOT / "build" / "hydra-native"), "--hidden", "--no-vsync", str(sketch)],
+    run = subprocess.run([str(ROOT / "build" / "hydra-native"), "--hidden", "--no-vsync", "--no-analog-agc", str(sketch)],
                          capture_output=True, text=True, timeout=60)
 server.shutdown()
 

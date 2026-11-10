@@ -47,6 +47,7 @@ struct options {
     const char *files[32];
     int file_count;
     const char *audio_device;
+    bool no_analog_agc;
     const char *socket_path;
     const char *font_path;
     const char *screenshot_path;
@@ -73,7 +74,7 @@ static JSRuntime *runtime;
 static JSContext *js;
 static char executable_path_directory[PATH_MAX];
 static SDL_Window *window;
-static bool quit_requested;
+static volatile sig_atomic_t quit_requested; // also set by SIGINT and SIGTERM
 static int exit_code;
 
 // ---------------------------------------------------------------- helpers
@@ -988,6 +989,7 @@ static void usage(void) {
             "  --size WxH         window size (default %dx%d)\n"
             "  --fullscreen       start in fullscreen\n"
             "  --audio SOURCE     PulseAudio/PipeWire source for `a`, e.g. @DEFAULT_MONITOR@\n"
+            "  --no-analog-agc    leave the volume of the audio source alone (Chrome adjusts it)\n"
             "  --socket PATH      code socket (default $XDG_RUNTIME_DIR/%s)\n"
             "  --no-vsync         do not wait for the display refresh\n"
             "  --hidden           do not show the window (checks)\n"
@@ -1008,6 +1010,7 @@ static bool parse_options(int argc, char **argv, struct options *options) {
         else if (!strcmp(argument, "--hidden")) options->hidden = true;
         else if (!strcmp(argument, "--fullscreen")) options->fullscreen = true;
         else if (!strcmp(argument, "--hide-code")) options->hide_code = true;
+        else if (!strcmp(argument, "--no-analog-agc")) options->no_analog_agc = true;
         else if (!strcmp(argument, "--lang") && has_value) options->language = argv[++i];
         else if (!strcmp(argument, "--gallery-server") && has_value) options->gallery_server = argv[++i];
         else if (!strcmp(argument, "--l10n-url") && has_value) options->l10n_url = argv[++i];
@@ -1229,6 +1232,8 @@ static bool is_fullscreen(void) { return (SDL_GetWindowFlags(window) & SDL_WINDO
 
 static void request_quit(void) { quit_requested = true; }
 
+static void handle_quit_signal(int signal_number) { quit_requested = true; }
+
 int main(int argc, char **argv) {
     struct options options;
     if (!parse_options(argc, argv, &options)) {
@@ -1246,8 +1251,16 @@ int main(int argc, char **argv) {
 
     signal(SIGPIPE, SIG_IGN);
     audio_device_option = options.audio_device;
+    audio_set_analog_agc(!options.no_analog_agc);
+    // The analog gain control changes the volume of the audio source; every way out restores it.
+    atexit(audio_stop);
     gallery_server = options.gallery_server;
     if (!create_window(&options)) return 1;
+    // After SDL, which installs handlers of its own: the first SIGINT or SIGTERM ends the loop, so that the audio
+    // source gets its volume back; a second one ends the process at once.
+    struct sigaction quit_action = { .sa_handler = handle_quit_signal, .sa_flags = SA_RESETHAND };
+    sigaction(SIGINT, &quit_action, NULL);
+    sigaction(SIGTERM, &quit_action, NULL);
 
     runtime = JS_NewRuntime();
     js = JS_NewContext(runtime);
@@ -1404,6 +1417,7 @@ int main(int argc, char **argv) {
     }
 
     if (recorder_active()) recorder_stop();
+    audio_stop();
     fetch_stop_all();
     video_close_all();
     if (listener >= 0) {

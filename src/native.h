@@ -17,6 +17,8 @@ void video_close_all(void);
 
 // Audio input: Meyda-compatible "loudness" features from a PulseAudio/PipeWire source.
 bool audio_start(const char *device);
+void audio_set_analog_agc(bool enabled); // before audio_start(); --no-analog-agc turns it off
+void audio_stop(void);                   // restores the source volume that the analog gain control changed
 bool audio_features(float specific[BARK_BAND_COUNT], float *total);
 
 // Downloads with curl, and other child processes; fetch_poll calls `done` once per finished process with its
