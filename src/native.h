@@ -37,3 +37,13 @@ bool recorder_start(const char *path, int width, int height);
 bool recorder_active(void);
 void recorder_frame(double now); // call after the hydra frame and before the code overlay
 bool recorder_stop(void); // waits for ffmpeg; false when it failed
+// The output frames for the patch bay (25 fps, rows from the bottom) into `fd`, which the publisher closes.
+bool publisher_start(int fd, int width, int height);
+bool publisher_active(void);
+void publisher_stop(void);
+// The webRTC patch bay (tools/patch-bay.mjs): one helper process with JSON lines in and out.
+bool patch_bay_start(const char *script, const char *server, const char *room);
+bool patch_bay_send(const char *line);
+void patch_bay_poll(void (*line)(const char *text));
+bool patch_bay_publish(bool on, int width, int height); // opens or closes the output FIFO of the helper
+void patch_bay_stop(void);

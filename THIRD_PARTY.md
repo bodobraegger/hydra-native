@@ -42,6 +42,15 @@ a distributed hydra-native binary with its bundle falls under the AGPL-3.0.
   the npm package to build/p5.min.js; js/p5.js loads it on the first use of P5.
 - esbuild 0.28.2, MIT license. Build tool only, not in the output.
 
+## JavaScript packages of the patch bay (installed by pnpm, run by Node.js in tools/patch-bay.mjs)
+
+- @roamhq/wrtc 0.8.0 and its prebuilt binary @roamhq/wrtc-linux-x64 0.8.1 (wrtc.node, which contains the
+  WebRTC library of Google), BSD-2-Clause license. https://github.com/WonderInventions/node-webrtc
+  The WebRTC stack (ICE, DTLS-SRTP, VP8) of pb and s0.initStream. The user allowed this prebuilt download.
+- simple-peer 9.11.1 and socket.io-client 2.5.0 (the versions of the web editor), MIT license; shortid 2.2.17,
+  MIT license; inherits 2.0.4, ISC license; events 3.3.0, MIT license (also for js/patch-bay.js in the bundle).
+- socket.io 2.5.0, MIT license. Only for test/signalling_server.cjs.
+
 ## Code of the hydra web editor
 
 From https://github.com/hydra-synth/hydra (the editor of hydra.ojack.xyz), commit 680273b, AGPL-3.0:
@@ -51,6 +60,11 @@ From https://github.com/hydra-synth/hydra (the editor of hydra.ojack.xyz), commi
 - js/hydra-editor/UndoStack.js (src/views/editor/randomizer/UndoStack.js), unchanged.
 - js/hydra-editor/examples.json (src/stores/examples.json), the examples of the "random example" button.
 - js/hydra-editor/text-elements.js (src/stores/text-elements.js), the English texts of the info panel, unchanged.
+- js/hydra-editor/rtc-patch-bay.js and js/hydra-editor/pb-live.js (src/lib/patch-bay/), the webRTC patch bay,
+  unchanged; tools/patch-bay.mjs runs them in Node.js.
+
+From https://github.com/hydra-synth/hydra-server, backend/server.js, AGPL-3.0: the socket.io handlers of the
+signalling in test/signalling_server.cjs, without the TURN tokens of Twilio.
 - The class body of P5 in js/p5.js (src/lib/p5-wrapper.js).
 - The confirmation text of the gallery share prompt in src/ui.c (src/stores/gallery-store.js).
 

@@ -35,7 +35,7 @@ build/hydra-native --font /usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.t
 build/hydra-native --screenshot shot.png sketch.js       # write the window with the code as PNG after 1.5 s and exit
 build/hydra-native 'https://hydra.ojack.xyz/?code=...'  # a sketch URL of the web editor
 build/hydra-native --lang de                             # the info panel in German
-build/hydra-native --gallery-server URL sketch.js        # Ctrl+Shift+G shares with this hydra gallery server
+build/hydra-native --gallery-server URL sketch.js        # Ctrl+Shift+G shares with this hydra server; pb joins its room
 ```
 
 The program evaluates the files in the given order, in the global scope, like the browser console.
@@ -210,6 +210,13 @@ feOffset, feBlend, feComposite, feFlood, feMerge, feMorphology, feTurbulence and
 Requests follow the CORS and mixed-content rules of a page at https://hydra.ojack.xyz, so a server that the web
 editor cannot read fails here too. `vidRecorder.start()` and `vidRecorder.stop()` record the visuals to a WebM file
 (VP9, 25 fps) in ~/Downloads. `navigator.requestMIDIAccess()` gives MIDI input and output through ALSA.
+
+With `--gallery-server URL`, `pb` joins the room 'iclc' of the signalling server at that URL, as the web editor
+does with its server, and publishes the output of hydra-native. `pb.list()` shows the peers, and
+`s0.initStream(id)` receives a peer, such as a web editor in the same room. node runs the patch bay code of the
+web editor in tools/patch-bay.mjs, with the prebuilt WebRTC of @roamhq/wrtc (`pnpm install` downloads it).
+test/patch_bay_test.py checks it with two instances and test/signalling_server.cjs, a local copy of the signalling
+of hydra-server.
 
 The audio object `a` is the one of hydra-synth (`a.show()`, `a.setBins()`, `a.setSmooth()`, `a.fft`).
 Like getUserMedia() in Chrome, hydra-native processes the input with the WebRTC audio processing: a high-pass

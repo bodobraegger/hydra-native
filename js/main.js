@@ -1,6 +1,7 @@
 // Entry of build/hydra-bundle.js: runs the unchanged hydra-synth renderer on the native shims.
 import { onAfterFrame, RecordingContext2D } from './dom-shim.js'
 import { pendingFetches } from './network.js'
+import { PatchBay } from './patch-bay.js'
 import Hydra from 'hydra-synth'
 import { installSources } from './sources.js'
 import beautify from 'js-beautify'
@@ -14,7 +15,11 @@ const canvas = document.createElement('canvas')
 ;[canvas.width, canvas.height] = native.drawableSize()
 document.body.appendChild(canvas)
 
-const hydra = new Hydra({ canvas, enableStreamCapture: false })
+// As in the web editor (src/views/Hydra.js): with a server, pb joins the room 'iclc' and publishes the output,
+// and hydra-synth uses it for initStream; without one, there is no webRTC.
+const pb = native.galleryServer ? new PatchBay() : null
+const hydra = new Hydra({ canvas, enableStreamCapture: false, pb })
+if (pb) pb.init(null, { server: native.galleryServer })
 // The audio meter of lib/audio.js draws its bars into this recording context, see the overlay code below.
 if (hydra.synth.a) {
   hydra.synth.a.ctx = Object.assign(new RecordingContext2D(hydra.synth.a.canvas), { fillStyle: '#DFFFFF', strokeStyle: '#0ff' })

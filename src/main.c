@@ -479,6 +479,37 @@ static JSValue js_http_request(JSContext *ctx, JSValueConst this, int argc, JSVa
     return JS_NewInt32(ctx, id);
 }
 
+// ---------------------------------------------------------------- webRTC patch bay (tools/patch-bay.mjs)
+
+static JSValue js_patch_bay_start(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    const char *server = JS_ToCString(ctx, argv[0]), *room = JS_ToCString(ctx, argv[1]);
+    char script[PATH_MAX + 64];
+    snprintf(script, sizeof script, "%s/../tools/patch-bay.mjs", executable_path_directory);
+    bool ok = server && room && patch_bay_start(script, server, room);
+    JS_FreeCString(ctx, server);
+    JS_FreeCString(ctx, room);
+    return JS_NewBool(ctx, ok);
+}
+
+static JSValue js_patch_bay_send(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    const char *line = JS_ToCString(ctx, argv[0]);
+    bool ok = line && patch_bay_send(line);
+    JS_FreeCString(ctx, line);
+    return JS_NewBool(ctx, ok);
+}
+
+// patchBayPublish(on): the output frames go to the helper (at the size of the drawable, even) while `on`.
+static JSValue js_patch_bay_publish(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    int width, height;
+    SDL_GL_GetDrawableSize(window, &width, &height);
+    return JS_NewBool(ctx, patch_bay_publish(JS_ToBool(ctx, argv[0]), width & ~1, height & ~1));
+}
+
+static void patch_bay_line(const char *text) {
+    JSValue arguments[1] = { JS_NewString(js, text) };
+    call_global("__patchBay", 1, arguments);
+}
+
 // Sharing: the screenshot comes from the next frame, then tools/gallery_share.py sends the requests.
 static const char *gallery_server;
 static struct {
@@ -751,6 +782,9 @@ static const JSCFunctionListEntry native_functions[] = {
     JS_CFUNC_DEF("audioStart", 0, js_audio_start),
     JS_CFUNC_DEF("audioFeatures", 0, js_audio_features),
     JS_CFUNC_DEF("fetchStart", 1, js_fetch_start),
+    JS_CFUNC_DEF("patchBayStart", 2, js_patch_bay_start),
+    JS_CFUNC_DEF("patchBaySend", 1, js_patch_bay_send),
+    JS_CFUNC_DEF("patchBayPublish", 1, js_patch_bay_publish),
     JS_CFUNC_DEF("httpRequest", 4, js_http_request),
     JS_CFUNC_DEF("midiStart", 0, js_midi_start),
     JS_CFUNC_DEF("midiInputs", 0, js_midi_inputs),
@@ -1361,6 +1395,7 @@ int main(int argc, char **argv) {
         JSValue arguments[1] = { JS_NewFloat64(js, now) };
         call_global("__frame", 1, arguments);
         fetch_poll(fetch_done);
+        patch_bay_poll(patch_bay_line);
         run_pending_jobs();
         check_pending_evaluations();
         double after_js = now_ms();
@@ -1420,6 +1455,7 @@ int main(int argc, char **argv) {
 
     if (recorder_active()) recorder_stop();
     audio_stop();
+    patch_bay_stop();
     fetch_stop_all();
     video_close_all();
     if (listener >= 0) {

@@ -25,6 +25,20 @@ function cameraDevices () {
   return devices
 }
 
+// A native video source for the texture of a HydraSource: the RGBA frames that `command` writes to stdout.
+export function nativeVideo (command, width, height) {
+  const handle = native.videoOpen(command, width, height)
+  return {
+    width,
+    height,
+    command,
+    videoHandle: handle,
+    upload: (texture) => native.videoUpload(handle, texture.id),
+    close: () => native.videoClose(handle),
+    get running () { return native.videoRunning(handle) }
+  }
+}
+
 export function installSources (sourcePrototype) {
   const clear = sourcePrototype.clear
 
@@ -36,16 +50,7 @@ export function installSources (sourcePrototype) {
   // initCommand(shellCommand, { width, height, ...textureParams }) is the base of all other inputs.
   sourcePrototype.initCommand = function (command, { width = DEFAULT_WIDTH, height = DEFAULT_HEIGHT, ...params } = {}) {
     this.clear()
-    const handle = native.videoOpen(command, width, height)
-    this.src = {
-      width,
-      height,
-      command,
-      videoHandle: handle,
-      upload: (texture) => native.videoUpload(handle, texture.id),
-      close: () => native.videoClose(handle),
-      get running () { return native.videoRunning(handle) }
-    }
+    this.src = nativeVideo(command, width, height)
     this.tex = this.regl.texture({ width, height, ...params })
     this.dynamic = true
     return this
@@ -93,9 +98,5 @@ export function installSources (sourcePrototype) {
   sourcePrototype.initImage = function (url = '', { width = DEFAULT_WIDTH, height = DEFAULT_HEIGHT, ...params } = {}) {
     return this.initCommand(`ffmpeg -hide_banner -loglevel error -i ${quote(url.replace(/^file:\/\//, ''))} ` +
       `-frames:v 1 ${ffmpegOutput(width, height)}`, { width, height, ...params })
-  }
-
-  sourcePrototype.initStream = function () {
-    console.warn('initStream (hydra peer streams) is not available in hydra-native')
   }
 }
