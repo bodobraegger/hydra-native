@@ -43,12 +43,18 @@ Run `build/hydra-native --help` for all options.
 
 ## Code overlay
 
-The overlay shows the code on a dark, partly transparent background behind each line, with syntax colors.
-Evaluated lines flash for 250 ms.
+The overlay shows the code on a dark, partly transparent background behind each line, with syntax colors
+and bracket pair colors. Long lines wrap with a hanging indent of 2 (Alt+Z toggles the wrap).
+Evaluated lines flash for 300 ms.
 An evaluation error, or a console warning during the evaluation (for example a shader compile error), shows in the bar at the bottom.
 The next successful evaluation clears the bar.
 Ctrl+Shift+H hides and shows the overlay; the visuals keep running, and the evaluation keys keep working.
 The default font is DejaVu Sans Mono at 20 pixels (`--font`, `--font-size`, Ctrl+plus and Ctrl+minus).
+The toolbar at the top right has the buttons of the web editor: run, clear, example, mutate (Shift: undo,
+Ctrl: change a function) and help. PLAN.md compares every feature with the web editor.
+
+The editor has multiple cursors, find and replace, go to line, a command palette and autocomplete of hydra
+names and of the words of the file. Typing an opening bracket or quote adds the closing one.
 
 ## Send code from an editor
 
@@ -71,34 +77,33 @@ The package is not tested in Pulsar yet.
 ## Keys
 
 All keys are in one table in `src/keymap.c`; change a key there and run `make`.
+F1 shows every command with its keys, and Ctrl+Shift+P finds a command by name.
+The main keys follow the web editor, the user's Pulsar keymap and VS Code.
 Keys marked "always" also work while the overlay is hidden.
 
-| Key                                    | Action                                                                    |
-| -------------------------------------- | ------------------------------------------------------------------------- |
-| Ctrl+Enter, Shift+Enter                | evaluate the line or the selection (always)                               |
-| Alt+Enter                              | evaluate the block between blank lines (always)                           |
-| Ctrl+Alt+Enter, Ctrl+Shift+Enter       | evaluate all (always)                                                     |
-| Ctrl+Shift+H                           | hide or show the code (always)                                            |
-| Ctrl+S                                 | save to the sketch file (always)                                          |
-| F11                                    | toggle fullscreen (always)                                                |
-| Escape                                 | close find, clear the selection, leave fullscreen                         |
-| Ctrl+Q                                 | quit (always)                                                             |
-| Ctrl+Z; Ctrl+Shift+Z, Ctrl+Y           | undo; redo                                                                |
-| Ctrl+C, Ctrl+X, Ctrl+V                 | copy, cut, paste (without a selection: the line)                          |
-| Ctrl+A                                 | select all                                                                |
-| Ctrl+/ (Ctrl+Shift+7 on the ch layout) | toggle comment                                                            |
-| Alt+Up, Alt+Down                       | move the line or the selected lines                                       |
-| Shift+Alt+Down                         | duplicate the line or the selected lines                                  |
-| Shift+Alt+F                            | format (indentation by brackets and chains)                               |
-| Ctrl+D                                 | select the word, then move to the next occurrence                         |
-| Ctrl+F                                 | find; Enter finds the next match                                          |
-| Ctrl+plus, Ctrl+minus                  | font size                                                                 |
-| Ctrl+Up, Ctrl+Down                     | nothing                                                                   |
-| Tab, Shift+Tab                         | indent, outdent                                                           |
-| Ctrl+Backspace                         | delete the word to the left                                               |
-| arrows, Home, End, PageUp, PageDown    | move; with Shift, select                                                  |
-| Ctrl+Left, Ctrl+Right, Ctrl+Home/End   | move by word, to the start or end; with Shift, select                     |
-| mouse                                  | click, drag, Shift+click, double click (word), triple click (line), wheel |
+| Key                                            | Action                                                 |
+| ---------------------------------------------- | ------------------------------------------------------ |
+| Ctrl+Enter, Shift+Enter                        | evaluate the line or the selection (always)            |
+| Alt+Enter                                      | evaluate the block between blank lines (always)        |
+| Ctrl+Alt+Enter, Ctrl+Shift+Enter               | evaluate all (always)                                  |
+| Ctrl+Shift+H                                   | hide or show the code (always)                         |
+| Ctrl+S; Ctrl+Shift+S                           | save; save a screenshot and the code (always)          |
+| F1; Ctrl+Shift+P                               | help; command palette (always)                         |
+| F7; F8, Shift+F8, Ctrl+F8; Ctrl+Shift+Delete   | example; mutate, undo, change a function; clear all    |
+| F11; Ctrl+Q                                    | fullscreen; quit (always)                              |
+| Ctrl+Shift+F, Shift+Alt+F                      | format with js-beautify                                |
+| Ctrl+/ (Ctrl+Shift+7 on the ch layout)         | toggle comment                                         |
+| Alt+Up, Alt+Down; Shift+Alt+Down, Ctrl+Shift+D | move lines; duplicate lines                            |
+| Ctrl+L; Ctrl+Shift+K; Ctrl+J                   | select line; delete line; join lines                   |
+| Ctrl+D                                         | select the word, then add the next occurrence          |
+| Ctrl+Shift+Up/Down, Ctrl+Alt+Up/Down           | add a cursor above or below                            |
+| Alt+click; Shift+Alt+drag; Ctrl+Shift+L        | add a cursor; column selection; a cursor per line      |
+| Ctrl+F, F3, Shift+F3; Ctrl+H; Ctrl+G           | find; replace (Tab, Enter, Ctrl+Alt+Enter); go to line |
+| Ctrl+Space                                     | autocomplete (also while typing a word)                |
+| Ctrl+], Ctrl+[; Tab, Shift+Tab                 | indent, outdent                                        |
+| Ctrl+M; Ctrl+Shift+M                           | go to the bracket; select inside the brackets          |
+| Ctrl+Up, Ctrl+Down                             | nothing                                                |
+| Escape                                         | close a popup, keep one cursor, leave fullscreen       |
 
 Sketches add keys with the browser API, for example
 `window.addEventListener('keydown', (event) => { if (event.key === '1') speed = 2 })`.

@@ -17,10 +17,10 @@ A native renderer is feasible: the MVP in this directory runs the repo sketches 
 It is not a reason to leave Chromium for frame rate at 1920x1080 on 60 Hz.
 Both variants draw the same shaders on the same Mesa driver, and both reach about 2.5 to 5 times the 60 fps that the display needs.
 
-Update: the user chose an in-window editor with its core in C. It now exists (see "Editor, code overlay and keys").
-It has the must-have features: the overlay, editing, the evaluation keys, files and the Pulsar line keys.
-It does not have multiple cursors and autocomplete.
-With the overlay visible, a repo sketch at 1920x1080 renders at 229 fps instead of 246 fps (0.3 ms more per frame).
+Update: the user chose an in-window editor with its core in C, with the features of the web editor at hydra.ojack.xyz.
+It now exists; see "Parity with hydra.ojack.xyz" for each feature and "Editor, code overlay and keys" for the design.
+With the overlay visible, a repo sketch at 1920x1080 renders at 258 fps instead of 271 fps
+(0.19 ms more per frame, of which 0.14 ms CPU), measured on a quiet machine.
 
 My recommendation: keep the Chromium variant (hydra/hydra-editor) as the main tool.
 Continue hydra-native only if 4K output, a smaller memory footprint or a browser-free stage setup becomes a real need.
@@ -87,7 +87,7 @@ Native can win in these areas:
 - Frame pacing and latency. A native window can present with vsync directly; Chromium adds its compositor.
   I did not measure the latency from input to display.
 
-## Architecture (as built in the MVP)
+## Architecture
 
 ```text
 editor --(Unix socket, code)--> hydra-native (C, one process)
@@ -98,8 +98,13 @@ editor --(Unix socket, code)--> hydra-native (C, one process)
                                      js/dom-shim.js    window, document, timers, events
                                      js/meyda-shim.js  audio features from src/audio.c
                                      js/sources.js     s0..s3 inputs on src/video.c
+                                     js/canvas.js      2D canvas on src/canvas2d.c (plutovg)
+                                     js/midi.js        Web MIDI on src/midi.c (ALSA)
+                                     js/editor-actions.js  examples and mutator of the web editor
                                   src/video.c   child process -> pipe -> texture upload
                                   src/audio.c   PulseAudio/PipeWire -> FFT -> 24 Bark bands
+                                  src/fetch.c   curl for loadScript(url)
+                                  src/editor.c, ui.c, overlay.c, keymap.c   the code overlay
 ```
 
 The design reuses hydra-synth instead of a reimplementation of the API.
@@ -113,24 +118,81 @@ It compiles shaders when hydra creates a pass, so that a shader error keeps the 
 The audio code computes the Meyda "loudness" feature exactly as Meyda 5.6.3 does (512-sample Hann window, 24 Bark bands, sum^0.23).
 Thus `a.setScale`, `a.setCutoff` and `a.setBins` keep their meaning.
 
-## Compatibility with the Hydra JS API
+## Parity with hydra.ojack.xyz
 
-These parts work as in the browser:
+The list comes from the source of the web editor (src/views/editor/editor.js, keymaps.js, src/stores/store.js,
+editor-store.js, gallery-store.js, src/views/toolbar.js, Hydra.js, repl-v2.js and randomizer/Mutator.js) and from
+the CodeMirror 5 sublime keymap that it loads. Status "done" means that a test or a screenshot checked it.
 
-- All sources and transforms of hydra-synth, `out`, `render`, `hush`, `speed`, `bpm`, `update`, `setFunction`.
-- `a` with `show`, `hide`, `setBins`, `setSmooth`, `setScale`, `setCutoff`, `fft`, `onBeat`. `a.show()` draws its meter.
-- `loadScript(path)` for local files, `setTimeout`, `setInterval`, `requestAnimationFrame`, keyboard and mouse events, `mouse`.
-- The extensions hydra-arrays, hydra-blend, hydra-wrap and hydra-tap load and work; `.layer()` of hydra-blend renders.
-  hydra-text and hydra-canvas load without errors, but they draw nothing (see below).
+### Evaluation, overlay and the keys of the web editor
 
-These parts do not work:
+| Feature                          | Web editor                   | hydra-native                       | Status |
+| -------------------------------- | ---------------------------- | ---------------------------------- | ------ |
+| eval line                        | Ctrl+Enter (line)            | Ctrl/Shift+Enter, also selection   | done   |
+| eval block                       | Alt+Enter                    | Alt+Enter                          | done   |
+| eval all                         | Ctrl+Shift+Enter, run button | also Ctrl+Alt+Enter, run button    | done   |
+| flash of the evaluated code      | 300 ms                       | 300 ms                             | done   |
+| error line at the bottom         | yes                          | yes, also shader errors            | done   |
+| hide code                        | Ctrl+Shift+H                 | Ctrl+Shift+H                       | done   |
+| format code (js-beautify)        | Ctrl+Shift+F                 | Ctrl+Shift+F, Shift+Alt+F (spaces) | done   |
+| toggle comment                   | Ctrl+/                       | Ctrl+/ (Ctrl+Shift+7 on ch)        | done   |
+| screencap with code              | Ctrl+Shift+S (png and js)    | Ctrl+Shift+S, to ~/Downloads       | done   |
+| clear all (hush, speed 1)        | toolbar                      | toolbar, Ctrl+Shift+Delete         | done   |
+| random example (examples.json)   | toolbar                      | toolbar, F7                        | done   |
+| mutator, undo, change a function | dice, Shift+dice, Meta+dice  | toolbar, F8, Shift+F8, Ctrl+F8     | done   |
+| info panel                       | toolbar                      | help of all keys, F1, ? button     | done   |
+| line wrapping                    | on                           | on, Alt+Z toggles                  | done   |
+| multiple selections              | CodeMirror                   | yes                                | done   |
+| code from the URL, save to URL   | Ctrl+Shift+L                 | files on disk instead              | out    |
+| share to the gallery             | Ctrl+Shift+G, toolbar        | none, needs the gallery server     | out    |
+| extensions panel                 | toolbar                      | none, needs the catalog server     | out    |
+| language selection               | info panel                   | English only                       | out    |
 
-- 2D canvas drawing (hydra-text, hydra-canvas, `s0.initCanvas()`). There is no 2D canvas implementation.
-  Options: a software rasterizer in JS (slow), or a native 2D library (Skia or Cairo, needs `libcairo2-dev`).
-- Web MIDI (`navigator.requestMIDIAccess`) in setup-in-console.js. ALSA sequencer input in C is about one day of work.
-- `loadScript` of http URLs, `initStream` (peer streams), `screencap` and video recording.
-- Top-level `await` in evaluated code.
+### Keys of the CodeMirror 5 sublime keymap (loaded by the web editor)
+
+| Feature                                  | Web editor                  | hydra-native                     | Status  |
+| ---------------------------------------- | --------------------------- | -------------------------------- | ------- |
+| select next occurrence                   | Ctrl+D                      | Ctrl+D                           | done    |
+| select line                              | Ctrl+L                      | Ctrl+L                           | done    |
+| delete line                              | Ctrl+Shift+K                | Ctrl+Shift+K                     | done    |
+| duplicate line                           | Ctrl+Shift+D                | Ctrl+Shift+D, Shift+Alt+Down     | done    |
+| join lines                               | Ctrl+J                      | Ctrl+J                           | done    |
+| go to bracket, select between brackets   | Ctrl+M, Ctrl+Shift+M        | Ctrl+M, Ctrl+Shift+M             | done    |
+| split selection by line                  | Ctrl+Shift+L                | Ctrl+Shift+L                     | done    |
+| add cursor above and below               | Ctrl+Alt+Up/Down            | also Ctrl+Shift+Up/Down (Pulsar) | done    |
+| swap line up and down                    | Ctrl+Shift+Up/Down          | Alt+Up/Down (Pulsar)             | done    |
+| indent more and less                     | Ctrl+], Ctrl+[              | Ctrl+], Ctrl+[                   | done    |
+| transpose characters                     | Ctrl+T                      | Ctrl+T                           | done    |
+| sort lines                               | F9                          | F9                               | done    |
+| delete word left and right               | Ctrl+Backspace, Ctrl+Delete | Ctrl+Backspace, Ctrl+Delete      | done    |
+| move by subword                          | Ctrl+Left/Right             | by word, like Pulsar and VS Code | differs |
+| bookmarks, find under, select scope      | Ctrl+F2, Ctrl+F3, ...       | none                             | missing |
+| upper and lower case, wrap lines (Alt+Q) | Ctrl+K chords, Alt+Q        | none                             | missing |
+
+### Hydra API and inputs
+
+| Feature                           | Web editor                  | hydra-native                     | Status  |
+| --------------------------------- | --------------------------- | -------------------------------- | ------- |
+| sources, transforms, render, hush | hydra-synth                 | the same hydra-synth 1.4.0       | done    |
+| speed, bpm, update, time, mouse   | hydra-synth                 | the same                         | done    |
+| setResolution                     | stretched by CSS            | stretched over the window        | done    |
+| top-level await                   | async wrapper               | global async eval                | done    |
+| loadScript (paths and http URLs)  | script tag                  | file or curl, global eval        | done    |
+| initCam                           | getUserMedia                | GStreamer v4l2src                | done    |
+| initScreen                        | portal dialog               | Mutter ScreenCast, no dialog     | done    |
+| initVideo, initImage              | video and img elements      | ffmpeg (YouTube needs yt-dlp)    | done    |
+| initCanvas and 2D canvas          | DOM canvas                  | plutovg, no gradients            | done    |
+| initStream (webRTC)               | patch-bay server            | none                             | out     |
+| a (audio FFT, show, setBins, ...) | Meyda on the microphone     | the same feature from PulseAudio | done    |
+| Web MIDI input                    | navigator.requestMIDIAccess | ALSA sequencer; no MIDI output   | done    |
+| screencap()                       | download                    | PNG and js in ~/Downloads        | done    |
+| P5 (p5.js as a source)            | window.P5                   | none                             | missing |
+| video recording (vidRecorder)     | MediaRecorder               | none                             | missing |
+
+These parts of the browser behave differently:
+
 - Timers fire at frame boundaries (resolution 16 ms at 60 Hz).
+- Keys go to the overlay first, then to the `window` listeners of sketches, as in the browser.
 
 ## Video input
 
@@ -159,30 +221,35 @@ The browser applies automatic gain control to getUserMedia audio and hydra-nativ
 
 The editor is C code in four files:
 
-- `src/editor.c`: the text core. A UTF-8 byte buffer with a line index, one cursor with a selection,
-  and undo by snapshots (typing and deleting in sequence merge into one step, 1000 steps).
-  Motions, word motion, line operations, comment toggle, format, block detection, bracket match and find.
-  It has no SDL or GL dependency; `test/editor_test.c` checks it.
+- `src/editor.c`: the text core. A UTF-8 byte buffer with a line index, a list of selections (multiple cursors),
+  and undo by snapshots of the text and of all selections (typing in sequence is one step, 1000 steps).
+  Each edit and motion runs once per selection. Line commands, typing rules (closing brackets and quotes,
+  indentation), find and replace, block detection, bracket match, words for autocomplete and soft wrap with a
+  hanging indent of 2. It has no SDL or GL dependency; `test/editor_test.c` checks it.
 - `src/overlay.c`: rendering. stb_truetype packs the glyphs of a monospace font into one atlas texture.
   All rectangles and glyphs of a frame go into one vertex buffer and one draw call, in a vertex array object of its own.
-- `src/ui.c`: the overlay state and the commands. Layout, scrolling, mouse, clipboard (SDL), find,
-  evaluation with flash and error bar, save, file reload for `--watch`, JavaScript syntax colors.
-- `src/keymap.c`: all keys in one table. `test/ui_test.c` sends key events through this table, without a window.
+- `src/ui.c`: the overlay state and the commands. Visual row layout, scrolling, mouse (Alt+click adds a cursor,
+  Shift+Alt+drag selects a column), clipboard (SDL), prompts for find, replace, go to line and the command palette,
+  the autocomplete list, evaluation with flash and error bar, toolbar, help, save, file reload for `--watch`,
+  JavaScript syntax colors and bracket pair colors.
+- `src/keymap.c`: all keys in one table, with a context for the autocomplete list and the prompts.
+  The help (F1) and the command palette list the commands of this table. `test/ui_test.c` sends key events
+  through this table, without a window.
 
 Decisions:
 
 - Code from the socket does not enter the editor text. The overlay shows the sketch file; socket errors show in the error bar.
 - `--watch` replaces the overlay text only when it has no unsaved edits.
-- A key event goes to the overlay first and then to the sketch's `window` listeners, as in the browser.
 - Only the left Alt key counts as Alt, so AltGr still types characters on the ch and us+intl layouts.
-- The format command only changes indentation (bracket depth, one more level for lines that start with ".") and trailing spaces.
+- The formatter is js-beautify with the options of the web editor, but with two spaces instead of tabs.
+- Line commands with several cursors work on the lines from the first to the last cursor.
+- The editor core is my own code. I compared it with lite-xl and kilo, but no code of them is in it;
+  the borrowed parts are listed in THIRD_PARTY.md.
 
 Not done:
 
-- Multiple cursors (Shift+Ctrl+Up and Shift+Ctrl+Down). The core has one cursor; Ctrl+D moves the one selection to the next occurrence.
-  Multiple cursors need a selection list in every editing operation (estimate: 2 to 3 days).
-- Autocomplete of hydra function names (estimate: 1 day; the names come from the transform list of hydra-synth).
-- Line wrap. Long lines scroll horizontally.
+- Code folding. It does not combine well with soft wrap and was not cheap.
+- tree-sitter for highlighting and indentation. The own highlighter covers JavaScript well enough for sketches.
 - Tabs show as one column. The editor inserts two spaces for Tab.
 - The preview of an IME composition (SDL_TEXTEDITING). Dead keys and composed characters arrive as text input.
 - I did not try typing, dead keys and the mouse by hand: no input could be sent to the desktop without risk to the user's open windows.
@@ -193,26 +260,26 @@ so sketches and loaded scripts define keys with the browser API.
 
 ## Effort estimate
 
-| Work package                                                    | Effort       | State         |
-| --------------------------------------------------------------- | ------------ | ------------- |
-| Baseline measurement in Brave                                   | 0.5 day      | done          |
-| MVP: QuickJS, hydra-synth, regl shim, window, socket, watch     | 1 day        | done          |
-| MVP: webcam, monitor, area, window, video inputs; audio FFT     | 0.5 day      | done          |
-| Pulsar sender package (eval line, block, all)                   | 0.2 day      | done, untried |
-| In-window editor in C: overlay, editing, eval keys, files       | 2 days       | done          |
-| Editor: multiple cursors                                        | 2 to 3 days  | open          |
-| Editor: autocomplete of hydra function names                    | 1 day        | open          |
-| Zero-copy PipeWire and V4L2 input (needs PipeWire headers)      | 3 to 5 days  | open          |
-| Web MIDI replacement (ALSA sequencer)                           | 1 day        | open          |
-| 2D canvas for hydra-text and hydra-canvas                       | 1 to 2 weeks | open          |
-| Robustness for stage use (error overlay, crash recovery, tests) | 3 to 5 days  | open          |
+| Work package                                                     | Effort      | State         |
+| ---------------------------------------------------------------- | ----------- | ------------- |
+| Baseline measurement in Brave                                    | 0.5 day     | done          |
+| MVP: QuickJS, hydra-synth, regl shim, window, socket, watch      | 1 day       | done          |
+| MVP: webcam, monitor, area, window, video inputs; audio FFT      | 0.5 day     | done          |
+| Pulsar sender package (eval line, block, all)                    | 0.2 day     | done, untried |
+| In-window editor in C: overlay, editing, eval keys, files        | 2 days      | done          |
+| Web editor parity: toolbar, examples, mutator, format, screencap | 1 day       | done          |
+| Multiple cursors, wrap, find and replace, palette, autocomplete  | 2 days      | done          |
+| Web MIDI input (ALSA sequencer)                                  | 0.5 day     | done          |
+| 2D canvas with plutovg                                           | 0.5 day     | done          |
+| p5.js as a source (needs more of the 2D canvas and DOM)          | 3 to 5 days | open          |
+| Zero-copy PipeWire and V4L2 input (needs PipeWire headers)       | 3 to 5 days | open          |
+| Robustness for stage use (error overlay, crash recovery, tests)  | 3 to 5 days | open          |
 
 ## System packages
 
-The MVP needs no new system package. These optional packages enable the next steps:
+No new system package is needed. These optional packages enable the next steps:
 
 ```sh
 sudo apt install libpipewire-0.3-dev libspa-0.2-dev   # zero-copy screen capture
-sudo apt install libcairo2-dev                       # 2D canvas for hydra-text and hydra-canvas
 pipx install yt-dlp                                  # YouTube input (no sudo)
 ```
