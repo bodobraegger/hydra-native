@@ -245,7 +245,7 @@ static void test_overlay_settings(const char *settings_file) {
         if (!strcmp(drawn_texts[i].text, "run") && drawn_texts[i].layer == OVERLAY_CODE_TEXT) toolbar_texts++;
     EXPECT(toolbar_texts == 1);
     EXPECT(click_text("difference", 1)); // the row "code text"
-    EXPECT(click_text("+", 0)); // the opacity of "code box", one step up from the theme value
+    EXPECT(click_text("+", 1)); // the opacity of "code box" (after "list opacity"), one step up from the theme value
     ui_draw(800, 600, 0);
     EXPECT(difference_layers[OVERLAY_CODE_TEXT] && !difference_layers[OVERLAY_CODE_BACKGROUND]);
     EXPECT(click_text("difference", 0)); // the row "code box"
@@ -268,12 +268,13 @@ static const char *text_ending(const char *suffix) {
     return "";
 }
 
+// The first number of the settings menu: the opacity of the autocomplete list.
 static int saved_opacity(const char *settings_file) {
     struct settings loaded;
     char error[SETTINGS_TEXT];
     settings_defaults(&loaded);
     settings_load(&loaded, settings_file, error, sizeof error);
-    return loaded.code_background_opacity;
+    return loaded.completion_opacity;
 }
 
 // The numbers of the settings menu as text fields: typing, Enter, Escape, the clamp, the arrows, the wheel, an
