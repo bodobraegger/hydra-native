@@ -1865,6 +1865,15 @@ static void load_settings_lists(void) {
 // texts (a custom server URL, the patch bay ids, font names) stay inside it; a text longer than a row is cut.
 #define LABEL_COLUMNS 22 // the names of the settings rows; a sub-row starts with a tree mark
 
+#define TOP_ROW_SPACING 1.5f // line heights from one top-level row of the settings menu to the next
+#define COMPACT_ROW_SPACING 1.25f // font sizes for sub-rows and wrapped items
+
+// At least the height of a line, so that the button boxes (the hit areas) do not overlap.
+static float compact_row_height(void) {
+    float height = COMPACT_ROW_SPACING * overlay_font_size();
+    return height > overlay_line_height() + 1 ? height : overlay_line_height() + 1;
+}
+
 struct panel_flow {
     float x, y, start, right;
     float top, bottom; // the panel shows only the rows between these; the wheel scrolls the others in
@@ -1894,7 +1903,7 @@ static float flow_place(struct panel_flow *flow, const char *text, size_t *colum
     float width = (float)*columns * char_width;
     if (flow->x > flow->start && flow->x + width > flow->right) {
         flow->x = flow->start;
-        flow->y += 1.25f * overlay_line_height();
+        flow->y += compact_row_height();
     }
     float x = flow->x;
     flow->x += width + char_width;
@@ -1934,10 +1943,11 @@ static void flow_text(struct panel_flow *flow, const char *text, uint32_t color)
     if (flow_visible(flow)) flow_text_in(flow, x, text, columns, color);
 }
 
-// Starts the next row with its name in the label column.
+// Starts the next row with its name in the label column. A sub-row of a group (its name starts with a space and
+// a tree mark) follows at the compact height, as in a dropdown; a top-level row keeps more space above it.
 static void flow_row(struct panel_flow *flow, float label_x, const char *label, bool first) {
     flow->x = flow->start;
-    if (!first) flow->y += 1.5f * overlay_line_height();
+    if (!first) flow->y += label[0] == ' ' ? compact_row_height() : TOP_ROW_SPACING * overlay_line_height();
     if (flow_visible(flow)) overlay_text(label_x, flow->y, label, strlen(label), 0, LABEL_COLUMNS, NULL, theme->help_keys);
 }
 
@@ -2058,11 +2068,11 @@ static void draw_settings(void) {
     flow_row(&flow, label_x, "font", false);
     flow_label(&flow, "file...", false, "font path");
     flow.x = flow.start;
-    flow.y += 1.25f * line_height;
+    flow.y += compact_row_height();
     for (size_t i = 0; i < font_choice_count; i++) {
         snprintf(action, sizeof action, "font %zu", i);
         flow.x = flow.start;
-        flow.y = flow.y + (i ? line_height : 0);
+        flow.y = flow.y + (i ? compact_row_height() : 0);
         flow_label(&flow, font_choices[i].family, !strcmp(font_choices[i].file, active_settings.font), action);
     }
     // The wheel scrolls until the last row is in the panel.
