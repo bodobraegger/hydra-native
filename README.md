@@ -77,7 +77,8 @@ signature help, the rendering of whitespace, line wrap, the gallery and patch ba
 monospace fonts (fc-list). Each choice applies at once and goes into the settings file. The server is "off" (the
 default; `pb` is undefined then), hydra.ojack.xyz (https://api.hydrasynth.xyz) or a custom URL; a change starts or
 stops the patch bay and the "share" button without a restart. While the patch bay is connected, the panel shows
-pb.id and the stream id, which other peers pass to `s0.initStream`; Ctrl+Alt+I copies the stream id.
+the stream id, which other peers pass to `s0.initStream` and which `pb.list()` shows; its "copy" button and
+Ctrl+Alt+I copy it.
 
 ### Settings file
 

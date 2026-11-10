@@ -16,6 +16,8 @@ static char evaluated[4096];
 static char next_error[256];
 static char patch_bay_server[256]; // the argument of the last __setPatchBayServer
 static char drawn[16384]; // all texts of the last frame, one per line
+static float copy_x, copy_y; // where the "copy" button of the settings panel shows its text
+#define STREAM_ID "stream456-a-long-id-of-the-signalling-server"
 
 #define EXPECT_STRING(actual, expected)                                                                    \
     do {                                                                                                   \
@@ -55,6 +57,10 @@ static char bar_text[512]; // the last drawn text that starts with "find: "
 void overlay_text(float x, float y, const char *text, size_t length, size_t first_column, size_t max_columns,
                   const uint32_t *colors, uint32_t color) {
     if (length > 6 && !strncmp(text, "find: ", 6)) snprintf(bar_text, sizeof bar_text, "%.*s", (int)length, text);
+    if (length == 4 && !strncmp(text, "copy", 4)) {
+        copy_x = x;
+        copy_y = y;
+    }
     size_t used = strlen(drawn);
     snprintf(drawn + used, sizeof drawn - used, "%.*s\n", (int)length, text);
 }
@@ -99,7 +105,7 @@ static char *call(const char *function, const char *argument) {
         snprintf(patch_bay_server, sizeof patch_bay_server, "%s", argument);
         return strdup("");
     }
-    if (!strcmp(function, "__patchBayId")) return strdup(patch_bay_server[0] ? "pbid123 stream456" : "");
+    if (!strcmp(function, "__patchBayId")) return strdup(patch_bay_server[0] ? "pbid123 " STREAM_ID : "");
     char *text = strdup(argument);
     for (char *c = text; *c; c++) *c = (char)toupper((unsigned char)*c);
     return text;
@@ -295,7 +301,12 @@ static void test_signatures(void) {
     EXPECT_STRING(evaluated, "osc().wobble(0.5)");
 }
 
+#define LONG_SERVER "http://127.0.0.1:9/a-long-path-of-a-custom-server"
+
 int main(void) {
+    // The dummy video driver gives SDL a clipboard without a window.
+    SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "dummy");
+    EXPECT(SDL_Init(SDL_INIT_VIDEO));
     char path[] = "/tmp/hydra-native-ui-test-XXXXXX";
     int fd = mkstemp(path);
     close(fd);
@@ -600,20 +611,30 @@ int main(void) {
     EXPECT_CONTAINS(content, "broken");
 
     // The gallery and patch bay server of the settings menu: a URL starts the patch bay at once, the panel shows
-    // the own id, Ctrl+Alt+I copies it, and an empty URL stops it again; the file keeps the choice.
+    // the stream id, Ctrl+Alt+I copies it, and an empty URL stops it again; the file keeps the choice.
     write_file(settings_file, "{}\n");
     key(SDLK_P, SDL_KMOD_LCTRL | SDL_KMOD_LSHIFT);
     type("set the gallery and patch bay");
     key(SDLK_RETURN, 0);
-    type("http://127.0.0.1:9"); // replaces the selected URL of the file loaded at the start
+    type(LONG_SERVER); // replaces the selected URL of the file loaded at the start
     key(SDLK_RETURN, 0);
-    EXPECT_STRING(patch_bay_server, "http://127.0.0.1:9");
+    EXPECT_STRING(patch_bay_server, LONG_SERVER);
     settings_defaults(&loaded);
     settings_load(&loaded, settings_file, error, sizeof error);
-    EXPECT_STRING(loaded.gallery_server, "http://127.0.0.1:9");
+    EXPECT_STRING(loaded.gallery_server, LONG_SERVER);
     key(SDLK_COMMA, SDL_KMOD_LCTRL);
     ui_draw(800, 600, 0);
-    EXPECT_CONTAINS(drawn, "pb.id pbid123, stream id stream456");
+    EXPECT_CONTAINS(drawn, "stream id " STREAM_ID);
+    // The copy button wraps into the panel (800 px wide here), and a click on it copies and keeps the panel open.
+    EXPECT(copy_x > 0 && copy_x < 760);
+    SDL_SetClipboardText("");
+    ui_mouse_button(copy_x + 5, copy_y + 5, true, 1, 0);
+    ui_mouse_button(copy_x + 5, copy_y + 5, false, 1, 0);
+    char *clipboard = SDL_GetClipboardText();
+    EXPECT_STRING(clipboard, STREAM_ID);
+    SDL_free(clipboard);
+    ui_draw(800, 600, 0);
+    EXPECT_CONTAINS(drawn, "stream id " STREAM_ID);
     key(SDLK_ESCAPE, 0);
     key(SDLK_I, SDL_KMOD_LCTRL | SDL_KMOD_LALT);
     ui_draw(800, 600, 0);
@@ -626,7 +647,7 @@ int main(void) {
     EXPECT_STRING(patch_bay_server, "");
     key(SDLK_COMMA, SDL_KMOD_LCTRL);
     ui_draw(800, 600, 0);
-    EXPECT(strstr(drawn, "pb.id") == NULL);
+    EXPECT(strstr(drawn, "stream id") == NULL);
     key(SDLK_ESCAPE, 0);
 
     test_signatures();

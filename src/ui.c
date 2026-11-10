@@ -1619,6 +1619,48 @@ static void load_font_choices(void) {
         }
 }
 
+// The items of a settings row flow from the value column and wrap at the right edge of the panel, so that long
+// texts (a custom server URL, the patch bay ids, font names) stay inside it; a text longer than a row is cut.
+struct panel_flow {
+    float x, y, start, right;
+};
+
+static float flow_place(struct panel_flow *flow, const char *text, size_t *columns) {
+    float char_width = overlay_char_width();
+    size_t fit = (size_t)((flow->right - flow->start) / char_width);
+    *columns = overlay_text_columns(text, strlen(text)) + 1;
+    if (*columns > fit) *columns = fit;
+    float width = (float)*columns * char_width;
+    if (flow->x > flow->start && flow->x + width > flow->right) {
+        flow->x = flow->start;
+        flow->y += 1.25f * overlay_line_height();
+    }
+    float x = flow->x;
+    flow->x += width + char_width;
+    return x;
+}
+
+static void flow_label(struct panel_flow *flow, const char *text, bool selected, const char *action) {
+    size_t columns;
+    float x = flow_place(flow, text, &columns), width = (float)columns * overlay_char_width();
+    overlay_rect(x, flow->y, width, overlay_line_height(), selected ? theme->popup_selected : theme->toolbar);
+    overlay_text(x + overlay_char_width() / 2, flow->y, text, strlen(text), 0, columns - 1, NULL, theme->text);
+    add_panel_button(x, flow->y, width, overlay_line_height(), action);
+}
+
+static void flow_text(struct panel_flow *flow, const char *text, uint32_t color) {
+    size_t columns;
+    float x = flow_place(flow, text, &columns);
+    overlay_text(x, flow->y, text, strlen(text), 0, columns, NULL, color);
+}
+
+// Starts the next row with its name in the label column.
+static void flow_row(struct panel_flow *flow, float label_x, const char *label, bool first) {
+    flow->x = flow->start;
+    if (!first) flow->y += 1.5f * overlay_line_height();
+    overlay_text(label_x, flow->y, label, strlen(label), 0, 14, NULL, theme->help_keys);
+}
+
 // The settings menu: theme, autocomplete, font size and font, saved in the settings file at once.
 static void draw_settings(void) {
     float left, top, width, height, line_height = overlay_line_height(), char_width = overlay_char_width();
@@ -1626,64 +1668,60 @@ static void draw_settings(void) {
     overlay_rect(left, top, width, height, theme->help_background);
     panel_button_count = 0;
     if (!font_choices_loaded) load_font_choices();
-    float label_x = left + char_width, value_x = left + 15 * char_width, y = top + line_height / 2;
+    float label_x = left + char_width;
+    struct panel_flow flow = { 0, top + line_height / 2, left + 15 * char_width, left + width - char_width };
     char action[32];
-    const char *labels[] = { "theme", "autocomplete", "trigger", "signatures", "whitespace", "line wrap", "server", "font size",
-                             "font" };
-    for (size_t row = 0; row < sizeof labels / sizeof labels[0]; row++)
-        overlay_text(label_x, y + (float)row * 1.5f * line_height, labels[row], strlen(labels[row]), 0, 14, NULL, theme->help_keys);
-    float x = value_x;
+    flow_row(&flow, label_x, "theme", true);
     for (size_t i = 0; i < theme_count; i++) {
         snprintf(action, sizeof action, "theme %zu", i);
-        x = panel_label(x, y, themes[i].name, theme == &themes[i], action);
+        flow_label(&flow, themes[i].name, theme == &themes[i], action);
     }
-    y += 1.5f * line_height;
-    x = panel_label(value_x, y, "list", active_settings.autocomplete_style == AUTOCOMPLETE_LIST, "style 0");
-    panel_label(x, y, "ghost text", active_settings.autocomplete_style == AUTOCOMPLETE_GHOST, "style 1");
-    y += 1.5f * line_height;
-    x = panel_label(value_x, y, "Ctrl+Space", active_settings.autocomplete_trigger == AUTOCOMPLETE_MANUAL, "trigger 0");
-    panel_label(x, y, "while typing", active_settings.autocomplete_trigger == AUTOCOMPLETE_TYPING, "trigger 1");
-    y += 1.5f * line_height;
-    x = panel_label(value_x, y, "Ctrl+Shift+Space", active_settings.signature_help == SIGNATURE_HELP_MANUAL, "signature 0");
-    panel_label(x, y, "on (", active_settings.signature_help == SIGNATURE_HELP_PAREN, "signature 1");
-    y += 1.5f * line_height;
-    x = value_x;
+    flow_row(&flow, label_x, "autocomplete", false);
+    flow_label(&flow, "list", active_settings.autocomplete_style == AUTOCOMPLETE_LIST, "style 0");
+    flow_label(&flow, "ghost text", active_settings.autocomplete_style == AUTOCOMPLETE_GHOST, "style 1");
+    flow_row(&flow, label_x, "trigger", false);
+    flow_label(&flow, "Ctrl+Space", active_settings.autocomplete_trigger == AUTOCOMPLETE_MANUAL, "trigger 0");
+    flow_label(&flow, "while typing", active_settings.autocomplete_trigger == AUTOCOMPLETE_TYPING, "trigger 1");
+    flow_row(&flow, label_x, "signatures", false);
+    flow_label(&flow, "Ctrl+Shift+Space", active_settings.signature_help == SIGNATURE_HELP_MANUAL, "signature 0");
+    flow_label(&flow, "on (", active_settings.signature_help == SIGNATURE_HELP_PAREN, "signature 1");
+    flow_row(&flow, label_x, "whitespace", false);
     for (int i = WHITESPACE_NONE; i <= WHITESPACE_ALL; i++) {
         snprintf(action, sizeof action, "whitespace %d", i);
-        x = panel_label(x, y, settings_whitespace_name((enum render_whitespace)i), active_settings.render_whitespace == (enum render_whitespace)i,
-                        action);
+        flow_label(&flow, settings_whitespace_name((enum render_whitespace)i),
+                   active_settings.render_whitespace == (enum render_whitespace)i, action);
     }
-    y += 1.5f * line_height;
-    x = panel_label(value_x, y, "on", wrap, "wrap 1");
-    panel_label(x, y, "off", !wrap, "wrap 0");
-    y += 1.5f * line_height;
+    flow_row(&flow, label_x, "line wrap", false);
+    flow_label(&flow, "on", wrap, "wrap 1");
+    flow_label(&flow, "off", !wrap, "wrap 0");
+    flow_row(&flow, label_x, "server", false);
     const char *server = active_settings.gallery_server;
-    x = panel_label(value_x, y, "off", !server[0], "server off");
-    x = panel_label(x, y, "hydra.ojack.xyz", !strcmp(server, WEB_EDITOR_SERVER), "server web");
+    flow_label(&flow, "off", !server[0], "server off");
+    flow_label(&flow, "hydra.ojack.xyz", !strcmp(server, WEB_EDITOR_SERVER), "server web");
     bool custom = server[0] && strcmp(server, WEB_EDITOR_SERVER);
-    x = panel_label(x, y, custom ? server : "custom", custom, "server custom");
+    flow_label(&flow, custom ? server : "custom", custom, "server custom");
     char *id = patch_bay_id(), *stream_id = strchr(id, ' ');
-    if (stream_id) { // the own ids while the patch bay is connected, with a button that copies the stream id
+    if (stream_id) { // while the patch bay is connected: the id for s0.initStream, with a button that copies it
         char label[160];
-        *stream_id++ = '\0';
-        snprintf(label, sizeof label, "pb.id %s, stream id %s", id, stream_id);
-        overlay_text(x, y, label, strlen(label), 0, 40, NULL, theme->help_keys);
-        panel_label(x + (float)(strlen(label) + 1) * char_width, y, "copy", false, "copy id");
+        snprintf(label, sizeof label, "stream id %s", stream_id + 1);
+        flow_text(&flow, label, theme->help_keys);
+        flow_label(&flow, "copy", false, "copy id");
     }
     free(id);
-    y += 1.5f * line_height;
+    flow_row(&flow, label_x, "font size", false);
     char size[16];
     snprintf(size, sizeof size, "%.0f px", overlay_font_size());
-    x = panel_label(value_x, y, "-", false, "size -");
-    overlay_text(x, y, size, strlen(size), 0, 8, NULL, theme->text);
-    panel_label(x + 7 * char_width, y, "+", false, "size +");
-    y += 1.5f * line_height;
-    size_t rows = (size_t)((top + height - y - line_height / 2) / line_height);
+    flow_label(&flow, "-", false, "size -");
+    flow_text(&flow, size, theme->text);
+    flow_label(&flow, "+", false, "size +");
+    flow_row(&flow, label_x, "font", false);
+    size_t rows = (size_t)((top + height - flow.y - line_height / 2) / line_height);
     if (info_scroll > font_choice_count) info_scroll = font_choice_count;
     for (size_t i = info_scroll, row = 0; i < font_choice_count && row < rows; i++, row++) {
         snprintf(action, sizeof action, "font %zu", i);
-        panel_label(value_x, y + (float)row * line_height, font_choices[i].family, !strcmp(font_choices[i].file, active_settings.font),
-                    action);
+        flow.x = flow.start;
+        flow.y = flow.y + (row ? line_height : 0);
+        flow_label(&flow, font_choices[i].family, !strcmp(font_choices[i].file, active_settings.font), action);
     }
 }
 
@@ -1714,21 +1752,22 @@ static void run_settings_action(const char *action) {
     else if (!strncmp(action, "font ", 5) && index < font_choice_count) set_font(font_choices[index].file);
 }
 
+// The buttons take a click first; a click outside the panel and its buttons closes it.
 static bool settings_click(float x, float y) {
-    float left, top, width, height;
-    info_panel(&left, &top, &width, &height);
-    if (x < left || x > left + width || y < top || y > top + height) {
-        settings_visible = false;
-        return false;
-    }
     for (size_t i = 0; i < panel_button_count; i++) {
         if (x >= panel_buttons[i].x && x <= panel_buttons[i].x + panel_buttons[i].width && y >= panel_buttons[i].y &&
             y <= panel_buttons[i].y + panel_buttons[i].height) {
             char action[32];
             snprintf(action, sizeof action, "%s", panel_buttons[i].action);
             run_settings_action(action);
-            break;
+            return true;
         }
+    }
+    float left, top, width, height;
+    info_panel(&left, &top, &width, &height);
+    if (x < left || x > left + width || y < top || y > top + height) {
+        settings_visible = false;
+        return false;
     }
     return true;
 }
