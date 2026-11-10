@@ -11,6 +11,7 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/un.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -568,6 +569,38 @@ static JSValue js_midi_poll(JSContext *ctx, JSValueConst this, int argc, JSValue
     return result;
 }
 
+static char *read_all(int fd, size_t *length);
+
+// fetchSync(url) waits for curl; only for loading a sketch by URL, as the start waits for it anyway.
+static JSValue js_fetch_sync(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    const char *url = JS_ToCString(ctx, argv[0]);
+    if (!url) return JS_EXCEPTION;
+    char *argv_curl[] = { "curl", "-fsSL", "--max-time", "15", "--", (char *)url, NULL };
+    int pipe_fds[2];
+    if (pipe(pipe_fds) != 0) {
+        JS_FreeCString(ctx, url);
+        return JS_ThrowInternalError(ctx, "cannot start curl");
+    }
+    pid_t pid = fork();
+    if (pid == 0) {
+        dup2(pipe_fds[1], STDOUT_FILENO);
+        close(pipe_fds[0]);
+        execvp(argv_curl[0], argv_curl);
+        _exit(127);
+    }
+    close(pipe_fds[1]);
+    JS_FreeCString(ctx, url);
+    size_t length;
+    char *data = read_all(pipe_fds[0], &length);
+    close(pipe_fds[0]);
+    int status = 0;
+    waitpid(pid, &status, 0);
+    JSValue result = WIFEXITED(status) && WEXITSTATUS(status) == 0 ? JS_NewStringLen(ctx, data, length)
+                                                                     : JS_ThrowInternalError(ctx, "the request failed");
+    free(data);
+    return result;
+}
+
 static JSValue js_environment(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
     const char *name = JS_ToCString(ctx, argv[0]);
     const char *value = name ? getenv(name) : NULL;
@@ -672,6 +705,7 @@ static const JSCFunctionListEntry native_functions[] = {
     JS_CFUNC_DEF("midiSend", 2, js_midi_send),
     JS_CFUNC_DEF("midiPoll", 0, js_midi_poll),
     JS_CFUNC_DEF("environment", 1, js_environment),
+    JS_CFUNC_DEF("fetchSync", 1, js_fetch_sync),
     JS_CFUNC_DEF("writeFile", 2, js_write_file),
     JS_CFUNC_DEF("now", 0, js_now),
     JS_CFUNC_DEF("screencap", 0, js_screencap),
@@ -1163,6 +1197,7 @@ int main(int argc, char **argv) {
     snprintf(executable_path_directory, sizeof executable_path_directory, "%s", directory);
     JS_SetPropertyStr(js, native, "directory", JS_NewString(js, directory));
     JS_SetPropertyStr(js, native, "language", options.language ? JS_NewString(js, options.language) : JS_NULL);
+    JS_SetPropertyStr(js, native, "galleryServer", options.gallery_server ? JS_NewString(js, options.gallery_server) : JS_NULL);
     JS_SetPropertyStr(js, native, "l10nUrl", options.l10n_url ? JS_NewString(js, options.l10n_url) : JS_NULL);
     JS_SetPropertyStr(js, global, "native", native);
     JS_FreeValue(js, global);

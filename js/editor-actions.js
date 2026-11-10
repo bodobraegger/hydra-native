@@ -71,6 +71,21 @@ function encodeBase64 (text) {
 // URLSearchParams escapes the base64 characters + / and =.
 window.__urlForCode = (code) => `${WEB_EDITOR_URL}?code=${encodeURIComponent(encodeBase64(encodeURIComponent(code)))}`
 
+// The gallery server for reading sketches: --gallery-server, else the server of the deployed web editor.
+const DEFAULT_GALLERY_SERVER = 'https://api.hydrasynth.xyz'
+
+// GET <server>/sketchById?sketch_id=<id> answers a JSON list of sketches, as in gallery.js.
+function sketchFromServer (sketchId) {
+  const server = native.galleryServer || DEFAULT_GALLERY_SERVER
+  try {
+    const sketches = JSON.parse(native.fetchSync(`${server}/sketchById?sketch_id=${encodeURIComponent(sketchId)}`))
+    return sketches.length > 0 ? sketches[0] : null
+  } catch (error) {
+    console.warn(`gallery: cannot get sketch ${sketchId}: ${error}`)
+    return null
+  }
+}
+
 function queryParameter (query, name) {
   for (const pair of query.split('&')) {
     const [key, ...rest] = pair.split('=')
@@ -84,11 +99,12 @@ function queryParameter (query, name) {
 window.__codeFromUrl = (url) => {
   const query = url.includes('?') ? url.slice(url.indexOf('?') + 1).split('#')[0] : url
   const sketchId = queryParameter(query, 'sketch_id')
-  const example = sketchId && examples.find((sketch) => sketch.sketch_id === sketchId)
-  const base64 = example ? example.code : queryParameter(query, 'code')
-  if (!base64) throw new Error(`no code in ${url} (sketches of the gallery server need sketch_id and the server)`)
+  // Like setSketchFromURL() of gallery.js: an example, else the sketch of the gallery server, else ?code=.
+  const sketch = sketchId && (examples.find((item) => item.sketch_id === sketchId) || sketchFromServer(sketchId))
+  const base64 = sketch ? sketch.code : queryParameter(query, 'code')
+  if (!base64) throw new Error(`no code in ${url}`)
   let code = decodeURIComponent(decodeBase64(base64))
-  if (example && !code.includes(GALLERY_LICENSE)) code = `${GALLERY_LICENSE}\n${code}\n`
+  if (sketch && !code.includes(GALLERY_LICENSE)) code = `${GALLERY_LICENSE}\n${code}\n`
   const showCode = queryParameter(query, 'showCode') || queryParameter(query, 'show-code')
   return showCode === 'false' ? `// show-code: false\n${code}` : code
 }
