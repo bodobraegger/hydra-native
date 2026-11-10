@@ -65,6 +65,8 @@ static inline enum unicode_break unicode_break_class(int codepoint) {
 // sequences, flags, keycaps, variation selectors, Hangul syllables), without the Indic conjuncts of GB9c.
 static inline size_t unicode_cluster_end(const unsigned char *text, size_t length, size_t offset) {
     if (offset >= length) return length;
+    // ASCII before ASCII never joins, except CR LF.
+    if (text[offset] < 0x80 && text[offset] != '\r' && (offset + 1 >= length || text[offset + 1] < 0x80)) return offset + 1;
     size_t size, position = offset;
     int codepoint = unicode_decode(text + position, length - position, &size);
     position += size;
@@ -101,6 +103,7 @@ static inline size_t unicode_cluster_end(const unsigned char *text, size_t lengt
 // Columns of the cluster [offset, end) in the grid: two for wide characters, emoji presentation (also by VS16),
 // flags and keycaps, none for a lone mark, else one.
 static inline int unicode_cluster_columns(const unsigned char *text, size_t offset, size_t end) {
+    if (end == offset + 1 && text[offset] < 0x80) return 1;
     size_t size;
     int first = unicode_decode(text + offset, end - offset, &size);
     if (unicode_is_wide(first) || UNICODE_LOOKUP(emoji_presentation_ranges, first)) return 2;

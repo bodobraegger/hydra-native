@@ -191,6 +191,8 @@ size_t editor_line_end(const struct editor *editor, size_t line) {
 }
 
 size_t editor_cluster_end(const struct editor *editor, size_t offset) {
+    const unsigned char *text = (const unsigned char *)editor->text;
+    if (offset + 1 < editor->length && text[offset] < 0x80 && text[offset + 1] < 0x80 && text[offset] != '\r') return offset + 1;
     return unicode_cluster_end((const unsigned char *)editor->text, editor_line_end(editor, editor_line_of(editor, offset)), offset);
 }
 
