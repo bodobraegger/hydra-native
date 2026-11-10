@@ -112,6 +112,13 @@ target_include_directories(sheenbidi PUBLIC ${VENDOR}/sheenbidi/Headers)
 
 set(WARNINGS -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers)
 
+# Child processes and streams (src/process.h).
+if(WIN32)
+  set(PROCESS_SOURCE src/process_windows.c)
+else()
+  set(PROCESS_SOURCE src/process_posix.c)
+endif()
+
 # ---------------------------------------------------------------- programs
 
 add_executable(hydra-native src/main.c src/canvas2d.c src/svg_filter.c src/webgl.c src/video.c src/audio.c
@@ -179,11 +186,12 @@ add_executable(ui-test EXCLUDE_FROM_ALL test/ui_test.c src/ui.c src/keymap.c src
   src/signature.c)
 add_executable(audio-test EXCLUDE_FROM_ALL test/audio_test.c src/audio_processing.c src/analog_agc.c)
 add_executable(midi-test EXCLUDE_FROM_ALL test/midi_test.c src/midi.c)
+add_executable(process-test EXCLUDE_FROM_ALL test/process_test.c ${PROCESS_SOURCE})
 target_link_libraries(editor-test PRIVATE sheenbidi)
 target_link_libraries(ui-test PRIVATE sheenbidi quickjs SDL3::SDL3 m dl pthread)
 target_link_libraries(audio-test PRIVATE m dl pthread)
 target_link_libraries(midi-test PRIVATE PkgConfig::SYSTEM m)
-set(UNIT_TESTS editor-test ui-test audio-test midi-test)
+set(UNIT_TESTS editor-test ui-test audio-test midi-test process-test)
 foreach(test ${UNIT_TESTS})
   target_compile_options(${test} PRIVATE -O1 ${WARNINGS} ${SANITIZERS})
   target_link_options(${test} PRIVATE ${SANITIZERS})
