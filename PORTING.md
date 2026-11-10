@@ -108,8 +108,8 @@ performance.now(), which the caller passes. hydra-native opens every input, also
 opens an output on its first message.
 
 On Linux, `cmake -DHYDRA_SDL_AUDIO_LIBREMIDI=ON` builds the SDL3 audio and libremidi code (with PulseAudio and the
-ALSA sequencer) to test it: midi-test passes with it. The code for Core Audio, WASAPI,
-CoreMIDI and WinMM is not tried on a Mac or a Windows PC yet.
+ALSA sequencer) to test it: the recording works, and midi-test passes with it. The audio of ScreenCaptureKit,
+CoreMIDI and WinMM are not tried on a Mac or a Windows PC yet.
 
 ## Notes per platform
 

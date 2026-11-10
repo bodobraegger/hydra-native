@@ -1092,7 +1092,7 @@ static void usage(void) {
             "  --size WxH         window size (default %dx%d)\n"
             "  --fullscreen       start in fullscreen\n"
             "  --audio SOURCE     audio source for `a`: a PulseAudio/PipeWire source on Linux, a part of the device\n"
-            "                     name on macOS and Windows; @DEFAULT_MONITOR@: the system output, not on macOS\n"
+            "                     name on macOS and Windows; @DEFAULT_MONITOR@: the system output, not on Windows\n"
             "  --socket PATH      code socket (default $XDG_RUNTIME_DIR/%s)\n"
             "  --no-vsync         do not wait for the display refresh\n"
             "  --hidden           do not show the window (checks)\n"
