@@ -48,6 +48,9 @@ static float latest_specific[BARK_BAND_COUNT];
 static float latest_total;
 static char device_name[256];
 static SDL_AtomicInt device_changed; // audio_set_device() asks the thread to open the new device
+static SDL_AtomicInt gain_percent = { 100 };
+
+void audio_set_gain(int percent) { SDL_SetAtomicInt(&gain_percent, percent); }
 
 static void compute_band_limits(int limits[BARK_BAND_COUNT + 1]) {
     float bark[SPECTRUM_SIZE];
@@ -99,6 +102,9 @@ static void analyze(void) {
     size_t pending_count = 0;
     while (!SDL_GetAtomicInt(&device_changed) && audio_input_read(pending + pending_count)) {
         if (webrtc.apm) webrtc.process(webrtc.apm, pending + pending_count, AUDIO_SAMPLE_RATE);
+        // The gain of the settings, for quiet inputs such as the system output, which has no automatic gain.
+        float gain = (float)SDL_GetAtomicInt(&gain_percent) / 100.0f;
+        for (int i = 0; i < AUDIO_FRAME_SIZE; i++) pending[pending_count + i] *= gain;
         pending_count += AUDIO_FRAME_SIZE;
         if (pending_count < AUDIO_BUFFER_SIZE) continue;
         audio_analyze(webrtc.apm ? NULL : &processor, pending, magnitude);
