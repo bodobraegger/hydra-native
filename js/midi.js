@@ -1,4 +1,4 @@
-// navigator.requestMIDIAccess() for MIDI input and output, through the ALSA sequencer of src/midi.c.
+// navigator.requestMIDIAccess() for MIDI input and output, through src/midi.h.
 import { onAfterFrame } from './dom-shim.js'
 
 class MIDIInput {
@@ -68,7 +68,7 @@ function updateInputs () {
 
 navigator.requestMIDIAccess = () => {
   if (access) return Promise.resolve(access)
-  if (!native.midiStart()) return Promise.reject(new Error('the ALSA sequencer is not available'))
+  if (!native.midiStart()) return Promise.reject(new Error('the MIDI system is not available'))
   access = { inputs: new Map(), outputs: new Map(), sysexEnabled: false, onstatechange: null }
   updateInputs()
   onAfterFrame(() => {

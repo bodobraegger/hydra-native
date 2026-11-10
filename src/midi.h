@@ -1,4 +1,5 @@
-// MIDI input and output for navigator.requestMIDIAccess() (js/midi.js): the ALSA sequencer on Linux (src/midi.c).
+// MIDI input and output for navigator.requestMIDIAccess() (js/midi.js): the ALSA sequencer on Linux (src/midi.c),
+// libremidi on macOS and Windows (src/midi_libremidi.cc).
 #pragma once
 
 #include <stdbool.h>

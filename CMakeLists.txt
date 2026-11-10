@@ -20,6 +20,7 @@ set(WEBRTC_APM_VERSION 1.3)
 set(ABSEIL_VERSION 20230125.1)
 set(STB_COMMIT 4e9b368bfc071e97206ea5c6adba68dd0cbf8897)
 set(MINIAUDIO_COMMIT 9634bedb5b5a2ca38c1ee7108a9358a4e233f14d) # 0.11.25
+set(LIBREMIDI_VERSION 5.4.3)
 set(EMOJI_FONT_COMMIT 8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5)
 set(GITHUB_RAW https://raw.githubusercontent.com)
 
@@ -254,19 +255,20 @@ else()
   message(STATUS "libwebrtc-audio-processing-1 is not installed: the audio input has no echo and noise filters")
 endif()
 
-# ---------------------------------------------------------------- audio input
+# ---------------------------------------------------------------- audio input and MIDI
 
-# The audio analysis of `a` with the audio input of the system (src/audio_input.h): PulseAudio on Linux, miniaudio
-# on macOS and Windows. On Linux, HYDRA_MINIAUDIO_LIBREMIDI builds the code of macOS and Windows instead, to test
-# it; that build has no analog gain control.
+# The audio analysis of `a` with the audio input of the system (src/audio_input.h), and MIDI (src/midi.h):
+# PulseAudio and the ALSA sequencer on Linux, miniaudio and libremidi on macOS and Windows. On Linux,
+# HYDRA_MINIAUDIO_LIBREMIDI builds the code of macOS and Windows instead, to test it. That build has no analog gain
+# control, and its MIDI lists also show the ALSA ports of libremidi itself, which CoreMIDI and WinMM do not have.
 if(HYDRA_LINUX)
   option(HYDRA_MINIAUDIO_LIBREMIDI "Use miniaudio and libremidi as on macOS and Windows" OFF)
   pkg_check_modules(AUDIO_MIDI REQUIRED IMPORTED_TARGET libpulse-simple libpulse alsa)
 endif()
-add_library(hydra-audio OBJECT src/audio.c src/audio_processing.c src/analog_agc.c)
+add_library(hydra-audio-midi OBJECT src/audio.c src/audio_processing.c src/analog_agc.c)
 if(HYDRA_LINUX AND NOT HYDRA_MINIAUDIO_LIBREMIDI)
-  target_sources(hydra-audio PRIVATE src/audio_input_pulse.c)
-  target_link_libraries(hydra-audio PUBLIC PkgConfig::AUDIO_MIDI)
+  target_sources(hydra-audio-midi PRIVATE src/audio_input_pulse.c src/midi.c)
+  target_link_libraries(hydra-audio-midi PUBLIC PkgConfig::AUDIO_MIDI)
 else()
   vendor_file(miniaudio/miniaudio.h ${GITHUB_RAW}/mackron/miniaudio/${MINIAUDIO_COMMIT}/miniaudio.h
     ac7af4de748b7e26b777f37e01cee313a308a7296a3eb080e2906b320cc55c89)
@@ -277,23 +279,46 @@ else()
     MA_NO_NODE_GRAPH MA_NO_ENGINE)
   target_compile_options(miniaudio PRIVATE ${QUIET})
   target_include_directories(miniaudio PUBLIC ${VENDOR}/miniaudio)
-  target_sources(hydra-audio PRIVATE src/audio_input_miniaudio.c)
-  target_link_libraries(hydra-audio PUBLIC miniaudio)
+  target_sources(hydra-audio-midi PRIVATE src/audio_input_miniaudio.c)
+  target_link_libraries(hydra-audio-midi PUBLIC miniaudio)
   if(APPLE)
-    target_sources(hydra-audio PRIVATE src/audio_volume_coreaudio.c)
-    target_link_libraries(hydra-audio PUBLIC "-framework CoreFoundation" "-framework CoreAudio"
+    target_sources(hydra-audio-midi PRIVATE src/audio_volume_coreaudio.c)
+    target_link_libraries(hydra-audio-midi PUBLIC "-framework CoreFoundation" "-framework CoreAudio"
       "-framework AudioToolbox")
   elseif(WIN32)
-    target_sources(hydra-audio PRIVATE src/audio_volume_wasapi.c)
-    target_link_libraries(hydra-audio PUBLIC ole32)
+    target_sources(hydra-audio-midi PRIVATE src/audio_volume_wasapi.c)
+    target_link_libraries(hydra-audio-midi PUBLIC ole32)
   endif()
+
+  # libremidi in its header-only mode, with only the backend of the system: CoreMIDI, WinMM, or the ALSA
+  # sequencer (opened at run time) for the test build of Linux.
+  vendor_archive(libremidi https://github.com/celtera/libremidi/archive/refs/tags/v${LIBREMIDI_VERSION}.tar.gz
+    a1c369c6aab01c80f1506345d1c099a167b330d1d59159aa7583f7b0b9f966b9 include/libremidi/libremidi.hpp)
+  add_library(libremidi INTERFACE)
+  target_include_directories(libremidi SYSTEM INTERFACE ${VENDOR}/libremidi/include)
+  target_compile_definitions(libremidi INTERFACE LIBREMIDI_HEADER_ONLY LIBREMIDI_NO_BOOST)
+  target_compile_features(libremidi INTERFACE cxx_std_20)
+  if(APPLE)
+    target_compile_definitions(libremidi INTERFACE LIBREMIDI_COREMIDI)
+    target_link_libraries(libremidi INTERFACE "-framework CoreMIDI" "-framework CoreAudio" "-framework CoreFoundation")
+  elseif(WIN32)
+    target_compile_definitions(libremidi INTERFACE LIBREMIDI_WINMM)
+    target_link_libraries(libremidi INTERFACE winmm)
+    # The WinMM code of libremidi uses the wide-character functions; only this file gets UNICODE.
+    set_source_files_properties(src/midi_libremidi.cc PROPERTIES COMPILE_DEFINITIONS "UNICODE;_UNICODE")
+  else()
+    target_compile_definitions(libremidi INTERFACE LIBREMIDI_ALSA)
+    target_link_libraries(libremidi INTERFACE ${CMAKE_DL_LIBS})
+  endif()
+  target_sources(hydra-audio-midi PRIVATE src/midi_libremidi.cc)
+  target_link_libraries(hydra-audio-midi PUBLIC libremidi)
 endif()
-target_compile_options(hydra-audio PRIVATE ${WARNINGS})
-target_compile_definitions(hydra-audio PRIVATE $<$<C_COMPILER_ID:MSVC>:_USE_MATH_DEFINES>
+target_compile_options(hydra-audio-midi PRIVATE ${WARNINGS})
+target_compile_definitions(hydra-audio-midi PRIVATE $<$<C_COMPILER_ID:MSVC>:_USE_MATH_DEFINES>
   WEBRTC_APM_LIBRARY_NAME="libhydra-webrtc-apm${CMAKE_SHARED_LIBRARY_SUFFIX}")
-target_link_libraries(hydra-audio PUBLIC SDL3::SDL3 gles)
+target_link_libraries(hydra-audio-midi PUBLIC SDL3::SDL3 gles)
 if(TARGET hydra-webrtc-apm)
-  add_dependencies(hydra-audio hydra-webrtc-apm)
+  add_dependencies(hydra-audio-midi hydra-webrtc-apm)
 endif()
 
 if(NOT HYDRA_LINUX)
@@ -321,13 +346,13 @@ endif()
 pkg_check_modules(SYSTEM REQUIRED IMPORTED_TARGET glesv2)
 
 add_executable(hydra-native src/main.c src/canvas2d.c src/svg_filter.c src/webgl.c src/video.c src/fetch.c
-  src/thumbnails.c src/midi.c src/recorder.c src/patch_bay.c src/editor.c src/bidi.c src/ui.c src/settings.c
-  src/overlay.c src/keymap.c src/programs.c src/signature.c src/window.c ${PROCESS_SOURCE})
+  src/thumbnails.c src/recorder.c src/patch_bay.c src/editor.c src/bidi.c src/ui.c src/settings.c src/overlay.c
+  src/keymap.c src/programs.c src/signature.c src/window.c ${PROCESS_SOURCE})
 target_compile_options(hydra-native PRIVATE ${WARNINGS})
 target_compile_definitions(hydra-native PRIVATE HYDRA_NATIVE_VERSION="${PROJECT_VERSION}")
 target_include_directories(hydra-native PRIVATE ${VENDOR}/stb)
-target_link_libraries(hydra-native PRIVATE quickjs plutovg harfbuzz sheenbidi hydra-audio SDL3::SDL3 PkgConfig::SYSTEM
-  PkgConfig::AUDIO_MIDI m dl pthread)
+target_link_libraries(hydra-native PRIVATE quickjs plutovg harfbuzz sheenbidi hydra-audio-midi SDL3::SDL3
+  PkgConfig::SYSTEM m dl pthread)
 # harfbuzz is C++, so the C++ driver links the program.
 set_target_properties(hydra-native PROPERTIES LINKER_LANGUAGE CXX)
 
@@ -362,12 +387,20 @@ add_executable(editor-test EXCLUDE_FROM_ALL test/editor_test.c src/editor.c src/
 add_executable(ui-test EXCLUDE_FROM_ALL test/ui_test.c src/ui.c src/keymap.c src/editor.c src/bidi.c src/settings.c
   src/signature.c)
 add_executable(audio-test EXCLUDE_FROM_ALL test/audio_test.c src/audio_processing.c src/analog_agc.c)
-add_executable(midi-test EXCLUDE_FROM_ALL test/midi_test.c src/midi.c)
 add_executable(process-test EXCLUDE_FROM_ALL test/process_test.c ${PROCESS_SOURCE})
 target_link_libraries(editor-test PRIVATE sheenbidi)
 target_link_libraries(ui-test PRIVATE sheenbidi quickjs SDL3::SDL3 m dl pthread)
 target_link_libraries(audio-test PRIVATE SDL3::SDL3 m)
 target_compile_definitions(audio-test PRIVATE WEBRTC_APM_FILE="${WEBRTC_APM_FILE}")
+# midi-test sends through the ALSA sequencer; with HYDRA_MINIAUDIO_LIBREMIDI it tests src/midi_libremidi.cc.
+add_executable(midi-test EXCLUDE_FROM_ALL test/midi_test.c)
+if(HYDRA_MINIAUDIO_LIBREMIDI)
+  target_sources(midi-test PRIVATE src/midi_libremidi.cc)
+  target_link_libraries(midi-test PRIVATE libremidi)
+  set_target_properties(midi-test PROPERTIES LINKER_LANGUAGE CXX)
+else()
+  target_sources(midi-test PRIVATE src/midi.c)
+endif()
 target_link_libraries(midi-test PRIVATE PkgConfig::AUDIO_MIDI m)
 set(UNIT_TESTS editor-test ui-test audio-test midi-test process-test)
 foreach(test ${UNIT_TESTS})
