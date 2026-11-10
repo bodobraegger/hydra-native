@@ -71,8 +71,9 @@ a file of key=value lines: font, font_size, theme, autocomplete_style (list or g
 
 The editor has multiple cursors, find and replace, go to line, a command palette and autocomplete of hydra
 names and of the words of the file. Autocomplete opens with Ctrl+Space, or while typing with the trigger "while
-typing" of the settings menu. The style "list" shows the candidates over the bottom lines of the window with blend
-mode difference: a blue box with white text over black, inverted colors over anything else. The style "ghost
+typing" of the settings menu. The style "list" shows the candidates below the word, or above its line when there is no
+room below, with blend mode difference: a blue box with white text over black, inverted colors over anything
+else. The style "ghost
 text" shows the rest of the best candidate after the cursor, like the inline suggestions of VS Code: Tab accepts
 it, Escape dismisses it, Alt+] and Alt+[ show the other candidates. Typing an opening bracket or quote adds the closing one. Find works like
 the find bar of a browser: it ignores case and accents, highlights all matches and shows their count.

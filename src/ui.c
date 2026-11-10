@@ -1745,15 +1745,22 @@ static void draw_code(void) {
     free(selections);
 }
 
-// The list over the bottom lines of the window, composited with blend mode difference: over black it shows a
-// blue box with white text, over anything else it inverts what is below.
+// The list below the word that is being typed, left-aligned with its start (above the cursor line when there is
+// no room below, as in VS Code), composited with blend mode difference: over black it shows a blue box with white
+// text, over anything else it inverts what is below.
 static void draw_completion_list(void) {
+    size_t x, row = global_caret_row(editor.cursor, editor.sticky, &x);
+    if (row < scroll_row || row >= scroll_row + visible_rows()) return;
     float char_width = overlay_char_width(), line_height = overlay_line_height();
     size_t width = 0;
     for (size_t i = 0; i < completion.count; i++)
         if (strlen(completion.items[i]) > width) width = strlen(completion.items[i]);
     float box_width = (float)(width + 2) * char_width, box_height = (float)completion.count * line_height;
-    float left = MARGIN, top = (float)last_height - bar_height() - box_height;
+    size_t word_column = x - scroll_column > completion.prefix_length ? x - scroll_column - completion.prefix_length : 0;
+    float left = MARGIN + (float)word_column * char_width - char_width; // the text starts one column into the box
+    if (left < 0) left = 0;
+    float top = MARGIN + (float)(row - scroll_row + 1) * line_height;
+    if (top + box_height > (float)last_height - bar_height()) top -= box_height + line_height;
     overlay_difference_begin();
     for (size_t i = 0; i < completion.count; i++) {
         float y = top + (float)i * line_height;
