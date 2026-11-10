@@ -1793,7 +1793,8 @@ static void draw_row(size_t line, size_t row_start, size_t row_end, size_t inden
             char c = editor.text[i];
             if ((c == ' ' || c == '\t') && whitespace_shown(line_start, line_end, i, selections, selection_count))
                 draw_whitespace(column, y, c == '\t');
-            column = indent + columns_between(row_start, next);
+            column += c == '\t' ? EDITOR_TAB_WIDTH - (column - indent) % EDITOR_TAB_WIDTH
+                                 : (size_t)unicode_cluster_columns((const unsigned char *)editor.text, i, next);
             i = next;
         }
     }
