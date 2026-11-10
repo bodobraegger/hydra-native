@@ -1525,9 +1525,13 @@ static void draw_toolbar(void) {
     for (size_t i = 0; i < TOOLBAR_COUNT; i++) {
         if (!toolbar_shown(i)) continue;
         float width, x = toolbar_x(i, &width);
-        overlay_rect(x, MARGIN, width, overlay_line_height(), theme->toolbar);
+        // The buttons look like the code lines: the box and the text of "code display" in the code layers.
+        overlay_set_layer(OVERLAY_CODE_BACKGROUND);
+        overlay_rect(x, MARGIN, width, overlay_line_height(), code_background_color());
+        overlay_set_layer(OVERLAY_CODE_TEXT);
         overlay_text(x + overlay_char_width() / 2, MARGIN, toolbar[i].label, strlen(toolbar[i].label), 0, 64, NULL,
                      theme->info);
+        overlay_set_layer(OVERLAY_TOP);
         bool hover = pointer_y >= MARGIN && pointer_y <= MARGIN + overlay_line_height() && pointer_x >= x &&
                      pointer_x <= x + width;
         if (!hover) continue;

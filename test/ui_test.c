@@ -56,11 +56,13 @@ bool overlay_set_font(const char *font_path) { return true; }
 float overlay_font_size(void) { return font_size; }
 float overlay_char_width(void) { return 10; }
 float overlay_line_height(void) { return 20; }
+static enum overlay_layer current_layer = OVERLAY_TOP; // of overlay_set_layer()
 // The texts of the last frame with their positions, for clicks on panel buttons.
 #define MAX_DRAWN_TEXTS 512
 static struct {
     char text[64];
     float x, y;
+    enum overlay_layer layer;
 } drawn_texts[MAX_DRAWN_TEXTS];
 static size_t drawn_text_count;
 void overlay_begin(void) {
@@ -74,6 +76,7 @@ void overlay_text(float x, float y, const char *text, size_t length, size_t firs
     if (length > 6 && !strncmp(text, "find: ", 6)) snprintf(bar_text, sizeof bar_text, "%.*s", (int)length, text);
     if (drawn_text_count < MAX_DRAWN_TEXTS) {
         snprintf(drawn_texts[drawn_text_count].text, sizeof drawn_texts[0].text, "%.*s", (int)length, text);
+        drawn_texts[drawn_text_count].layer = current_layer;
         drawn_texts[drawn_text_count].x = x;
         drawn_texts[drawn_text_count++].y = y;
     }
@@ -85,7 +88,7 @@ void overlay_text(float x, float y, const char *text, size_t length, size_t firs
     snprintf(drawn + used, sizeof drawn - used, "%.*s\n", (int)length, text);
 }
 void overlay_end(int width, int height) {}
-void overlay_set_layer(enum overlay_layer layer) {}
+void overlay_set_layer(enum overlay_layer layer) { current_layer = layer; }
 static bool difference_layers[OVERLAY_LAYER_COUNT];
 void overlay_set_difference(enum overlay_layer layer, bool difference) { difference_layers[layer] = difference; }
 int overlay_columns(int codepoint) { return 1; }
@@ -235,6 +238,11 @@ static void test_overlay_settings(const char *settings_file) {
     key(SDLK_COMMA, SDL_KMOD_LCTRL);
     ui_draw(800, 600, 0);
     EXPECT(!difference_layers[OVERLAY_CODE_TEXT]);
+    // The toolbar draws in the layers of the code, so it follows the same blend.
+    int toolbar_texts = 0;
+    for (size_t i = 0; i < drawn_text_count; i++)
+        if (!strcmp(drawn_texts[i].text, "run") && drawn_texts[i].layer == OVERLAY_CODE_TEXT) toolbar_texts++;
+    EXPECT(toolbar_texts == 1);
     EXPECT(click_text("difference", 1)); // the row "code text"
     EXPECT(click_text("+", 0)); // the opacity of "code box", one step up from the theme value
     ui_draw(800, 600, 0);
