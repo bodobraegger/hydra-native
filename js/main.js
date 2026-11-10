@@ -1,5 +1,5 @@
 // Entry of build/hydra-bundle.js: runs the unchanged hydra-synth renderer on the native shims.
-import { onAfterFrame } from './dom-shim.js'
+import { onAfterFrame, RecordingContext2D } from './dom-shim.js'
 import Hydra from 'hydra-synth'
 import { installSources } from './sources.js'
 import beautify from 'js-beautify'
@@ -10,6 +10,10 @@ const canvas = document.createElement('canvas')
 document.body.appendChild(canvas)
 
 const hydra = new Hydra({ canvas, enableStreamCapture: false })
+// The audio meter of lib/audio.js draws its bars into this recording context, see the overlay code below.
+if (hydra.synth.a) {
+  hydra.synth.a.ctx = Object.assign(new RecordingContext2D(hydra.synth.a.canvas), { fillStyle: '#DFFFFF', strokeStyle: '#0ff' })
+}
 // hydra-editor exposes the renderer as hydraSynth; the hydra-extensions look for it there.
 window.hydraSynth = hydra
 installSources(hydra.s[0].constructor.prototype)

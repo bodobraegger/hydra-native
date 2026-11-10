@@ -19,6 +19,7 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
+#include "canvas2d.h"
 #include "native.h"
 #include "ui.h"
 #include "quickjs-libc.h"
@@ -908,6 +909,7 @@ int main(int argc, char **argv) {
     JSValue global = JS_GetGlobalObject(js);
     JSValue native = JS_NewObject(js);
     JS_SetPropertyFunctionList(js, native, native_functions, sizeof native_functions / sizeof native_functions[0]);
+    canvas2d_install(js, native);
     char directory[PATH_MAX];
     if (!executable_directory(directory, sizeof directory)) return 1;
     JS_SetPropertyStr(js, native, "directory", JS_NewString(js, directory));

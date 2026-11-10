@@ -1,3 +1,5 @@
+import { CanvasElement, Path2D } from './canvas.js'
+
 // The browser globals that hydra-synth, its lib/audio.js and the user's sketches use,
 // backed by the `native` object that src/main.c installs.
 
@@ -110,7 +112,7 @@ function parseColor (text) {
 
 // Records the fillRect calls and the horizontal strokes that the hydra audio meter draws.
 // The overlay code in main.js draws them with native.fillRects.
-class RecordingContext2D {
+export class RecordingContext2D {
   constructor (canvas) {
     this.canvas = canvas
     this.fillStyle = '#fff'
@@ -160,12 +162,6 @@ class Element {
   setAttribute (name, value) { this[name] = value }
   addEventListener () {}
   removeEventListener () {}
-  getContext (type) {
-    if (type !== '2d') return null
-    if (!this.context) this.context = new RecordingContext2D(this)
-    return this.context
-  }
-
   get clientWidth () { return this.width }
   get clientHeight () { return this.height }
 }
@@ -173,7 +169,7 @@ class Element {
 window.document = {
   body: new Element('body'),
   head: new Element('head'),
-  createElement: (tagName) => new Element(tagName),
+  createElement: (tagName) => String(tagName).toLowerCase() === 'canvas' ? new CanvasElement() : new Element(tagName),
   getElementById: () => null,
   querySelector: () => null,
   addEventListener,
@@ -192,6 +188,8 @@ window.navigator = {
     enumerateDevices: () => Promise.resolve([])
   }
 }
+
+window.Path2D = Path2D
 
 window.AudioContext = class AudioContext {
   createMediaStreamSource () { return {} }
