@@ -7,6 +7,8 @@
 #include <stddef.h>
 
 #define EDITOR_HANGING_INDENT 2 // extra columns of wrapped rows, like softWrapHangingIndent in Pulsar
+#define EDITOR_TAB_WIDTH 4 // the tabSize default of CodeMirror 5 in the web editor
+#define EDITOR_HARD_WRAP_COLUMNS 80
 
 enum motion {
     MOTION_LEFT,
@@ -17,6 +19,8 @@ enum motion {
     MOTION_LINE_END,
     MOTION_WORD_LEFT,
     MOTION_WORD_RIGHT,
+    MOTION_SUBWORD_LEFT, // camelCase parts, Alt+Left in the sublime keymap
+    MOTION_SUBWORD_RIGHT,
     MOTION_DOCUMENT_START,
     MOTION_DOCUMENT_END,
 };
@@ -67,6 +71,12 @@ struct editor {
     size_t line_count;
     size_t line_capacity;
     size_t wrap_columns; // 0: no soft wrap
+    size_t *bookmarks; // sorted lines
+    size_t bookmark_count;
+    size_t bookmark_capacity;
+    size_t mark; // the "sublime mark" of Ctrl+K Ctrl+Space
+    bool has_mark;
+    char *killed; // the text of the last "delete to mark", for "yank"
     struct snapshot_stack undo;
     struct snapshot_stack redo;
     enum edit_kind last_edit;
@@ -94,6 +104,7 @@ size_t editor_selections(const struct editor *editor, struct selection **list); 
 char *editor_selected_text(const struct editor *editor, size_t *length); // all selections joined by newlines
 void editor_set_cursor(struct editor *editor, size_t offset, bool extend);
 void editor_collapse(struct editor *editor); // keeps only the primary selection
+void editor_collapse_to_first(struct editor *editor); // keeps only the first selection (Escape in sublime)
 void editor_add_cursor(struct editor *editor, size_t offset); // a new caret becomes primary
 void editor_add_cursor_vertical(struct editor *editor, int direction); // above (-1) or below (+1) the outer one
 void editor_column_select(struct editor *editor, size_t anchor_line, size_t anchor_column, size_t line, size_t column);
@@ -127,7 +138,26 @@ void editor_move_lines(struct editor *editor, int direction); // -1 up, +1 down
 void editor_duplicate_lines(struct editor *editor);
 void editor_delete_lines(struct editor *editor);
 void editor_join_lines(struct editor *editor);
-void editor_sort_lines(struct editor *editor);
+void editor_sort_lines(struct editor *editor, bool reverse, bool insensitive);
+void editor_hard_wrap(struct editor *editor, size_t width); // Alt+Q
+
+// Commands of the CodeMirror 5 sublime keymap.
+void editor_toggle_bookmark(struct editor *editor);
+bool editor_is_bookmarked(const struct editor *editor, size_t line);
+void editor_next_bookmark(struct editor *editor, int direction);
+void editor_clear_bookmarks(struct editor *editor);
+void editor_select_bookmarks(struct editor *editor);
+void editor_find_under(struct editor *editor, int direction);
+void editor_select_all_under(struct editor *editor);
+void editor_select_scope(struct editor *editor);
+void editor_change_case(struct editor *editor, bool upper);
+void editor_delete_line_part(struct editor *editor, int direction); // to the line start (-1) or end (+1)
+void editor_set_mark(struct editor *editor);
+void editor_select_to_mark(struct editor *editor);
+void editor_delete_to_mark(struct editor *editor);
+void editor_swap_with_mark(struct editor *editor);
+void editor_yank(struct editor *editor);
+void editor_skip_and_select_next(struct editor *editor);
 
 // Ranges for evaluation, as byte offsets [start, end).
 void editor_line_range(const struct editor *editor, size_t *start, size_t *end); // selection, or the cursor line

@@ -86,6 +86,33 @@
     X(PROMPT_DOWN, "next command down in the palette") \
     X(PROMPT_BACKSPACE, "delete in the prompt") \
     X(REPLACE_ALL, "replace all") \
+    X(CHORD, "first key of a two-key command") \
+    X(SUBWORD_LEFT, "subword left (camelCase)") \
+    X(SUBWORD_RIGHT, "subword right (camelCase)") \
+    X(TOGGLE_BOOKMARK, "toggle a bookmark") \
+    X(NEXT_BOOKMARK, "next bookmark") \
+    X(PREVIOUS_BOOKMARK, "previous bookmark") \
+    X(CLEAR_BOOKMARKS, "clear the bookmarks") \
+    X(SELECT_BOOKMARKS, "select the bookmarked lines") \
+    X(FIND_UNDER, "find the next word under the cursor") \
+    X(FIND_UNDER_PREVIOUS, "find the previous word under the cursor") \
+    X(FIND_ALL_UNDER, "select every word under the cursor") \
+    X(SELECT_SCOPE, "select inside the brackets, or all") \
+    X(UPPER_CASE, "upper case") \
+    X(LOWER_CASE, "lower case") \
+    X(DELETE_LINE_RIGHT, "delete to the line end") \
+    X(DELETE_LINE_LEFT, "delete to the line start") \
+    X(SHOW_IN_CENTER, "scroll the cursor to the center") \
+    X(SET_MARK, "set the mark") \
+    X(SELECT_TO_MARK, "select to the mark") \
+    X(DELETE_TO_MARK, "delete to the mark") \
+    X(SWAP_WITH_MARK, "swap the cursor and the mark") \
+    X(YANK, "insert the text deleted to the mark") \
+    X(SKIP_AND_SELECT_NEXT, "skip this occurrence, select the next") \
+    X(SORT_LINES_INSENSITIVE, "sort the lines, ignore case") \
+    X(SORT_LINES_REVERSE, "sort the lines backwards") \
+    X(SORT_LINES_REVERSE_INSENSITIVE, "sort the lines backwards, ignore case") \
+    X(HARD_WRAP, "wrap the paragraph at 80 columns") \
 
 enum command {
 #define COMMAND_ENUM(name, description) COMMAND_##name,
@@ -114,10 +141,13 @@ struct key_binding {
     bool global; // also works while the code is hidden
     bool shift_extends; // matches with and without Shift; Shift extends the selection
     enum key_context context;
+    SDL_Keycode prefix; // a two-key command: Ctrl+prefix first, like Ctrl+K Ctrl+U
 };
 
 // Returns the binding for a key press, or NULL. `extend` reports Shift for motion bindings.
-const struct key_binding *keymap_lookup(SDL_Keycode key, SDL_Keymod modifiers, enum key_context context, bool *extend);
+// `prefix` is the first key of a two-key command, or 0.
+const struct key_binding *keymap_lookup(SDL_Keycode key, SDL_Keymod modifiers, enum key_context context,
+                                        SDL_Keycode prefix, bool *extend);
 const char *command_description(enum command command);
 // Writes the keys of a command, such as "Ctrl+Enter, Shift+Enter", or "" when it has none.
 void command_keys(enum command command, char *text, size_t size);

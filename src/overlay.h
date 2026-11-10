@@ -7,6 +7,7 @@
 
 #define OVERLAY_MIN_FONT_SIZE 8.0f
 #define OVERLAY_MAX_FONT_SIZE 56.0f
+#define OVERLAY_TAB_WIDTH 4 // a tab reaches the next multiple of 4 columns
 
 bool overlay_init(const char *font_path, float font_size);
 bool overlay_set_font_size(float font_size);

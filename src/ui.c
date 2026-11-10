@@ -49,6 +49,7 @@
 #define COLOR_POPUP_SELECTED 0x3D6FD6FFu
 #define COLOR_HELP_BACKGROUND 0x000000E0u
 #define COLOR_HELP_KEYS 0x6FDCF2FFu
+#define COLOR_BOOKMARK 0x6FDCF2FFu
 // Bracket pair colors by nesting depth, like VS Code.
 static const uint32_t bracket_colors[] = { 0xFFD700FFu, 0xDA70D6FFu, 0x179FFFFFu };
 // The text of clear() in the web editor.
@@ -77,6 +78,8 @@ static bool evaluating;
 static char console_message[MAX_MESSAGE];
 static bool suppress_text; // the key press before this text input was a command
 static bool help_visible;
+static SDL_Keycode chord_prefix; // the first key of a two-key command, or 0
+static char composition[64]; // the text of an IME composition, shown at the cursor
 static uint32_t *colors;
 static size_t colors_capacity;
 
@@ -494,7 +497,7 @@ static void escape(void) {
     if (completion.open) close_completion();
     else if (prompt.kind != PROMPT_NONE) prompt.kind = PROMPT_NONE;
     else if (help_visible) help_visible = false;
-    else if (visible && editor_selection_count(&editor) > 1) editor_collapse(&editor);
+    else if (visible && editor_selection_count(&editor) > 1) editor_collapse_to_first(&editor);
     else if (visible && editor_has_selection(&editor)) editor_set_cursor(&editor, editor.cursor, false);
     else if (host.is_fullscreen()) host.toggle_fullscreen();
 }
@@ -568,7 +571,42 @@ static void run_command(enum command command, bool extend) {
     case COMMAND_SELECT_LINE: editor_select_lines(&editor); break;
     case COMMAND_DELETE_LINE: editor_delete_lines(&editor); break;
     case COMMAND_JOIN_LINES: editor_join_lines(&editor); break;
-    case COMMAND_SORT_LINES: editor_sort_lines(&editor); break;
+    case COMMAND_SORT_LINES: editor_sort_lines(&editor, false, false); break;
+    case COMMAND_SORT_LINES_INSENSITIVE: editor_sort_lines(&editor, false, true); break;
+    case COMMAND_SORT_LINES_REVERSE: editor_sort_lines(&editor, true, false); break;
+    case COMMAND_SORT_LINES_REVERSE_INSENSITIVE: editor_sort_lines(&editor, true, true); break;
+    case COMMAND_CHORD:
+        chord_prefix = SDLK_k;
+        ui_show_message("Ctrl+K: press the second key", false);
+        return;
+    case COMMAND_SUBWORD_LEFT: editor_move(&editor, MOTION_SUBWORD_LEFT, extend); break;
+    case COMMAND_SUBWORD_RIGHT: editor_move(&editor, MOTION_SUBWORD_RIGHT, extend); break;
+    case COMMAND_TOGGLE_BOOKMARK: editor_toggle_bookmark(&editor); break;
+    case COMMAND_NEXT_BOOKMARK: editor_next_bookmark(&editor, 1); break;
+    case COMMAND_PREVIOUS_BOOKMARK: editor_next_bookmark(&editor, -1); break;
+    case COMMAND_CLEAR_BOOKMARKS: editor_clear_bookmarks(&editor); break;
+    case COMMAND_SELECT_BOOKMARKS: editor_select_bookmarks(&editor); break;
+    case COMMAND_FIND_UNDER: editor_find_under(&editor, 1); break;
+    case COMMAND_FIND_UNDER_PREVIOUS: editor_find_under(&editor, -1); break;
+    case COMMAND_FIND_ALL_UNDER: editor_select_all_under(&editor); break;
+    case COMMAND_SELECT_SCOPE: editor_select_scope(&editor); break;
+    case COMMAND_UPPER_CASE: editor_change_case(&editor, true); break;
+    case COMMAND_LOWER_CASE: editor_change_case(&editor, false); break;
+    case COMMAND_DELETE_LINE_RIGHT: editor_delete_line_part(&editor, 1); break;
+    case COMMAND_DELETE_LINE_LEFT: editor_delete_line_part(&editor, -1); break;
+    case COMMAND_SHOW_IN_CENTER: {
+        update_layout();
+        size_t x, row = global_row(editor.cursor, &x);
+        scroll_row = row > visible_rows() / 2 ? row - visible_rows() / 2 : 0;
+        return;
+    }
+    case COMMAND_SET_MARK: editor_set_mark(&editor); break;
+    case COMMAND_SELECT_TO_MARK: editor_select_to_mark(&editor); break;
+    case COMMAND_DELETE_TO_MARK: editor_delete_to_mark(&editor); break;
+    case COMMAND_SWAP_WITH_MARK: editor_swap_with_mark(&editor); break;
+    case COMMAND_YANK: editor_yank(&editor); break;
+    case COMMAND_SKIP_AND_SELECT_NEXT: editor_skip_and_select_next(&editor); break;
+    case COMMAND_HARD_WRAP: editor_hard_wrap(&editor, EDITOR_HARD_WRAP_COLUMNS); break;
     case COMMAND_TRANSPOSE: editor_transpose(&editor); break;
     case COMMAND_GO_TO_BRACKET: editor_go_to_bracket(&editor); break;
     case COMMAND_SELECT_BETWEEN_BRACKETS: editor_select_between_brackets(&editor); break;
@@ -630,8 +668,19 @@ static enum key_context key_context(void) {
 bool ui_key(const SDL_KeyboardEvent *event) {
     suppress_text = false;
     bool extend = false;
+    SDL_Keycode key = event->keysym.sym;
+    if (key == SDLK_LCTRL || key == SDLK_RCTRL || key == SDLK_LSHIFT || key == SDLK_RSHIFT || key == SDLK_LALT ||
+        key == SDLK_RALT)
+        return false; // a modifier alone keeps a pending two-key command
+    SDL_Keycode prefix = chord_prefix;
+    chord_prefix = 0;
     const struct key_binding *binding =
-        keymap_lookup(event->keysym.sym, (SDL_Keymod)event->keysym.mod, visible ? key_context() : CONTEXT_ANY, &extend);
+        keymap_lookup(key, (SDL_Keymod)event->keysym.mod, visible ? key_context() : CONTEXT_ANY, prefix, &extend);
+    if (prefix && !binding) {
+        ui_show_message("no command for this key after Ctrl+K", false);
+        suppress_text = true;
+        return true;
+    }
     if (!binding || (!visible && !binding->global)) return false;
     // A held key repeats editing commands, but it does not evaluate or toggle again and again.
     if (event->repeat && binding->global) return true;
@@ -640,7 +689,10 @@ bool ui_key(const SDL_KeyboardEvent *event) {
     return true;
 }
 
+void ui_text_editing(const char *text) { snprintf(composition, sizeof composition, "%s", text); }
+
 void ui_text_input(const char *text) {
+    composition[0] = '\0';
     if (suppress_text || !visible || (SDL_GetModState() & (KMOD_CTRL | KMOD_LALT))) return;
     if (help_visible) return;
     if (prompt.kind != PROMPT_NONE) {
@@ -863,10 +915,14 @@ static void highlight_line(struct highlight_state *state, const char *text, size
 
 // ---------------------------------------------------------------- drawing
 
+_Static_assert(OVERLAY_TAB_WIDTH == EDITOR_TAB_WIDTH, "the overlay and the editor must agree on tabs");
+
 static size_t columns_between(size_t start, size_t end) {
     size_t columns = 0;
-    for (size_t i = start; i < end; i++)
-        if ((editor.text[i] & 0xC0) != 0x80) columns++;
+    for (size_t i = start; i < end; i++) {
+        if ((editor.text[i] & 0xC0) == 0x80) continue;
+        columns += editor.text[i] == '\t' ? EDITOR_TAB_WIDTH - columns % EDITOR_TAB_WIDTH : 1;
+    }
     return columns;
 }
 
@@ -968,6 +1024,27 @@ static void draw_code(void) {
             continue;
         overlay_rect(MARGIN + (float)(x - scroll_column) * overlay_char_width() - CURSOR_WIDTH / 2,
                      MARGIN + (float)(row - scroll_row) * line_height, CURSOR_WIDTH, line_height, COLOR_CURSOR);
+    }
+    // Bookmarks: a mark in the left margin of the first row of the line.
+    for (size_t i = 0; i < editor.bookmark_count; i++) {
+        size_t line = editor.bookmarks[i];
+        if (line >= layout.line_count || layout.first_row[line] < scroll_row || layout.first_row[line] >= scroll_row + rows)
+            continue;
+        overlay_rect(MARGIN / 4, MARGIN + (float)(layout.first_row[line] - scroll_row) * line_height + line_height / 4,
+                     MARGIN / 2, line_height / 2, COLOR_BOOKMARK);
+    }
+    // The IME composition, underlined at the cursor, until the input method commits it.
+    if (composition[0]) {
+        size_t x, row = global_row(editor.cursor, &x);
+        if (row >= scroll_row && row < scroll_row + rows) {
+            float left = MARGIN + (float)(x - scroll_column) * overlay_char_width();
+            float top = MARGIN + (float)(row - scroll_row) * line_height;
+            size_t length = strlen(composition), columns = 0;
+            for (size_t k = 0; k < length; k++) columns += (composition[k] & 0xC0) != 0x80;
+            overlay_rect(left, top, (float)columns * overlay_char_width(), line_height, COLOR_POPUP_BACKGROUND);
+            overlay_text(left, top, composition, length, 0, columns, NULL, COLOR_TEXT);
+            overlay_rect(left, top + line_height - 2, (float)columns * overlay_char_width(), 2, COLOR_TEXT);
+        }
     }
     free(selections);
 }

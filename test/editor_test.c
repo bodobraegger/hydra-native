@@ -283,7 +283,7 @@ static void test_more_line_commands(void) {
     EXPECT_TEXT(&editor, "osc() .out()");
     load(&editor, "c\na\nb");
     editor_select_all(&editor);
-    editor_sort_lines(&editor);
+    editor_sort_lines(&editor, false, false);
     EXPECT_TEXT(&editor, "a\nb\nc");
     load(&editor, "ab");
     editor_set_cursor(&editor, 1, false);
@@ -339,6 +339,72 @@ static void test_wrap(void) {
     editor_free(&editor);
 }
 
+static void test_sublime_commands(void) {
+    struct editor editor;
+    editor_init(&editor);
+    load(&editor, "modulateScale(o0)");
+    editor_move(&editor, MOTION_SUBWORD_RIGHT, false);
+    EXPECT(editor.cursor == 8); // "modulate|Scale"
+    editor_move(&editor, MOTION_SUBWORD_RIGHT, false);
+    EXPECT(editor.cursor == 13);
+    editor_move(&editor, MOTION_SUBWORD_LEFT, false);
+    EXPECT(editor.cursor == 8);
+
+    load(&editor, "a\nb\nc");
+    editor_set_cursor(&editor, 4, false);
+    editor_toggle_bookmark(&editor); // line 2
+    editor_set_cursor(&editor, 0, false);
+    editor_insert(&editor, "x\n", 2, EDIT_OTHER); // a new line above moves the bookmark down
+    EXPECT(editor_is_bookmarked(&editor, 3) && !editor_is_bookmarked(&editor, 2));
+    editor_next_bookmark(&editor, 1);
+    EXPECT(editor_line_of(&editor, editor.cursor) == 3);
+    editor_select_bookmarks(&editor);
+    EXPECT(editor.anchor == editor_line_start(&editor, 3) && editor.cursor == editor.length);
+
+    load(&editor, "osc noise osc");
+    editor_find_under(&editor, 1); // the word, then its next match
+    EXPECT(editor.anchor == 10 && editor.cursor == 13);
+    editor_select_all_under(&editor);
+    EXPECT(editor_selection_count(&editor) == 2);
+    editor_change_case(&editor, true);
+    EXPECT_TEXT(&editor, "OSC noise OSC");
+    editor_collapse_to_first(&editor);
+    EXPECT(editor.anchor == 0 && editor_selection_count(&editor) == 1);
+
+    load(&editor, "abc def");
+    editor_set_cursor(&editor, 4, false);
+    editor_set_mark(&editor);
+    editor_move(&editor, MOTION_DOCUMENT_END, false);
+    editor_delete_to_mark(&editor);
+    EXPECT_TEXT(&editor, "abc ");
+    editor_move(&editor, MOTION_DOCUMENT_START, false);
+    editor_yank(&editor);
+    EXPECT_TEXT(&editor, "defabc ");
+    editor_delete_line_part(&editor, 1);
+    EXPECT_TEXT(&editor, "def");
+
+    load(&editor, "// one two three four five six");
+    editor_hard_wrap(&editor, 14);
+    EXPECT_TEXT(&editor, "// one two\n// three four\n// five six");
+
+    load(&editor, "\tosc()");
+    EXPECT(editor_column_of(&editor, 1) == EDITOR_TAB_WIDTH); // a tab is 4 columns wide
+    EXPECT(editor_offset_at(&editor, 0, EDITOR_TAB_WIDTH + 1) == 2);
+
+    load(&editor, "     x");
+    editor_set_cursor(&editor, 5, false);
+    editor_backspace(&editor); // smart backspace: back to the indent stop at 4
+    EXPECT_TEXT(&editor, "    x");
+    editor_backspace(&editor);
+    EXPECT_TEXT(&editor, "  x");
+
+    load(&editor, "a a a");
+    editor_select_word_at(&editor, 0);
+    editor_skip_and_select_next(&editor);
+    EXPECT(editor.anchor == 2 && editor_selection_count(&editor) == 1);
+    editor_free(&editor);
+}
+
 int main(void) {
     test_typing_and_undo();
     test_utf8_and_motion();
@@ -349,6 +415,7 @@ int main(void) {
     test_typing_rules();
     test_more_line_commands();
     test_wrap();
+    test_sublime_commands();
     if (failures) {
         fprintf(stderr, "editor_test: %d failures\n", failures);
         return 1;

@@ -229,7 +229,7 @@ void overlay_text(float x, float y, const char *text, size_t length, size_t firs
             }
         }
         offset += consumed;
-        column++;
+        column += codepoint == '\t' ? OVERLAY_TAB_WIDTH - column % OVERLAY_TAB_WIDTH : 1;
     }
 }
 

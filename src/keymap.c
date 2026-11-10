@@ -72,6 +72,39 @@ static const struct key_binding keymap[] = {
     { SDLK_k, KEY_CTRL | KEY_SHIFT, COMMAND_DELETE_LINE },
     { SDLK_j, KEY_CTRL, COMMAND_JOIN_LINES },
     { SDLK_F9, 0, COMMAND_SORT_LINES },
+    { SDLK_F9, KEY_CTRL, COMMAND_SORT_LINES_INSENSITIVE },
+    { SDLK_F9, KEY_SHIFT, COMMAND_SORT_LINES_REVERSE },
+    { SDLK_F9, KEY_CTRL | KEY_SHIFT, COMMAND_SORT_LINES_REVERSE_INSENSITIVE },
+    { SDLK_F2, KEY_CTRL, COMMAND_TOGGLE_BOOKMARK },
+    { SDLK_F2, 0, COMMAND_NEXT_BOOKMARK },
+    { SDLK_F2, KEY_SHIFT, COMMAND_PREVIOUS_BOOKMARK },
+    { SDLK_F2, KEY_CTRL | KEY_SHIFT, COMMAND_CLEAR_BOOKMARKS },
+    { SDLK_F2, KEY_ALT, COMMAND_SELECT_BOOKMARKS },
+    { SDLK_F3, KEY_CTRL, COMMAND_FIND_UNDER },
+    { SDLK_F3, KEY_CTRL | KEY_SHIFT, COMMAND_FIND_UNDER_PREVIOUS },
+    { SDLK_F3, KEY_ALT, COMMAND_FIND_ALL_UNDER },
+    { SDLK_SPACE, KEY_CTRL | KEY_SHIFT, COMMAND_SELECT_SCOPE },
+    { SDLK_q, KEY_ALT, COMMAND_HARD_WRAP },
+    { SDLK_LEFTBRACKET, KEY_CTRL | KEY_SHIFT, COMMAND_NONE }, // fold: the web editor loads no fold addon
+    { SDLK_RIGHTBRACKET, KEY_CTRL | KEY_SHIFT, COMMAND_NONE },
+
+    // two-key commands of the sublime keymap: Ctrl+K, then the second key
+    { SDLK_k, KEY_CTRL, COMMAND_CHORD },
+    { SDLK_u, KEY_CTRL, COMMAND_UPPER_CASE, .prefix = SDLK_k },
+    { SDLK_l, KEY_CTRL, COMMAND_LOWER_CASE, .prefix = SDLK_k },
+    { SDLK_k, KEY_CTRL, COMMAND_DELETE_LINE_RIGHT, .prefix = SDLK_k },
+    { SDLK_BACKSPACE, KEY_CTRL, COMMAND_DELETE_LINE_LEFT, .prefix = SDLK_k },
+    { SDLK_c, KEY_CTRL, COMMAND_SHOW_IN_CENTER, .prefix = SDLK_k },
+    { SDLK_g, KEY_CTRL, COMMAND_CLEAR_BOOKMARKS, .prefix = SDLK_k },
+    { SDLK_SPACE, KEY_CTRL, COMMAND_SET_MARK, .prefix = SDLK_k },
+    { SDLK_a, KEY_CTRL, COMMAND_SELECT_TO_MARK, .prefix = SDLK_k },
+    { SDLK_w, KEY_CTRL, COMMAND_DELETE_TO_MARK, .prefix = SDLK_k },
+    { SDLK_x, KEY_CTRL, COMMAND_SWAP_WITH_MARK, .prefix = SDLK_k },
+    { SDLK_y, KEY_CTRL, COMMAND_YANK, .prefix = SDLK_k },
+    { SDLK_d, KEY_CTRL, COMMAND_SKIP_AND_SELECT_NEXT, .prefix = SDLK_k },
+    { SDLK_0, KEY_CTRL, COMMAND_NONE, .prefix = SDLK_k }, // unfold all, fold all: no fold addon in the web editor
+    { SDLK_1, KEY_CTRL, COMMAND_NONE, .prefix = SDLK_k },
+    { SDLK_j, KEY_CTRL, COMMAND_NONE, .prefix = SDLK_k },
     { SDLK_t, KEY_CTRL, COMMAND_TRANSPOSE },
     { SDLK_DELETE, KEY_CTRL, COMMAND_DELETE_WORD_RIGHT },
     { SDLK_RIGHTBRACKET, KEY_CTRL, COMMAND_INDENT_MORE },
@@ -104,6 +137,8 @@ static const struct key_binding keymap[] = {
     // cursor motion; Shift extends the selection
     { SDLK_LEFT, KEY_CTRL, COMMAND_WORD_LEFT, .shift_extends = true },
     { SDLK_RIGHT, KEY_CTRL, COMMAND_WORD_RIGHT, .shift_extends = true },
+    { SDLK_LEFT, KEY_ALT, COMMAND_SUBWORD_LEFT, .shift_extends = true }, // the sublime keymap of the web editor
+    { SDLK_RIGHT, KEY_ALT, COMMAND_SUBWORD_RIGHT, .shift_extends = true },
     { SDLK_HOME, KEY_CTRL, COMMAND_DOCUMENT_START, .shift_extends = true },
     { SDLK_END, KEY_CTRL, COMMAND_DOCUMENT_END, .shift_extends = true },
     { SDLK_LEFT, 0, COMMAND_LEFT, .shift_extends = true },
@@ -121,11 +156,13 @@ static unsigned binding_modifiers(SDL_Keymod modifiers) {
            (modifiers & KMOD_LALT ? KEY_ALT : 0);
 }
 
-const struct key_binding *keymap_lookup(SDL_Keycode key, SDL_Keymod modifiers, enum key_context context, bool *extend) {
+const struct key_binding *keymap_lookup(SDL_Keycode key, SDL_Keymod modifiers, enum key_context context,
+                                        SDL_Keycode prefix, bool *extend) {
     unsigned pressed = binding_modifiers(modifiers);
     for (size_t i = 0; i < sizeof keymap / sizeof keymap[0]; i++) {
         const struct key_binding *binding = &keymap[i];
         if (binding->context != CONTEXT_ANY && binding->context != context) continue;
+        if (binding->prefix != prefix) continue;
         unsigned compared = binding->shift_extends ? pressed & ~KEY_SHIFT : pressed;
         if (binding->key == key && binding->modifiers == compared) {
             *extend = binding->shift_extends && (pressed & KEY_SHIFT);
@@ -156,7 +193,9 @@ void command_keys(enum command command, char *text, size_t size) {
     for (size_t i = 0; i < sizeof keymap / sizeof keymap[0] && used + 1 < size; i++) {
         const struct key_binding *binding = &keymap[i];
         if (binding->command != command) continue;
-        int written = snprintf(text + used, size - used, "%s%s%s%s%s%s", used ? ", " : "",
+        char chord[32] = "";
+        if (binding->prefix) snprintf(chord, sizeof chord, "Ctrl+%s ", key_name(binding->prefix));
+        int written = snprintf(text + used, size - used, "%s%s%s%s%s%s%s", used ? ", " : "", chord,
                                binding->modifiers & KEY_CTRL ? "Ctrl+" : "", binding->modifiers & KEY_SHIFT ? "Shift+" : "",
                                binding->modifiers & KEY_ALT ? "Alt+" : "", key_name(binding->key),
                                binding->shift_extends ? " (+Shift)" : "");

@@ -676,6 +676,7 @@ static void handle_events(void) {
             break;
         case SDL_KEYUP: dispatch_key(&event.key); break;
         case SDL_TEXTINPUT: ui_text_input(event.text.text); break;
+        case SDL_TEXTEDITING: ui_text_editing(event.edit.text); break;
         case SDL_MOUSEWHEEL: ui_wheel(event.wheel.y); break;
         case SDL_MOUSEMOTION:
             ui_mouse_motion(event.motion.x * scale, event.motion.y * scale);

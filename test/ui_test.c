@@ -203,6 +203,15 @@ int main(void) {
     key(SDLK_RETURN, KMOD_LCTRL | KMOD_LALT);
     EXPECT_STRING(evaluated, "xshape(1).out()\nxshape(2).out()\nnoise().out()\nnoise");
 
+    // A two-key command: Ctrl+K, then Ctrl+U makes the word upper case.
+    key(SDLK_a, KMOD_LCTRL);
+    type("noise");
+    key(SDLK_k, KMOD_LCTRL);
+    key(SDLK_LCTRL, KMOD_LCTRL); // a modifier alone keeps the pending command
+    key(SDLK_u, KMOD_LCTRL);
+    key(SDLK_RETURN, KMOD_LCTRL | KMOD_LALT);
+    EXPECT_STRING(evaluated, "NOISE");
+
     unlink(path);
     if (failures) {
         fprintf(stderr, "ui_test: %d failures\n", failures);
