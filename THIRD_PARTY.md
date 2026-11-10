@@ -59,7 +59,9 @@ Translations of the info panel come at run time from https://github.com/hydra-sy
 The code overlay and the 2D canvas use fonts that are installed on the system (default: DejaVu Sans Mono).
 `make` downloads one font: Noto Emoji (monochrome), SIL Open Font License 1.1, from
 https://github.com/google/fonts (ofl/notoemoji, commit 8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5), into
-vendor/fonts with its OFL.txt. It draws emoji in the overlay.
+vendor/fonts with its OFL.txt. It draws emoji in the overlay when the system has no color emoji font.
+The color emoji come from the font that fontconfig gives for `emoji:color=true`, usually Noto Color Emoji of
+the system.
 
 ## Data
 

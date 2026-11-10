@@ -11,7 +11,10 @@
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "stb_truetype.h"
 
+#include "stb_image.h" // implemented in src/thumbnails.c; decodes the PNG glyphs of color emoji
+
 #include "hb.h" // HarfBuzz 14.6.0 (MIT, see THIRD_PARTY.md) shapes the text of panels and prompts
+#include "hb-ot.h"
 #include <SheenBidi/SheenBidi.h> // SheenBidi 2.9.0 (Apache-2.0, see THIRD_PARTY.md) orders mixed directions
 
 #define ATLAS_SIZE 2048
@@ -23,6 +26,7 @@
 #define GLYPH_TABLE_SIZE 8192 // a power of two
 #define MAX_FONTS 16
 #define MAX_FONT_PATH 1024
+#define COLOR_EMOJI_PATTERN "emoji:color=true"
 
 // A font file: the code font first, then fallback fonts that fontconfig finds for other scripts.
 struct font {
@@ -30,17 +34,20 @@ struct font {
     int index;
     unsigned char *data;
     size_t size;
-    stbtt_fontinfo info;
+    stbtt_fontinfo info; // not for a color font
+    bool color; // PNG glyphs (CBDT or sbix), such as Noto Color Emoji; HarfBuzz reads it
     float scale;
     hb_font_t *shaper; // created on the first shaped text
 };
 
-static int emoji_font = -1; // the vendored monochrome emoji font, after the code font
+static int color_emoji_font = -1; // the color emoji font of the system, as browsers use it
+static int emoji_font = -1; // the vendored monochrome emoji font, when the system has no color emoji
 
 // A glyph in the atlas, rendered on the first use.
 struct glyph {
     int codepoint; // 0: free slot
     int columns; // 1, or 2 for wide East Asian characters
+    bool color; // RGBA in the atlas; the other glyphs are white with alpha
     float x0, y0, x1, y1; // the bitmap relative to the pen position on the baseline
     float s0, t0, s1, t1;
 };
@@ -67,8 +74,6 @@ static struct {
     unsigned texture;
 } images[MAX_IMAGES];
 static int image_count;
-static GLuint image_program;
-static GLint image_screen_location;
 static bool atlas_full;
 static size_t vertex_count, vertex_capacity;
 
@@ -83,21 +88,14 @@ static const char *vertex_source =
     "  gl_Position = vec4(p.x, -p.y, 0.0, 1.0);\n"
     "}\n";
 
-static const char *image_fragment_source =
-    "#version 300 es\n"
-    "precision mediump float;\n"
-    "in vec2 v_uv; in vec4 v_color;\n"
-    "uniform sampler2D atlas;\n"
-    "out vec4 out_color;\n"
-    "void main() { out_color = texture(atlas, v_uv) * v_color; }\n";
-
+// The atlas and the images are RGBA; glyphs of text are white with alpha, so the vertex color tints them.
 static const char *fragment_source =
     "#version 300 es\n"
     "precision mediump float;\n"
     "in vec2 v_uv; in vec4 v_color;\n"
     "uniform sampler2D atlas;\n"
     "out vec4 out_color;\n"
-    "void main() { out_color = vec4(v_color.rgb, v_color.a * texture(atlas, v_uv).r); }\n";
+    "void main() { out_color = texture(atlas, v_uv) * v_color; }\n";
 
 static GLuint compile(GLenum type, const char *source) {
     GLuint shader = glCreateShader(type);
@@ -113,6 +111,25 @@ static GLuint compile(GLenum type, const char *source) {
     return shader;
 }
 
+static hb_font_t *shaper(struct font *font) {
+    if (!font->shaper) {
+        hb_blob_t *blob = hb_blob_create((const char *)font->data, (unsigned)font->size, HB_MEMORY_MODE_READONLY, NULL, NULL);
+        hb_face_t *face = hb_face_create(blob, (unsigned)font->index);
+        font->shaper = hb_font_create(face);
+        hb_face_destroy(face);
+        hb_blob_destroy(blob);
+    }
+    return font->shaper;
+}
+
+// Pixels per font unit, so that the ascent and descent fill `size` pixels, as stbtt_ScaleForPixelHeight does.
+static float font_scale(struct font *font, float size) {
+    if (!font->color) return stbtt_ScaleForPixelHeight(&font->info, size);
+    hb_font_extents_t extents;
+    hb_font_get_h_extents(shaper(font), &extents);
+    return size / (float)(extents.ascender - extents.descender);
+}
+
 static bool load_font(struct font *font, const char *path, int index) {
     FILE *file = fopen(path, "rb");
     if (!file) return false;
@@ -123,16 +140,31 @@ static bool load_font(struct font *font, const char *path, int index) {
     font->size = (size_t)size;
     bool read = fread(font->data, 1, (size_t)size, file) == (size_t)size;
     fclose(file);
-    int offset = read ? stbtt_GetFontOffsetForIndex(font->data, index) : -1;
-    if (offset < 0 || !stbtt_InitFont(&font->info, font->data, offset)) {
-        free(font->data);
-        font->data = NULL;
-        return false;
-    }
     snprintf(font->path, sizeof font->path, "%s", path);
     font->index = index;
-    font->scale = stbtt_ScaleForPixelHeight(&font->info, current_font_size);
-    return true;
+    int offset = read ? stbtt_GetFontOffsetForIndex(font->data, index) : -1;
+    font->color = false;
+    if (offset >= 0 && stbtt_InitFont(&font->info, font->data, offset)) {
+        font->scale = stbtt_ScaleForPixelHeight(&font->info, current_font_size);
+        return true;
+    }
+    // stb_truetype reads no font without outlines, such as Noto Color Emoji with only PNG glyphs.
+    if (read && hb_ot_color_has_png(hb_font_get_face(shaper(font)))) {
+        font->color = true;
+        font->scale = font_scale(font, current_font_size);
+        return true;
+    }
+    if (font->shaper) hb_font_destroy(font->shaper);
+    font->shaper = NULL;
+    free(font->data);
+    font->data = NULL;
+    return false;
+}
+
+static unsigned glyph_index(struct font *font, int codepoint) {
+    if (!font->color) return (unsigned)stbtt_FindGlyphIndex(&font->info, codepoint);
+    hb_codepoint_t glyph;
+    return hb_font_get_nominal_glyph(shaper(font), (hb_codepoint_t)codepoint, &glyph) ? glyph : 0;
 }
 
 // Asks fontconfig for a font with the code point and adds it to the fallback fonts.
@@ -149,20 +181,19 @@ static struct font *fallback_font(int codepoint) {
     *separator = '\0';
     int index = atoi(separator + 1);
     for (int i = 0; i < font_count; i++)
-        if (!strcmp(fonts[i].path, answer) && fonts[i].index == index)
-            return stbtt_FindGlyphIndex(&fonts[i].info, codepoint) ? &fonts[i] : NULL;
+        if (!strcmp(fonts[i].path, answer) && fonts[i].index == index) return glyph_index(&fonts[i], codepoint) ? &fonts[i] : NULL;
     if (!load_font(&fonts[font_count], answer, index)) return NULL;
     struct font *font = &fonts[font_count++];
-    return stbtt_FindGlyphIndex(&font->info, codepoint) ? font : NULL;
+    return glyph_index(font, codepoint) ? font : NULL;
 }
 
 static void clear_glyphs(void) {
     memset(glyphs, 0, sizeof glyphs);
     shelf_x = shelf_y = shelf_height = 0;
-    unsigned char *pixels = calloc(ATLAS_SIZE, ATLAS_SIZE);
-    memset(pixels + (size_t)ATLAS_GLYPH_HEIGHT * ATLAS_SIZE, 0xFF, 2 * ATLAS_SIZE);
+    unsigned char *pixels = calloc((size_t)ATLAS_SIZE * ATLAS_SIZE, 4);
+    memset(pixels + (size_t)ATLAS_GLYPH_HEIGHT * ATLAS_SIZE * 4, 0xFF, 2 * ATLAS_SIZE * 4);
     glBindTexture(GL_TEXTURE_2D, atlas);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_R8, ATLAS_SIZE, ATLAS_SIZE, 0, GL_RED, GL_UNSIGNED_BYTE, pixels);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, ATLAS_SIZE, ATLAS_SIZE, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
     free(pixels);
 }
 
@@ -173,13 +204,15 @@ static bool is_emoji(int codepoint) {
            (codepoint >= 0x2B00 && codepoint <= 0x2BFF) || codepoint == 0x203C || codepoint == 0x2049;
 }
 
-// The font for a code point: the code font, an emoji from the vendored emoji font, else a fallback font.
+// The font for a code point: the code font, an emoji from an emoji font, else a fallback font.
 static struct font *font_for(int codepoint) {
-    if (is_emoji(codepoint) && emoji_font >= 0 && stbtt_FindGlyphIndex(&fonts[emoji_font].info, codepoint))
-        return &fonts[emoji_font];
-    if (stbtt_FindGlyphIndex(&fonts[0].info, codepoint)) return &fonts[0];
+    for (int i = 0; i < 2; i++) {
+        int emoji = i == 0 ? color_emoji_font : emoji_font;
+        if (is_emoji(codepoint) && emoji >= 0 && glyph_index(&fonts[emoji], codepoint)) return &fonts[emoji];
+    }
+    if (glyph_index(&fonts[0], codepoint)) return &fonts[0];
     for (int i = 1; i < font_count; i++)
-        if (i != emoji_font && stbtt_FindGlyphIndex(&fonts[i].info, codepoint)) return &fonts[i];
+        if (i != emoji_font && i != color_emoji_font && glyph_index(&fonts[i], codepoint)) return &fonts[i];
     return fallback_font(codepoint);
 }
 
@@ -188,29 +221,89 @@ static struct glyph *render_font_glyph(struct glyph *slot, int key, struct font 
 static struct glyph *render_glyph(struct glyph *slot, int codepoint) {
     struct font *font = font_for(codepoint);
     if (!font) return codepoint == FALLBACK_CODEPOINT ? NULL : overlay_glyph(FALLBACK_CODEPOINT);
-    return render_font_glyph(slot, codepoint, font, stbtt_FindGlyphIndex(&font->info, codepoint), overlay_columns(codepoint));
+    return render_font_glyph(slot, codepoint, font, (int)glyph_index(font, codepoint), overlay_columns(codepoint));
+}
+
+// The PNG of a color glyph, scaled to `width` by `height` pixels with an area average of premultiplied colors.
+static unsigned char *color_glyph_bitmap(struct font *font, int glyph, int width, int height) {
+    hb_blob_t *blob = hb_ot_color_glyph_reference_png(shaper(font), (hb_codepoint_t)glyph);
+    unsigned length;
+    const char *data = hb_blob_get_data(blob, &length);
+    int source_width, source_height, channels;
+    unsigned char *source = length ? stbi_load_from_memory((const unsigned char *)data, (int)length, &source_width,
+                                                           &source_height, &channels, 4) : NULL;
+    hb_blob_destroy(blob);
+    if (!source) return NULL;
+    unsigned char *bitmap = calloc((size_t)width * (size_t)height, 4);
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            int sx0 = x * source_width / width, sx1 = (x + 1) * source_width / width;
+            int sy0 = y * source_height / height, sy1 = (y + 1) * source_height / height;
+            if (sx1 <= sx0) sx1 = sx0 + 1;
+            if (sy1 <= sy0) sy1 = sy0 + 1;
+            float sum[4] = { 0 };
+            for (int sy = sy0; sy < sy1; sy++) {
+                for (int sx = sx0; sx < sx1; sx++) {
+                    const unsigned char *pixel = source + ((size_t)sy * source_width + sx) * 4;
+                    for (int c = 0; c < 3; c++) sum[c] += pixel[c] * pixel[3] / 255.0f;
+                    sum[3] += pixel[3];
+                }
+            }
+            float count = (float)((sx1 - sx0) * (sy1 - sy0)), alpha = sum[3] / count;
+            unsigned char *out = bitmap + ((size_t)y * width + x) * 4;
+            for (int c = 0; c < 3; c++) out[c] = alpha > 0 ? (unsigned char)(sum[c] / count * 255.0f / alpha + 0.5f) : 0;
+            out[3] = (unsigned char)(alpha + 0.5f);
+        }
+    }
+    stbi_image_free(source);
+    return bitmap;
+}
+
+// The RGBA bitmap of a glyph and its box relative to the pen position on the baseline.
+static unsigned char *glyph_bitmap(struct font *font, int glyph, int *x0, int *y0, int *x1, int *y1) {
+    if (font->color) {
+        hb_glyph_extents_t extents;
+        if (!hb_font_get_glyph_extents(shaper(font), (hb_codepoint_t)glyph, &extents)) return NULL;
+        *x0 = (int)(extents.x_bearing * font->scale + 0.5f);
+        *y0 = (int)(-extents.y_bearing * font->scale + 0.5f);
+        *x1 = *x0 + (int)(extents.width * font->scale + 0.5f);
+        *y1 = *y0 + (int)(-extents.height * font->scale + 0.5f);
+        return *x1 > *x0 && *y1 > *y0 ? color_glyph_bitmap(font, glyph, *x1 - *x0, *y1 - *y0) : NULL;
+    }
+    stbtt_GetGlyphBitmapBox(&font->info, glyph, font->scale, font->scale, x0, y0, x1, y1);
+    int width = *x1 - *x0, height = *y1 - *y0;
+    if (width <= 0 || height <= 0) return NULL;
+    unsigned char *alpha = calloc((size_t)width * (size_t)height, 1), *bitmap = malloc((size_t)width * (size_t)height * 4);
+    stbtt_MakeGlyphBitmap(&font->info, alpha, width, height, width, font->scale, font->scale, glyph);
+    for (size_t i = 0; i < (size_t)width * (size_t)height; i++) {
+        bitmap[i * 4] = bitmap[i * 4 + 1] = bitmap[i * 4 + 2] = 0xFF;
+        bitmap[i * 4 + 3] = alpha[i];
+    }
+    free(alpha);
+    return bitmap;
 }
 
 // Renders a glyph of `font` into the atlas; `key` is a code point, or a negative key for a shaped glyph.
 static struct glyph *render_font_glyph(struct glyph *slot, int key, struct font *font, int glyph_index, int columns) {
-    int x0, y0, x1, y1;
-    stbtt_GetGlyphBitmapBox(&font->info, glyph_index, font->scale, font->scale, &x0, &y0, &x1, &y1);
-    int width = x1 - x0, height = y1 - y0;
+    int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+    unsigned char *bitmap = glyph_bitmap(font, glyph_index, &x0, &y0, &x1, &y1);
+    int width = bitmap ? x1 - x0 : 0, height = bitmap ? y1 - y0 : 0;
     if (shelf_x + width + GLYPH_PADDING > ATLAS_SIZE) {
         shelf_x = 0;
         shelf_y += shelf_height + GLYPH_PADDING;
         shelf_height = 0;
     }
-    if (shelf_y + height + GLYPH_PADDING > ATLAS_GLYPH_HEIGHT) return NULL; // full; overlay_end clears it
-    unsigned char *bitmap = calloc((size_t)(width > 0 ? width : 1) * (size_t)(height > 0 ? height : 1), 1);
-    if (width > 0 && height > 0) {
-        stbtt_MakeGlyphBitmap(&font->info, bitmap, width, height, width, font->scale, font->scale, glyph_index);
-        glBindTexture(GL_TEXTURE_2D, atlas);
-        glTexSubImage2D(GL_TEXTURE_2D, 0, shelf_x, shelf_y, width, height, GL_RED, GL_UNSIGNED_BYTE, bitmap);
+    if (shelf_y + height + GLYPH_PADDING > ATLAS_GLYPH_HEIGHT) { // full; overlay_end clears it
+        free(bitmap);
+        return NULL;
     }
-    free(bitmap);
+    if (bitmap) {
+        glBindTexture(GL_TEXTURE_2D, atlas);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, shelf_x, shelf_y, width, height, GL_RGBA, GL_UNSIGNED_BYTE, bitmap);
+        free(bitmap);
+    }
     // A glyph of a fallback font sits on the baseline of the code font.
-    *slot = (struct glyph){ key, columns, (float)x0, (float)y0, (float)x1, (float)y1,
+    *slot = (struct glyph){ key, columns, font->color, (float)x0, (float)y0, (float)x1, (float)y1,
                             (float)shelf_x / ATLAS_SIZE, (float)shelf_y / ATLAS_SIZE,
                             (float)(shelf_x + width) / ATLAS_SIZE, (float)(shelf_y + height) / ATLAS_SIZE };
     shelf_x += width + GLYPH_PADDING;
@@ -232,7 +325,7 @@ bool overlay_set_font_size(float font_size) {
     if (font_size < OVERLAY_MIN_FONT_SIZE) font_size = OVERLAY_MIN_FONT_SIZE;
     if (font_size > OVERLAY_MAX_FONT_SIZE) font_size = OVERLAY_MAX_FONT_SIZE;
     current_font_size = font_size;
-    for (int i = 0; i < font_count; i++) fonts[i].scale = stbtt_ScaleForPixelHeight(&fonts[i].info, font_size);
+    for (int i = 0; i < font_count; i++) fonts[i].scale = font_scale(&fonts[i], font_size);
     int font_ascent, font_descent, line_gap, advance, bearing;
     stbtt_GetFontVMetrics(&fonts[0].info, &font_ascent, &font_descent, &line_gap);
     stbtt_GetCodepointHMetrics(&fonts[0].info, 'M', &advance, &bearing);
@@ -258,7 +351,14 @@ bool overlay_init(const char *font_path, const char *emoji_font_path, float font
         return false;
     }
     font_count = 1;
-    if (emoji_font_path && load_font(&fonts[1], emoji_font_path, 0)) emoji_font = font_count++;
+    char color_path[MAX_FONT_PATH + 16] = "";
+    FILE *pipe = popen("fc-match -f '%{file}' '" COLOR_EMOJI_PATTERN "'", "r");
+    if (pipe) {
+        if (!fgets(color_path, sizeof color_path, pipe)) color_path[0] = '\0';
+        pclose(pipe);
+    }
+    if (color_path[0] && load_font(&fonts[font_count], color_path, 0) && fonts[font_count].color) color_emoji_font = font_count++;
+    if (emoji_font_path && load_font(&fonts[font_count], emoji_font_path, 0)) emoji_font = font_count++;
     program = glCreateProgram();
     glAttachShader(program, compile(GL_VERTEX_SHADER, vertex_source));
     glAttachShader(program, compile(GL_FRAGMENT_SHADER, fragment_source));
@@ -267,14 +367,6 @@ bool overlay_init(const char *font_path, const char *emoji_font_path, float font
     glBindAttribLocation(program, 2, "color");
     glLinkProgram(program);
     screen_location = glGetUniformLocation(program, "screen");
-    image_program = glCreateProgram();
-    glAttachShader(image_program, compile(GL_VERTEX_SHADER, vertex_source));
-    glAttachShader(image_program, compile(GL_FRAGMENT_SHADER, image_fragment_source));
-    glBindAttribLocation(image_program, 0, "position");
-    glBindAttribLocation(image_program, 1, "uv");
-    glBindAttribLocation(image_program, 2, "color");
-    glLinkProgram(image_program);
-    image_screen_location = glGetUniformLocation(image_program, "screen");
 
     // A vertex array object of its own leaves the attribute state of the hydra passes untouched.
     glGenVertexArrays(1, &vertex_array);
@@ -321,6 +413,9 @@ static void push_quad(float x0, float y0, float x1, float y1, float u0, float v0
     }
 }
 
+// Color glyphs keep their colors and take only the alpha of the text color.
+static uint32_t glyph_color(const struct glyph *glyph, uint32_t color) { return glyph->color ? 0xFFFFFF00u | (color & 0xFF) : color; }
+
 void overlay_rect(float x, float y, float width, float height, uint32_t color) {
     const float white = (ATLAS_SIZE - 1.0f) / ATLAS_SIZE;
     push_quad(x, y, x + width, y + height, 0.5f / ATLAS_SIZE, white, 0.5f / ATLAS_SIZE, white, color);
@@ -342,8 +437,11 @@ void overlay_text(float x, float y, const char *text, size_t length, size_t firs
             struct glyph *glyph = overlay_glyph(codepoint);
             if (glyph) {
                 float pen_x = x + (float)(column - first_column) * char_width, pen_y = y + ascent;
-                push_quad(pen_x + glyph->x0, pen_y + glyph->y0, pen_x + glyph->x1, pen_y + glyph->y1, glyph->s0,
-                          glyph->t0, glyph->s1, glyph->t1, colors ? colors[offset] : color);
+                // A color emoji that is wider than its columns shrinks to fit the grid.
+                float cell = (float)columns * char_width, glyph_width = glyph->x1 - glyph->x0;
+                float fit = glyph->color && glyph_width > cell ? cell / glyph_width : 1.0f;
+                push_quad(pen_x + glyph->x0 * fit, pen_y + glyph->y0 * fit, pen_x + glyph->x1 * fit, pen_y + glyph->y1 * fit,
+                          glyph->s0, glyph->t0, glyph->s1, glyph->t1, glyph_color(glyph, colors ? colors[offset] : color));
             } else {
                 atlas_full = true;
             }
@@ -390,17 +488,6 @@ struct shaped_glyph {
     unsigned index;
     float advance, x_offset, y_offset;
 };
-
-static hb_font_t *shaper(struct font *font) {
-    if (!font->shaper) {
-        hb_blob_t *blob = hb_blob_create((const char *)font->data, (unsigned)font->size, HB_MEMORY_MODE_READONLY, NULL, NULL);
-        hb_face_t *face = hb_face_create(blob, (unsigned)font->index);
-        font->shaper = hb_font_create(face);
-        hb_face_destroy(face);
-        hb_blob_destroy(blob);
-    }
-    return font->shaper;
-}
 
 // Shapes `text` into glyphs in visual order and returns their count; `paragraph` is 1 for right-to-left text.
 static int shape(const char *text, size_t length, int paragraph, struct shaped_glyph *glyphs, int capacity) {
@@ -495,7 +582,7 @@ float overlay_text_shaped(float x, float y, const char *text, size_t length, boo
         if (glyph) {
             float gx = pen_x + shaped->x_offset, gy = y + ascent - shaped->y_offset;
             push_quad(gx + glyph->x0, gy + glyph->y0, gx + glyph->x1, gy + glyph->y1, glyph->s0, glyph->t0, glyph->s1,
-                      glyph->t1, color);
+                      glyph->t1, glyph_color(glyph, color));
         } else {
             atlas_full = true;
         }
@@ -530,8 +617,6 @@ void overlay_end(int width, int height) {
             push_quad(images[i].x, images[i].y, images[i].x + images[i].width, images[i].y + images[i].height, 0, 0, 1, 1,
                       0xFFFFFFFFu);
         glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(vertex_count * sizeof *vertices), vertices, GL_STREAM_DRAW);
-        glUseProgram(image_program);
-        glUniform2f(image_screen_location, (float)width, (float)height);
         for (int i = 0; i < image_count; i++) {
             glBindTexture(GL_TEXTURE_2D, images[i].texture);
             glDrawArrays(GL_TRIANGLES, (GLint)(first + 6 * (size_t)i), 6);
