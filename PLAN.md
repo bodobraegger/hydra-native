@@ -175,7 +175,7 @@ gallery and signalling server (hydra-synth/hydra-server) and from the CodeMirror
 | initCanvas, 2D canvas          | plutovg: gradients, shadows, filters, clip     | yes; url(#id): 11 SVG primitives |
 | P5 (p5.js 1.6.0), 2D mode      | on the 2D canvas                               | yes                              |
 | P5 WEBGL mode                  | WebGL 1 on GLES 3, text with loadFont          | yes                              |
-| a (audio FFT)                  | Meyda, WebRTC processing, analog AGC           | yes                              |
+| a (audio FFT)                  | Meyda, WebRTC processing                       | yes, without the analog AGC      |
 | Web MIDI input and output      | ALSA sequencer                                 | yes                              |
 | screencap(), vidRecorder       | PNG and js; WebM VP9 through ffmpeg            | yes                              |
 | setTimeout, setInterval        | between frames, about 1 ms late                | yes, except while a frame draws  |

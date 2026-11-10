@@ -9,7 +9,6 @@
 
 #include <SDL3/SDL.h>
 
-#include "analog_agc.h"
 #include "audio_input.h"
 #include "audio_processing.h"
 #include "native.h"
@@ -18,11 +17,8 @@
 // The audio processing of Chrome (src/webrtc_apm.cc), when the library is there.
 static struct {
     void *apm;
-    bool (*process)(void *apm, float *samples, int sample_rate, int *analog_level);
+    bool (*process)(void *apm, float *samples, int sample_rate);
 } webrtc;
-
-static bool analog_agc_enabled = true;
-static struct analog_agc agc;
 
 static void load_webrtc_processing(void) {
     char library[1024];
@@ -33,9 +29,9 @@ static void load_webrtc_processing(void) {
                 SDL_GetError());
         return;
     }
-    void *(*create)(int, bool) = (void *(*)(int, bool))SDL_LoadFunction(handle, "webrtc_apm_create");
-    webrtc.process = (bool (*)(void *, float *, int, int *))SDL_LoadFunction(handle, "webrtc_apm_process");
-    webrtc.apm = create && webrtc.process ? create(AUDIO_SAMPLE_RATE, analog_agc_enabled) : NULL;
+    void *(*create)(int) = (void *(*)(int))SDL_LoadFunction(handle, "webrtc_apm_create");
+    webrtc.process = (bool (*)(void *, float *, int))SDL_LoadFunction(handle, "webrtc_apm_process");
+    webrtc.apm = create && webrtc.process ? create(AUDIO_SAMPLE_RATE) : NULL;
 }
 
 static bool started;
@@ -70,19 +66,12 @@ static int capture(void *argument) {
     int limits[BARK_BAND_COUNT + 1];
     compute_band_limits(limits);
     load_webrtc_processing();
-    struct source_volume volume;
-    if (webrtc.apm && analog_agc_enabled && !(audio_input_volume(&volume) && analog_agc_start(&agc, volume)))
-        fprintf(stderr, "audio: no analog gain control for the source %s\n", device_name[0] ? device_name : "(default)");
     struct audio_processor processor = { 0 };
     // Processed 10 ms frames collect here until a buffer of the size of Meyda is full.
     float pending[AUDIO_BUFFER_SIZE + AUDIO_FRAME_SIZE], magnitude[SPECTRUM_SIZE];
     size_t pending_count = 0;
     while (audio_input_read(pending + pending_count)) {
-        if (webrtc.apm) {
-            int level = analog_agc_level(&agc);
-            webrtc.process(webrtc.apm, pending + pending_count, AUDIO_SAMPLE_RATE, level >= 0 ? &level : NULL);
-            if (level >= 0) analog_agc_apply(&agc, level);
-        }
+        if (webrtc.apm) webrtc.process(webrtc.apm, pending + pending_count, AUDIO_SAMPLE_RATE);
         pending_count += AUDIO_FRAME_SIZE;
         if (pending_count < AUDIO_BUFFER_SIZE) continue;
         audio_analyze(webrtc.apm ? NULL : &processor, pending, magnitude);
@@ -105,10 +94,6 @@ static int capture(void *argument) {
     audio_input_close();
     return 0;
 }
-
-void audio_set_analog_agc(bool enabled) { analog_agc_enabled = enabled; }
-
-void audio_stop(void) { analog_agc_stop(&agc); }
 
 bool audio_start(const char *device) {
     if (started) return true;

@@ -34,7 +34,6 @@ void settings_defaults(struct settings *settings) {
     settings->word_wrap = true; // CodeMirror lineWrapping in the web editor
     settings->code_visible = true;
     settings->vsync = true;
-    settings->analog_agc = true;
     settings->code_background_opacity = SETTINGS_THEME_OPACITY;
     settings->window_width = SETTINGS_DEFAULT_WIDTH;
     settings->window_height = SETTINGS_DEFAULT_HEIGHT;
@@ -241,7 +240,6 @@ bool settings_load(struct settings *settings, const char *path, char *error, siz
         read_bool(ctx, root, "fullscreen", &settings->fullscreen);
         read_bool(ctx, root, "vsync", &settings->vsync);
         read_bool(ctx, root, "watch", &settings->watch);
-        read_bool(ctx, root, "analogAgc", &settings->analog_agc);
         number = settings->window_width;
         read_number(ctx, root, "windowWidth", &number);
         if (number > 0) settings->window_width = (int)number;

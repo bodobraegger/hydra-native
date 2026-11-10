@@ -60,7 +60,6 @@ struct settings {
     bool fullscreen;
     bool vsync;
     bool watch;
-    bool analog_agc;
     int window_width, window_height;
     char audio_source[SETTINGS_TEXT];
     char language[SETTINGS_NAME];

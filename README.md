@@ -37,7 +37,6 @@ build/hydra-native sketch.js                    # window, vsync, code overlay, c
 build/hydra-native --fullscreen setup.js sketch.js
 build/hydra-native --watch sketch.js            # load and evaluate sketch.js again when another program saves it
 build/hydra-native --audio @DEFAULT_MONITOR@ sketch.js   # FFT of the system output instead of the microphone
-build/hydra-native --no-analog-agc sketch.js             # leave the volume of the microphone alone
 build/hydra-native --font /usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf --font-size 24 sketch.js
 build/hydra-native --screenshot shot.png sketch.js       # write the window with the code as PNG after 1.5 s and exit
 build/hydra-native 'https://hydra.ojack.xyz/?code=...'  # a sketch URL of the web editor
@@ -114,7 +113,6 @@ JSON, the defaults apply, the error bar shows the error with its line, and nothi
 | windowWidth           | 1280             | --size WxH           | window width                             |
 | windowHeight          | 720              | --size WxH           | window height                            |
 | audioSource           | "" (default)     | --audio SOURCE       | audio source for `a`                     |
-| analogAgc             | true             | --no-analog-agc      | analog gain control                      |
 | language              | "" ($LANG)       | --lang CODE          | language of the info panel               |
 | galleryServer         | "" (none)        | --gallery-server URL | gallery and patch bay server             |
 | l10nUrl               | "" (l10n)        | --l10n-url URL       | editor.json of a language                |
@@ -283,12 +281,8 @@ filter, echo cancellation, noise suppression (level high) and the adaptive digit
 the system library libwebrtc-audio-processing-1.so.3, which PipeWire installs (macOS and Windows build it from
 source). Without that library, src/audio_processing.c does a similar noise suppression and gain control.
 
-Also like Chrome on Linux, the analog gain control of that library changes the volume of the capture source in
-PulseAudio or PipeWire: up for a quiet voice, down when the signal clips. hydra-native saves the volume when the
-audio starts and sets it back when the program ends, also after Ctrl+C (SIGINT) or SIGTERM. A second signal ends
-the program at once, without that step. `--no-analog-agc` turns the analog gain control off, and the volume of
-the source stays as it is. Monitor sources (`--audio @DEFAULT_MONITOR@`) keep their volume in any case.
-Thus `a.setScale()` and `a.setCutoff()` can need other values than in the browser.
+hydra-native does not change the volume of the capture source, which Chrome does on Linux with the analog gain
+control of that library. Thus `a.setScale()` and `a.setCutoff()` can need other values than in the browser.
 
 ## Benchmark
 

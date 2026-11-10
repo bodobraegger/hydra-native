@@ -12,7 +12,7 @@ import tempfile
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 BUILD = pathlib.Path(os.environ.get("HYDRA_NATIVE_BUILD", ROOT / "build"))
 TIMEOUT_SECONDS = 60
-HYDRA = [str(BUILD / "hydra-native"), "--hidden", "--no-vsync", "--no-analog-agc", "--size", "320x240"]
+HYDRA = [str(BUILD / "hydra-native"), "--hidden", "--no-vsync", "--size", "320x240"]
 
 PUBLISHER = """
 solid(1, 0, 0).out()

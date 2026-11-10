@@ -261,13 +261,13 @@ endif()
 
 # The audio analysis of `a` with the audio input of the system (src/audio_input.h), and MIDI (src/midi.h):
 # PulseAudio and the ALSA sequencer on Linux, miniaudio and libremidi on macOS and Windows. On Linux,
-# HYDRA_MINIAUDIO_LIBREMIDI builds the code of macOS and Windows instead, to test it. That build has no analog gain
-# control, and its MIDI lists also show the ALSA ports of libremidi itself, which CoreMIDI and WinMM do not have.
+# HYDRA_MINIAUDIO_LIBREMIDI builds the code of macOS and Windows instead, to test it. The MIDI lists of that build
+# also show the ALSA ports of libremidi itself, which CoreMIDI and WinMM do not have.
 if(HYDRA_LINUX)
   option(HYDRA_MINIAUDIO_LIBREMIDI "Use miniaudio and libremidi as on macOS and Windows" OFF)
   pkg_check_modules(AUDIO_MIDI REQUIRED IMPORTED_TARGET libpulse-simple libpulse alsa)
 endif()
-add_library(hydra-audio-midi OBJECT src/audio.c src/audio_processing.c src/analog_agc.c)
+add_library(hydra-audio-midi OBJECT src/audio.c src/audio_processing.c)
 if(HYDRA_LINUX AND NOT HYDRA_MINIAUDIO_LIBREMIDI)
   target_sources(hydra-audio-midi PRIVATE src/audio_input_pulse.c src/midi.c)
   target_link_libraries(hydra-audio-midi PUBLIC PkgConfig::AUDIO_MIDI)
@@ -375,15 +375,15 @@ set(SANITIZERS -fsanitize=address,undefined)
 add_executable(editor-test EXCLUDE_FROM_ALL test/editor_test.c src/editor.c src/bidi.c)
 add_executable(ui-test EXCLUDE_FROM_ALL test/ui_test.c src/ui.c src/keymap.c src/editor.c src/bidi.c src/settings.c
   src/signature.c)
+add_executable(audio-test EXCLUDE_FROM_ALL test/audio_test.c src/audio_processing.c)
 add_executable(process-test EXCLUDE_FROM_ALL test/process_test.c ${PROCESS_SOURCE})
 target_link_libraries(editor-test PRIVATE sheenbidi)
 target_link_libraries(ui-test PRIVATE sheenbidi quickjs SDL3::SDL3 m dl pthread)
-set(UNIT_TESTS editor-test ui-test process-test)
-# The audio and MIDI tests are for Linux (ALSA, the speech samples of alsa-utils).
-if(HYDRA_LINUX)
-add_executable(audio-test EXCLUDE_FROM_ALL test/audio_test.c src/audio_processing.c src/analog_agc.c)
 target_link_libraries(audio-test PRIVATE SDL3::SDL3 m)
 target_compile_definitions(audio-test PRIVATE WEBRTC_APM_FILE="${WEBRTC_APM_FILE}")
+set(UNIT_TESTS editor-test ui-test audio-test process-test)
+# The MIDI test is for Linux (ALSA).
+if(HYDRA_LINUX)
 # midi-test sends through the ALSA sequencer; with HYDRA_MINIAUDIO_LIBREMIDI it tests src/midi_libremidi.cc.
 add_executable(midi-test EXCLUDE_FROM_ALL test/midi_test.c)
 if(HYDRA_MINIAUDIO_LIBREMIDI)
@@ -394,7 +394,7 @@ else()
   target_sources(midi-test PRIVATE src/midi.c)
 endif()
 target_link_libraries(midi-test PRIVATE PkgConfig::AUDIO_MIDI m)
-list(APPEND UNIT_TESTS audio-test midi-test)
+list(APPEND UNIT_TESTS midi-test)
 endif()
 foreach(test ${UNIT_TESTS})
   target_compile_options(${test} PRIVATE -O1 ${WARNINGS} ${SANITIZERS})
@@ -409,7 +409,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 endif()
 
 # The checks run the program in hidden windows, with a settings folder of their own.
-add_test(NAME check COMMAND hydra-native --hidden --no-vsync --no-analog-agc ${CMAKE_SOURCE_DIR}/test/check.js)
+add_test(NAME check COMMAND hydra-native --hidden --no-vsync ${CMAKE_SOURCE_DIR}/test/check.js)
 add_test(NAME window COMMAND window-test)
 foreach(check fetch gallery patch_bay error)
   add_test(NAME ${check} COMMAND python3 ${CMAKE_SOURCE_DIR}/test/${check}_test.py)

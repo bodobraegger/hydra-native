@@ -63,7 +63,6 @@ d3dcompiler_47.dll comes with ANGLE.
 | JavaScript                     | QuickJS                              | quickjs-ng (also builds with MSVC)          |
 | audio input and `a`            | PulseAudio (src/audio_input_pulse.c) | miniaudio (src/audio_input_miniaudio.c)     |
 | WebRTC audio processing        | system libwebrtc-audio-processing-1  | version 1.3, built from source by CMake     |
-| analog gain control            | PulseAudio source volume             | Core Audio, IAudioEndpointVolume            |
 | MIDI                           | ALSA sequencer (src/midi.c)          | libremidi (src/midi_libremidi.cc)           |
 | media child processes          | posix_spawn, process group           | posix_spawn; CreateProcess, job object      |
 | camera                         | gst-launch-1.0 process               | SDL3 camera API                             |
@@ -77,13 +76,11 @@ d3dcompiler_47.dll comes with ANGLE.
 
 ## Audio input and MIDI
 
-The audio input has one interface, src/audio_input.h: 10 ms frames of mono samples at 48 kHz, and the volume of
-the capture device as a `struct source_volume` (src/analog_agc.h) for the analog gain control. Linux keeps the
+The audio input has one interface, src/audio_input.h: 10 ms frames of mono samples at 48 kHz. Linux keeps the
 simple API of PulseAudio (src/audio_input_pulse.c), because it takes the source names of PulseAudio and PipeWire,
 also @DEFAULT_MONITOR@ for the system output, and it reads 10 ms fragments without a ring buffer between.
 macOS and Windows use miniaudio 0.11.25 (src/audio_input_miniaudio.c). miniaudio is one file in the public
-domain, and it has the WASAPI loopback, which the audio capture of SDL3 does not have. It also gives the device
-ID that the volume control needs. `--audio TEXT` selects the first input whose name contains TEXT; without a
+domain, and it has the WASAPI loopback, which the audio capture of SDL3 does not have. `--audio TEXT` selects the first input whose name contains TEXT; without a
 match, hydra-native lists the inputs.
 
 The system output (`--audio @DEFAULT_MONITOR@`):
@@ -95,10 +92,8 @@ The system output (`--audio @DEFAULT_MONITOR@`):
   other ways are not done: the audio of ScreenCaptureKit (macOS 13 and newer) and the process taps of Core Audio
   (AudioHardwareCreateProcessTap, macOS 14.2 and newer). Both need the permission for screen and audio recording.
 
-The analog gain control sets the volume of the input device on every system, and restores the saved volume at
-the end; `--no-analog-agc` turns it off. macOS: kAudioDevicePropertyVolumeScalar in the input scope, of the main
-element when it is settable, else of each channel (as Chrome does). Windows: the master volume level scalar of
-IAudioEndpointVolume. The system output keeps its volume. src/audio_volume.h selects the code of the system.
+hydra-native does not change the volume of the capture device, which Chrome does on Linux with the analog gain
+control of the WebRTC audio processing.
 
 WebRTC audio processing: macOS and Windows build the sources of webrtc-audio-processing 1.3 with
 cmake/webrtc-audio-processing.cmake, which follows the meson.build files of the release (meson is not needed).
@@ -115,7 +110,7 @@ performance.now(), which the caller passes. hydra-native opens every input, also
 opens an output on its first message.
 
 On Linux, `cmake -DHYDRA_MINIAUDIO_LIBREMIDI=ON` builds the miniaudio and libremidi code (with PulseAudio and the
-ALSA sequencer) to test it: midi-test passes with it. The code for Core Audio, WASAPI, IAudioEndpointVolume,
+ALSA sequencer) to test it: midi-test passes with it. The code for Core Audio, WASAPI,
 CoreMIDI and WinMM is not tried on a Mac or a Windows PC yet.
 
 ## Notes per platform

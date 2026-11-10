@@ -1093,7 +1093,6 @@ static void usage(void) {
             "  --fullscreen       start in fullscreen\n"
             "  --audio SOURCE     audio source for `a`: a PulseAudio/PipeWire source on Linux, a part of the device\n"
             "                     name on macOS and Windows; @DEFAULT_MONITOR@: the system output, not on macOS\n"
-            "  --no-analog-agc    leave the volume of the audio source alone (Chrome adjusts it)\n"
             "  --socket PATH      code socket (default $XDG_RUNTIME_DIR/%s)\n"
             "  --no-vsync         do not wait for the display refresh\n"
             "  --hidden           do not show the window (checks)\n"
@@ -1116,7 +1115,6 @@ static bool parse_options(int argc, char **argv, struct options *options, struct
         else if (!strcmp(argument, "--hidden")) options->hidden = true;
         else if (!strcmp(argument, "--fullscreen")) settings->fullscreen = true;
         else if (!strcmp(argument, "--hide-code")) settings->code_visible = false;
-        else if (!strcmp(argument, "--no-analog-agc")) settings->analog_agc = false;
         TEXT_OPTION("--lang", language)
         TEXT_OPTION("--gallery-server", gallery_server)
         TEXT_OPTION("--l10n-url", l10n_url)
@@ -1379,14 +1377,11 @@ int main(int argc, char **argv) {
 
     signal(SIGPIPE, SIG_IGN);
     audio_device_option = settings->audio_source[0] ? settings->audio_source : NULL;
-    audio_set_analog_agc(settings->analog_agc);
-    // The analog gain control changes the volume of the audio source; every way out restores it.
-    atexit(audio_stop);
     snprintf(gallery_server_url, sizeof gallery_server_url, "%.*s", (int)sizeof gallery_server_url - 1, settings->gallery_server);
     gallery_server = gallery_server_url[0] ? gallery_server_url : NULL;
     if (!create_window(&options)) return 1;
-    // After SDL, which installs handlers of its own: the first SIGINT or SIGTERM ends the loop, so that the audio
-    // source gets its volume back; a second one ends the process at once.
+    // After SDL, which installs handlers of its own: the first SIGINT or SIGTERM ends the loop, so that the child
+    // processes stop; a second one ends the process at once.
     struct sigaction quit_action = { .sa_handler = handle_quit_signal, .sa_flags = SA_RESETHAND };
     sigaction(SIGINT, &quit_action, NULL);
     sigaction(SIGTERM, &quit_action, NULL);
@@ -1551,7 +1546,6 @@ int main(int argc, char **argv) {
     }
 
     if (recorder_active()) recorder_stop();
-    audio_stop();
     patch_bay_stop();
     fetch_stop_all();
     video_close_all();

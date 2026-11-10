@@ -9,7 +9,6 @@
 #include <SDL3/SDL_atomic.h>
 
 #include "audio_input.h"
-#include "audio_volume.h"
 #include "miniaudio.h"
 
 #define RING_FRAMES AUDIO_SAMPLE_RATE // one second; when the reader falls behind, the newest frames are lost
@@ -119,8 +118,4 @@ void audio_input_close(void) {
     ma_event_uninit(&ready);
     ma_pcm_rb_uninit(&ring);
     ma_context_uninit(&context);
-}
-
-bool audio_input_volume(struct source_volume *volume) {
-    return !loopback && audio_volume_open(named ? &device_id : NULL, volume);
 }
