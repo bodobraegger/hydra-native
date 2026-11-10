@@ -34,6 +34,7 @@ void settings_defaults(struct settings *settings) {
     settings->word_wrap = true; // CodeMirror lineWrapping in the web editor
     settings->vsync = true;
     settings->code_background_opacity = SETTINGS_THEME_OPACITY;
+    settings->completion_opacity = SETTINGS_DEFAULT_COMPLETION_OPACITY;
     settings->audio_gain = SETTINGS_DEFAULT_AUDIO_GAIN;
     settings->code_visible = true;
 }
@@ -225,6 +226,9 @@ bool settings_load(struct settings *settings, const char *path, char *error, siz
         choice = (int)settings->signature_help;
         read_choice(ctx, root, "signatureHelp", signature_help_names, 2, &choice);
         settings->signature_help = (enum signature_help)choice;
+        number = settings->completion_opacity;
+        read_number(ctx, root, "autocompleteOpacity", &number);
+        if (number >= 0) settings->completion_opacity = number > 100 ? 100 : (int)(number + 0.5);
         number = settings->code_background_opacity;
         read_number(ctx, root, "codeBackgroundOpacity", &number);
         if (number >= 0) settings->code_background_opacity = number > 100 ? 100 : (int)(number + 0.5);
@@ -292,6 +296,7 @@ bool settings_save(const struct settings *settings, const char *path, char *erro
         set_string(ctx, root, "autocompleteStyle", style_names[settings->autocomplete_style]);
         set_string(ctx, root, "autocompleteTrigger", trigger_names[settings->autocomplete_trigger]);
         set_string(ctx, root, "signatureHelp", signature_help_names[settings->signature_help]);
+        JS_SetPropertyStr(ctx, root, "autocompleteOpacity", JS_NewInt32(ctx, settings->completion_opacity));
         JSAtom opacity = JS_NewAtom(ctx, "codeBackgroundOpacity");
         if (settings->code_background_opacity == SETTINGS_THEME_OPACITY) JS_DeleteProperty(ctx, root, opacity, 0);
         else JS_SetProperty(ctx, root, opacity, JS_NewInt32(ctx, settings->code_background_opacity));

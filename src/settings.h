@@ -28,6 +28,7 @@ enum signature_help { SIGNATURE_HELP_MANUAL, SIGNATURE_HELP_PAREN }; // on its k
 enum code_blend { CODE_BLEND_NORMAL, CODE_BLEND_DIFFERENCE };
 #define SETTINGS_THEME_OPACITY (-1) // codeBackgroundOpacity: the alpha of the theme
 #define SETTINGS_DEFAULT_AUDIO_GAIN 100 // percent
+#define SETTINGS_DEFAULT_COMPLETION_OPACITY 60 // percent
 #define SETTINGS_MAX_AUDIO_GAIN 400
 // editor.renderWhitespace of VS Code
 enum render_whitespace { WHITESPACE_NONE, WHITESPACE_BOUNDARY, WHITESPACE_SELECTION, WHITESPACE_TRAILING, WHITESPACE_ALL };
@@ -53,6 +54,7 @@ struct settings {
     enum autocomplete_style autocomplete_style;
     enum autocomplete_trigger autocomplete_trigger;
     enum signature_help signature_help;
+    int completion_opacity; // percent, of the autocomplete list and the signature help
     int code_background_opacity; // 0 to 100 percent, or SETTINGS_THEME_OPACITY
     enum code_blend code_background_blend, code_text_blend;
     int audio_gain; // percent, applied to the audio input before the analysis

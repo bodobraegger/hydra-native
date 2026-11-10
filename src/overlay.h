@@ -34,7 +34,7 @@ enum overlay_layer {
     OVERLAY_CODE_TEXT,
     OVERLAY_TOP, // cursor, toolbar, panels, bars
     // The boxes of the autocomplete list and the signature help, always with blend mode difference. The code under
-    // a box does not show: the box composites over the hydra output alone.
+    // a box shows only by the transparency of the box: an opaque box composites over the hydra output alone.
     OVERLAY_POPUP,
     OVERLAY_POPUP_TEXT, // what the popup boxes hold, with normal blending
     OVERLAY_LAYER_COUNT

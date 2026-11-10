@@ -41,8 +41,9 @@
 #define MAX_ROWS_PER_LINE 1024
 // The box of the autocomplete list and the signature help draws with blend mode difference over the hydra output
 // (blue over black), then a dark scrim keeps the white text readable over bright visuals; the same in every theme.
-#define COMPLETION_BOX_COLOR 0x0000FFFFu
-#define COMPLETION_SCRIM_COLOR 0x000000A0u
+// The setting "autocompleteOpacity" scales the alpha of both.
+#define COMPLETION_BOX_RGB 0x0000FF00u
+#define COMPLETION_SCRIM_ALPHA 0xA0u
 #define COMPLETION_SELECTED_COLOR 0x6060FF80u
 #define COMPLETION_TEXT_COLOR 0xFFFFFFFFu
 
@@ -664,6 +665,10 @@ static void add_function_completion(const char *name, size_t length) {
 
 static bool is_identifier_char(unsigned char c);
 
+static uint32_t completion_color(uint32_t rgb, uint32_t alpha) {
+    return rgb | (alpha * (uint32_t)active_settings.completion_opacity + 50) / 100;
+}
+
 static const char *const OUTPUT_NAMES[] = { "o0", "o1", "o2", "o3" };
 static const char *const SOURCE_NAMES[] = { "s0", "s1", "s2", "s3" };
 
@@ -1035,8 +1040,8 @@ static uint32_t code_background_color(void) {
 
 // A click on a number of the settings menu turns it into a text field: Enter applies the typed value (clamped,
 // with an optional unit), Escape cancels, Up and Down (and the wheel) step it, Shift by ten steps.
-enum number_kind { NUMBER_OPACITY, NUMBER_FONT_SIZE, NUMBER_AUDIO_GAIN };
-#define LAST_NUMBER_KIND NUMBER_AUDIO_GAIN
+enum number_kind { NUMBER_OPACITY, NUMBER_FONT_SIZE, NUMBER_AUDIO_GAIN, NUMBER_COMPLETION_OPACITY };
+#define LAST_NUMBER_KIND NUMBER_COMPLETION_OPACITY
 static const struct {
     const char *unit; // accepted after the number, and shown after it
     const char *action; // the panel action of a click on the value
@@ -1045,6 +1050,7 @@ static const struct {
     [NUMBER_OPACITY] = { "%", "edit opacity", 0, 100, 1 },
     [NUMBER_FONT_SIZE] = { "px", "edit size", OVERLAY_MIN_FONT_SIZE, OVERLAY_MAX_FONT_SIZE, 1 },
     [NUMBER_AUDIO_GAIN] = { "%", "edit gain", 0, SETTINGS_MAX_AUDIO_GAIN, 1 },
+    [NUMBER_COMPLETION_OPACITY] = { "%", "edit list opacity", 0, 100, 1 },
 };
 #define MAX_NUMBER_TEXT 16
 #define LARGE_STEPS 10
@@ -1062,6 +1068,7 @@ static double number_value(enum number_kind kind) {
     case NUMBER_OPACITY: return code_background_percent();
     case NUMBER_FONT_SIZE: return overlay_font_size();
     case NUMBER_AUDIO_GAIN: return active_settings.audio_gain;
+    case NUMBER_COMPLETION_OPACITY: return active_settings.completion_opacity;
     }
     return 0;
 }
@@ -1079,6 +1086,9 @@ static void set_number(enum number_kind kind, double value) {
     case NUMBER_AUDIO_GAIN:
         stored_settings.audio_gain = active_settings.audio_gain = (int)lround(value);
         host.set_audio_gain(active_settings.audio_gain);
+        break;
+    case NUMBER_COMPLETION_OPACITY:
+        stored_settings.completion_opacity = active_settings.completion_opacity = (int)lround(value);
         break;
     }
     save_settings();
@@ -2107,6 +2117,10 @@ static void draw_settings(void) {
     flow_row(&flow, label_x, "autocomplete");
     flow_label(&flow, "list", active_settings.autocomplete_style == AUTOCOMPLETE_LIST, "style 0");
     flow_label(&flow, "ghost text", active_settings.autocomplete_style == AUTOCOMPLETE_GHOST, "style 1");
+    flow_row(&flow, label_x, " \xE2\x94\x9C list opacity");
+    flow_label(&flow, "-", false, "list opacity -");
+    flow_number(&flow, NUMBER_COMPLETION_OPACITY);
+    flow_label(&flow, "+", false, "list opacity +");
     flow_row(&flow, label_x, " \xE2\x94\x9C trigger");
     flow_label(&flow, "Ctrl+Space", active_settings.autocomplete_trigger == AUTOCOMPLETE_MANUAL, "trigger 0");
     flow_label(&flow, "while typing", active_settings.autocomplete_trigger == AUTOCOMPLETE_TYPING, "trigger 1");
@@ -2251,6 +2265,9 @@ static void run_settings_action(const char *action) {
         percent = percent < 0 ? 0 : percent > 100 ? 100 : percent;
         stored_settings.code_background_opacity = active_settings.code_background_opacity = percent;
         save_settings();
+    } else if (!strcmp(action, "list opacity -") || !strcmp(action, "list opacity +")) {
+        set_number(NUMBER_COMPLETION_OPACITY,
+                   active_settings.completion_opacity + (action[13] == '+' ? OPACITY_STEP : -OPACITY_STEP));
     } else if (!strcmp(action, "gain -") || !strcmp(action, "gain +")) {
         set_number(NUMBER_AUDIO_GAIN, active_settings.audio_gain + (action[5] == '+' ? GAIN_STEP : -GAIN_STEP));
     } else if (!strcmp(action, "file open")) {
@@ -2768,9 +2785,9 @@ static void draw_completion_list(void) {
     float top = MARGIN + (float)(row - scroll_row + 1) * line_height;
     if (top + box_height > (float)last_height - bar_height()) top -= box_height + line_height;
     overlay_set_layer(OVERLAY_POPUP);
-    overlay_rect(left, top, box_width, box_height, COMPLETION_BOX_COLOR);
+    overlay_rect(left, top, box_width, box_height, completion_color(COMPLETION_BOX_RGB, 0xFF));
     overlay_set_layer(OVERLAY_POPUP_TEXT);
-    overlay_rect(left, top, box_width, box_height, COMPLETION_SCRIM_COLOR);
+    overlay_rect(left, top, box_width, box_height, completion_color(0, COMPLETION_SCRIM_ALPHA));
     overlay_rect(left, top + (float)completion.selected * line_height, box_width, line_height, COMPLETION_SELECTED_COLOR);
     for (size_t i = 0; i < completion.count; i++)
         overlay_text(left + char_width, top + (float)i * line_height, completion.items[i], strlen(completion.items[i]), 0,
@@ -2833,9 +2850,9 @@ static void draw_signature_help(void) {
         return;
     }
     overlay_set_layer(OVERLAY_POPUP);
-    overlay_rect(left, top, box_width, box_height, COMPLETION_BOX_COLOR);
+    overlay_rect(left, top, box_width, box_height, completion_color(COMPLETION_BOX_RGB, 0xFF));
     overlay_set_layer(OVERLAY_POPUP_TEXT);
-    overlay_rect(left, top, box_width, box_height, COMPLETION_SCRIM_COLOR);
+    overlay_rect(left, top, box_width, box_height, completion_color(0, COMPLETION_SCRIM_ALPHA));
     if (active_end > active_start) overlay_rect(active_left, top, active_width, line_height, COMPLETION_SELECTED_COLOR);
     overlay_text(text_left, top, label, strlen(label), 0, columns, NULL, COMPLETION_TEXT_COLOR);
     overlay_text(text_left, top + line_height, detail, strlen(detail), 0, columns, NULL, COMPLETION_TEXT_COLOR);
