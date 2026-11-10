@@ -275,7 +275,7 @@ so sketches and loaded scripts define keys with the browser API.
 | p5.js as a source (P5 global on the 2D canvas)                   | 0.5 day     | done          |
 | URLs, languages, info, extensions, gallery share, recording      | 2 days      | done          |
 | Portal picker for initScreen, MIDI output, sublime commands      | 1 day       | done          |
-| webRTC initStream and pb (needs the packages below)              | 3 to 5 days | blocked       |
+| webRTC initStream and pb (editor patch bay, @roamhq/wrtc)        | 3 to 5 days | done          |
 | Zero-copy PipeWire and V4L2 input (needs PipeWire headers)       | 3 to 5 days | open          |
 | Robustness for stage use (error overlay, crash recovery, tests)  | 3 to 5 days | open          |
 
@@ -285,6 +285,5 @@ No new system package is needed. These optional packages enable the next steps:
 
 ```sh
 sudo apt install libpipewire-0.3-dev libspa-0.2-dev   # zero-copy screen capture
-sudo apt install gstreamer1.0-plugins-bad gstreamer1.0-nice gir1.2-gst-plugins-bad-1.0   # webRTC (initStream)
 pipx install yt-dlp                                  # YouTube input (no sudo)
 ```
