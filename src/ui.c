@@ -503,6 +503,7 @@ static void format_code(void) {
     char *formatted = host.call("__format", editor.text);
     if (!formatted) return ui_show_message("format: the code has an error", true);
     editor_replace_text(&editor, formatted, strlen(formatted));
+    editor_set_cursor(&editor, 0, false); // cm.setValue() puts the cursor at the start
     free(formatted);
 }
 

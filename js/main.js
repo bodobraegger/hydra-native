@@ -82,9 +82,9 @@ onAfterFrame(() => {
   native.fillRects(audio.ctx.rects.flatMap(([x, y, width, height, ...color]) => [left + x, top + y, width, height, ...color]))
 })
 
-// The formatter of the web editor (js-beautify with its options), called by src/ui.c.
-// The web editor indents with tabs; hydra-native uses two spaces, like the Pulsar setup.
-window.__format = (code) => beautify(code, { indent_size: 2, break_chained_methods: true })
+// formatCode() of the web editor (src/views/editor/editor.js, the CodeMirror 5 editor that it runs), called by
+// src/ui.c: js-beautify with the same options, so the indentation is tabs.
+window.__format = (code) => beautify(code, { indent_size: 2, break_chained_methods: true, indent_with_tabs: true })
 
 // Names for the autocomplete of src/ui.c: hydra sources, transforms (also those of setFunction and
 // extensions) and the globals of hydra-synth, one per line.
