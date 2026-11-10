@@ -1109,8 +1109,22 @@ static bool mutate(const char *function) {
     return true;
 }
 
+// Code that replaces the whole sketch (an example, a URL) does not belong to the open file, so that Ctrl+S cannot
+// overwrite the file with it; Ctrl+S then asks for a file.
+static void close_file(void) {
+    free(file_path);
+    file_path = NULL;
+}
+
+// Clear all; with an open file, reset: back to the saved state of the file, which runs again.
 static void clear_all(void) {
     free(evaluate_code("hush(); speed = 1", strlen("hush(); speed = 1"), "<clear>"));
+    if (file_path) {
+        char *path = strdup(file_path); // ui_open_file replaces file_path
+        ui_open_file(path);
+        free(path);
+        return;
+    }
     editor_replace_text(&editor, CLEARED_CODE, strlen(CLEARED_CODE));
     char *url = host.call("__webEditorUrl", ""); // 'gallery: clear' removes the code from the URL
     if (url) show_title(url);
@@ -1134,6 +1148,7 @@ static void open_url_from_clipboard(void) {
     if (!code) {
         ui_show_message("the clipboard has no hydra.ojack.xyz URL with code= or sketch_id=", true);
     } else {
+        close_file();
         editor_replace_text(&editor, code, strlen(code));
         editor_set_cursor(&editor, 0, false);
         evaluate_range(0, editor.length);
@@ -1227,6 +1242,7 @@ static void run_command_body(enum command command, bool extend) {
     }
     case COMMAND_CLEAR_ALL: clear_all(); break;
     case COMMAND_SHOW_EXAMPLE:
+        close_file();
         clear_all();
         if (replace_with("__randomExample", "no example")) {
             evaluate_range(0, editor.length);
@@ -1496,12 +1512,16 @@ static const struct toolbar_item toolbar[] = {
 
 static bool toolbar_shown(size_t index) { return gallery_enabled || toolbar[index].command != COMMAND_GALLERY_SHARE; }
 
+static const char *toolbar_label(size_t index) {
+    return toolbar[index].command == COMMAND_CLEAR_ALL && file_path ? "reset" : toolbar[index].label;
+}
+
 // The right-aligned boxes of the toolbar; returns the x of item `index`, and its width in `width`.
 static float toolbar_x(size_t index, float *width) {
     float x = (float)last_width - MARGIN;
     for (size_t i = TOOLBAR_COUNT; i-- > index;) {
         if (!toolbar_shown(i)) continue;
-        *width = ((float)strlen(toolbar[i].label) + 1) * overlay_char_width();
+        *width = ((float)strlen(toolbar_label(i)) + 1) * overlay_char_width();
         x -= *width + TEXT_PADDING;
     }
     return x;
@@ -1529,7 +1549,7 @@ static void draw_toolbar(void) {
         overlay_set_layer(OVERLAY_CODE_BACKGROUND);
         overlay_rect(x, MARGIN, width, overlay_line_height(), code_background_color());
         overlay_set_layer(OVERLAY_CODE_TEXT);
-        overlay_text(x + overlay_char_width() / 2, MARGIN, toolbar[i].label, strlen(toolbar[i].label), 0, 64, NULL,
+        overlay_text(x + overlay_char_width() / 2, MARGIN, toolbar_label(i), strlen(toolbar_label(i)), 0, 64, NULL,
                      theme->info);
         overlay_set_layer(OVERLAY_TOP);
         bool hover = pointer_y >= MARGIN && pointer_y <= MARGIN + overlay_line_height() && pointer_x >= x &&

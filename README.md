@@ -80,7 +80,9 @@ The next successful evaluation clears the bar.
 Ctrl+Shift+H hides and shows the overlay; the visuals keep running, and the evaluation keys keep working.
 The default font is DejaVu Sans Mono at 20 pixels (settings menu: font size and font; Ctrl+plus and Ctrl+minus).
 The toolbar at the top right has the buttons of the web editor: run, clear, extensions, example, mutate
-(Shift: undo, Ctrl: change a function), share (with a server in the settings) and info. The info panel has the
+(Shift: undo, Ctrl: change a function), share (with a server in the settings) and info. With an open file,
+"clear" becomes "reset": it brings back the saved file and runs it. An example or a sketch URL closes the file,
+so that Ctrl+S cannot overwrite it; Ctrl+S then asks for a file. The info panel has the
 languages of the web editor (from hydra-synth/l10n, cached in ~/.cache/hydra-native/l10n).
 The extensions panel lists the catalog of hydra-synth/hydra-extensions; "+" adds the load code to the top.
 The window title shows the hydra.ojack.xyz URL of the code after each run of all code, as the address bar of

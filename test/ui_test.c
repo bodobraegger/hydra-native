@@ -449,7 +449,28 @@ static void test_files(const char *settings_file) {
     EXPECT_STRING(ui_file_path(), saved);
     EXPECT_STRING(read_file(saved), "osc(4).out()");
     EXPECT_CONTAINS(title, strrchr(saved, '/') + 1);
+
+    // With the file open, the toolbar says "reset", and it brings back the saved code.
+    ui_draw(800, 600, 0);
+    EXPECT(click_text("reset", 0));
+    type("x");
+    key(SDLK_DELETE, SDL_KMOD_LCTRL | SDL_KMOD_LSHIFT);
+    EXPECT_STRING(ui_file_path(), saved);
+    EXPECT_STRING(evaluated, "osc(4).out()");
+    // An example closes the file, so Ctrl+S cannot overwrite it with the example.
+    key(SDLK_F7, 0);
+    EXPECT(ui_file_path() == NULL);
+    ui_draw(800, 600, 0);
+    EXPECT(click_text("clear", 0) || !click_text("reset", 0));
+    char after_example[] = "/tmp/hydra-native-ui-test-example-XXXXXX.js";
+    fd = mkstemps(after_example, 3);
+    close(fd);
+    snprintf(chosen_path, sizeof chosen_path, "%s", after_example);
+    key(SDLK_S, SDL_KMOD_LCTRL);
+    EXPECT(dialogs == 3); // asks for a file instead of saving to the old one
+    EXPECT_STRING(read_file(saved), "osc(4).out()");
     unlink(saved);
+    unlink(after_example);
 }
 
 // The call around the cursor: nested calls, commas in arrays, arrow functions and strings.
@@ -682,7 +703,15 @@ int main(void) {
     key(SDLK_RETURN, SDL_KMOD_LCTRL | SDL_KMOD_LALT);
     EXPECT_STRING(evaluated, "solid().out()");
 
-    // The toolbar actions: clear all evaluates hush, an example replaces the code and runs it, the mutator replaces it.
+    // The toolbar actions. With an open file, clear all resets to the saved file and runs it again.
+    key(SDLK_DELETE, SDL_KMOD_LCTRL | SDL_KMOD_LSHIFT);
+    EXPECT_STRING(ui_file_path(), path);
+    EXPECT_STRING(evaluated, read_file(path)); // the saved state, which an earlier Ctrl+S wrote
+    // An example replaces the code, runs it and closes the file, whose content it is not.
+    key(SDLK_F7, 0);
+    EXPECT_STRING(evaluated, "noise().out()");
+    EXPECT(ui_file_path() == NULL);
+    // Without a file, clear all evaluates hush and empties the code.
     key(SDLK_DELETE, SDL_KMOD_LCTRL | SDL_KMOD_LSHIFT);
     EXPECT_STRING(evaluated, "hush(); speed = 1");
     key(SDLK_RETURN, SDL_KMOD_LCTRL | SDL_KMOD_LALT);
@@ -696,6 +725,7 @@ int main(void) {
     key(SDLK_RETURN, SDL_KMOD_LCTRL | SDL_KMOD_LALT);
     EXPECT_STRING(evaluated, "noise().out()");
 
+    ui_open_file(path); // the example closed the file; the steps below need one open
     // Find, replace, go to line, command palette and autocomplete, all through the key table.
     key(SDLK_A, SDL_KMOD_LCTRL);
     type("osc(1).out()\nosc(2).out()\nnoise().out()");
