@@ -54,6 +54,43 @@ function canvasChecks () {
   expect('multiply inside the clip', pixel(5, 5), [255, 0, 0, 255])
   expect('multiply outside the clip', pixel(30, 5), [255, 255, 255, 255])
 
+  // filter: url(#id) with SVG filter primitives in the document.
+  document.body.insertAdjacentHTML('beforeend', `<svg xmlns="http://www.w3.org/2000/svg">
+    <filter id="check-offset"><feOffset dx="10" dy="0"/></filter>
+    <filter id="check-red"><feComponentTransfer><feFuncR type="table" tableValues="1 1"/></feComponentTransfer></filter>
+    <filter id="check-luminance"><feColorMatrix type="luminanceToAlpha"/></filter>
+    <filter id="check-dilate"><feMorphology operator="dilate" radius="2"/></filter>
+    <filter id="check-all" color-interpolation-filters="sRGB">
+      <feTurbulence baseFrequency="0.05" numOctaves="2" seed="3" result="noise"/>
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="4" result="moved"/>
+      <feGaussianBlur in="moved" stdDeviation="1"/>
+      <feFlood flood-color="blue" flood-opacity="0.5"/>
+      <feComposite operator="in" in2="SourceAlpha" result="tint"/>
+      <feBlend mode="multiply" in="tint" in2="moved" result="blended"/>
+      <feMerge><feMergeNode in="moved"/><feMergeNode in="blended"/></feMerge>
+    </filter>
+  </svg>`)
+  const svgFilter = (id, draw) => {
+    context.clearRect(0, 0, 40, 20)
+    context.filter = `url(#${id})`
+    draw()
+    context.filter = 'none'
+  }
+  svgFilter('check-offset', () => { context.fillStyle = 'white'; context.fillRect(0, 0, 5, 5) })
+  expect('feOffset, moved', pixel(12, 2), [255, 255, 255, 255])
+  expect('feOffset, left', pixel(2, 2), [0, 0, 0, 0])
+  svgFilter('check-red', () => { context.fillStyle = 'black'; context.fillRect(0, 0, 5, 5) })
+  expect('feComponentTransfer', pixel(2, 2), [255, 0, 0, 255])
+  svgFilter('check-luminance', () => { context.fillStyle = 'white'; context.fillRect(0, 0, 5, 5) })
+  expect('feColorMatrix luminanceToAlpha', pixel(2, 2), [0, 0, 0, 255])
+  svgFilter('check-dilate', () => { context.fillStyle = 'white'; context.fillRect(10, 10, 1, 1) })
+  expect('feMorphology dilate', pixel(12, 10), [255, 255, 255, 255])
+  svgFilter('check-all', () => { context.fillStyle = 'yellow'; context.fillRect(5, 5, 20, 10) })
+  const values = new Set(Array.from(context.getImageData(5, 5, 20, 10).data))
+  if (values.size < 4) failures.push(`the chain of all primitives gives only ${values.size} values`)
+  svgFilter('check-missing', () => { context.fillStyle = 'white'; context.fillRect(0, 0, 5, 5) })
+  expect('url() of a missing filter draws unfiltered', pixel(2, 2), [255, 255, 255, 255])
+
   const webglCanvas = document.createElement('canvas')
   webglCanvas.width = 4
   webglCanvas.height = 4

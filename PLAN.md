@@ -171,7 +171,7 @@ gallery and signalling server (hydra-synth/hydra-server) and from the CodeMirror
 | fetch, XMLHttpRequest          | curl, CORS and mixed content of the web origin | yes                                |
 | initCam, initVideo, initImage  | GStreamer, ffmpeg                              | yes (YouTube needs yt-dlp)         |
 | initScreen                     | portal picker                                  | yes                                |
-| initCanvas, 2D canvas          | plutovg: gradients, shadows, filters, clip     | yes (filter url() is missing)      |
+| initCanvas, 2D canvas          | plutovg: gradients, shadows, filters, clip     | yes; url(#id): 11 SVG primitives   |
 | P5 (p5.js 1.6.0), 2D mode      | on the 2D canvas                               | yes                                |
 | P5 WEBGL mode                  | WebGL 1 on GLES 3, text with loadFont          | yes                                |
 | a (audio FFT)                  | Meyda feature, WebRTC audio processing 1.3     | no: no analog AGC of the OS volume |

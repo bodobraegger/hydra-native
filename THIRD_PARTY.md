@@ -74,3 +74,8 @@ the system.
 
 - js/webgl-constants.js holds the constant values of GLES2/gl2.h of the Khronos Group (generated from the
   system header) plus the WebGL constants.
+
+## Algorithms from specifications
+
+- src/svg_filter.c ports the feTurbulence reference code and uses the box blur sizes of the Filter Effects
+  Module Level 1 specification of the W3C (https://www.w3.org/TR/filter-effects-1/).

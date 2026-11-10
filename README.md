@@ -146,7 +146,9 @@ Window and area streams start at once.
 `p5 = new P5()` creates a p5.js 1.6.0 sketch, as in the web editor, in 2D mode or with `new P5({ mode: 'WEBGL' })`
 in WEBGL mode; `s0.init({ src: p5.canvas })` uses it as a source.
 The 2D canvas has gradients, patterns, shadows, filters, image data, images and all blend modes, and it draws
-WebGL canvases with `drawImage`. `canvas.getContext('webgl')` gives a WebGL 1 context.
+WebGL canvases with `drawImage`. `filter = 'url(#id)'` uses an SVG `<filter>` that a sketch adds to the document
+with `innerHTML` or `createElementNS`, with the primitives feGaussianBlur, feColorMatrix, feComponentTransfer,
+feOffset, feBlend, feComposite, feFlood, feMerge, feMorphology, feTurbulence and feDisplacementMap. `canvas.getContext('webgl')` gives a WebGL 1 context.
 `fetch()` and `XMLHttpRequest` read files and send requests with curl, so p5 `loadFont` and `loadJSON` work.
 Requests follow the CORS and mixed-content rules of a page at https://hydra.ojack.xyz, so a server that the web
 editor cannot read fails here too. `vidRecorder.start()` and `vidRecorder.stop()` record the visuals to a WebM file

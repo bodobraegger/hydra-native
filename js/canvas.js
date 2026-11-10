@@ -7,7 +7,8 @@ import { WebGLRenderingContext } from './webgl.js'
 // Gradients (also conic), patterns, shadows, line dashes, image data, images, all composite and blend
 // operations, filters, and drawImage of canvases (also WebGL), images and video sources work. Shadows, filters
 // and the blend modes that plutovg lacks draw into a layer that src/canvas2d.c composites within the clip.
-// Not covered: filter url(), and roundRect draws a plain rectangle.
+// filter url(#id) uses SVG <filter> elements of the document (src/svg_filter.c). Not covered: roundRect draws a
+// plain rectangle.
 
 const PATH_MOVE = 0
 const PATH_LINE = 1
@@ -44,7 +45,15 @@ const OPERATORS = {
 
 // The CSS filter functions; the index is enum filter_kind of src/canvas2d.c.
 const FILTER_FUNCTIONS = ['blur', 'brightness', 'contrast', 'grayscale', 'hue-rotate', 'invert', 'opacity', 'saturate', 'sepia',
-  'drop-shadow']
+  'drop-shadow', 'url']
+// The SVG filter primitives; the index is enum svg_primitive of src/svg_filter.h.
+const SVG_PRIMITIVES = ['fegaussianblur', 'fecolormatrix', 'fecomponenttransfer', 'feoffset', 'feblend', 'fecomposite', 'feflood',
+  'femerge', 'femorphology', 'feturbulence', 'fedisplacementmap']
+const SVG_SOURCE_GRAPHIC = -1
+const SVG_SOURCE_ALPHA = -2
+const SVG_TRANSFER_TYPES = ['identity', 'table', 'discrete', 'linear', 'gamma']
+const SVG_COMPOSITE_OPERATORS = ['over', 'in', 'out', 'atop', 'xor', 'arithmetic', 'lighter']
+const SVG_CHANNELS = { R: 0, G: 1, B: 2, A: 3 }
 const FILTER_DEFAULTS = { blur: 0, brightness: 1, contrast: 1, grayscale: 1, 'hue-rotate': 0, invert: 1, opacity: 1, saturate: 1, sepia: 1 }
 const ANGLE_UNITS = { deg: Math.PI / 180, rad: 1, grad: Math.PI / 200, turn: 2 * Math.PI }
 const DROP_SHADOW_COLOR = [0, 0, 0, 1] // currentcolor of a canvas without CSS
@@ -150,11 +159,12 @@ function dropShadow (text) {
   return [lengths[0], lengths[1], lengths[2] ?? 0, ...color]
 }
 
-// Parses the filter property into the flat numbers of src/canvas2d.c (kind and 7 values per function), or null.
+// Parses the filter property into the flat numbers of src/canvas2d.c (kind and 7 values per function) and the
+// ids of url(#id) functions, or null.
 function parseFilter (value) {
   const text = String(value).trim()
-  if (text === 'none') return []
-  const values = []
+  const values = [], urls = []
+  if (text === 'none') return { values, urls }
   const pattern = /([a-z-]+)\(((?:[^()]|\([^()]*\))*)\)\s*/y
   while (pattern.lastIndex < text.length) {
     const match = pattern.exec(text)
@@ -162,6 +172,13 @@ function parseFilter (value) {
     const [, name, argument] = match
     const kind = FILTER_FUNCTIONS.indexOf(name)
     if (kind < 0) return null
+    if (name === 'url') { // the index of the URL; draw() compiles the <filter> element then
+      const id = argument.trim().replace(/^["']|["']$/g, '')
+      if (!id.startsWith('#')) return null
+      values.push(kind, urls.length, 0, 0, 0, 0, 0, 0)
+      urls.push(id.slice(1))
+      continue
+    }
     if (name === 'drop-shadow') {
       const shadow = dropShadow(argument)
       if (!shadow) return null
@@ -172,7 +189,98 @@ function parseFilter (value) {
     if (Number.isNaN(amount) || (name !== 'hue-rotate' && amount < 0)) return null
     values.push(kind, amount, 0, 0, 0, 0, 0, 0)
   }
-  return values.length ? values : null
+  return values.length ? { values, urls } : null
+}
+
+const numbers = (text, count, fallback) => {
+  const parsed = String(text ?? '').trim().split(/[\s,]+/).filter(Boolean).map(Number)
+  return Array.from({ length: count }, (_, i) => parsed[i] ?? parsed[0] ?? fallback)
+}
+
+function hueRotateMatrix (degrees) {
+  const c = Math.cos(degrees * Math.PI / 180), s = Math.sin(degrees * Math.PI / 180)
+  return [0.213 + c * 0.787 - s * 0.213, 0.715 - c * 0.715 - s * 0.715, 0.072 - c * 0.072 + s * 0.928, 0, 0,
+    0.213 - c * 0.213 + s * 0.143, 0.715 + c * 0.285 + s * 0.140, 0.072 - c * 0.072 - s * 0.283, 0, 0,
+    0.213 - c * 0.213 - s * 0.787, 0.715 - c * 0.715 + s * 0.715, 0.072 + c * 0.928 + s * 0.072, 0, 0,
+    0, 0, 0, 1, 0]
+}
+
+function saturateMatrix (amount) {
+  return [0.213 + 0.787 * amount, 0.715 - 0.715 * amount, 0.072 - 0.072 * amount, 0, 0,
+    0.213 - 0.213 * amount, 0.715 + 0.285 * amount, 0.072 - 0.072 * amount, 0, 0,
+    0.213 - 0.213 * amount, 0.715 - 0.715 * amount, 0.072 + 0.928 * amount, 0, 0,
+    0, 0, 0, 1, 0]
+}
+
+const IDENTITY_MATRIX = [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0]
+
+// The parameters of one primitive for src/svg_filter.c, or null for an element that is no primitive.
+function primitiveParameters (element, input) {
+  const attribute = (name, fallback) => element.getAttribute(name) ?? fallback
+  const children = (name) => element.children.filter((child) => child.localName?.toLowerCase() === name)
+  switch (element.localName.toLowerCase()) {
+    case 'fegaussianblur': return numbers(attribute('stdDeviation'), 2, 0)
+    case 'fecolormatrix': {
+      const type = attribute('type', 'matrix'), values = attribute('values')
+      if (type === 'saturate') return saturateMatrix(values === null ? 1 : Number(values))
+      if (type === 'hueRotate') return hueRotateMatrix(values === null ? 0 : Number(values))
+      if (type === 'luminanceToAlpha') return [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.2125, 0.7154, 0.0721, 0, 0]
+      const matrix = values === null ? [] : numbers(values, 20, 0)
+      return matrix.length === 20 ? matrix : IDENTITY_MATRIX
+    }
+    case 'fecomponenttransfer': return ['fefuncr', 'fefuncg', 'fefuncb', 'fefunca'].flatMap((name) => {
+      const [func] = children(name)
+      const get = (key, fallback) => Number(func?.getAttribute(key) ?? fallback)
+      const listed = String(func?.getAttribute('tableValues') ?? '').trim().split(/[\s,]+/).filter(Boolean).map(Number)
+      return [Math.max(0, SVG_TRANSFER_TYPES.indexOf(func?.getAttribute('type') ?? 'identity')), get('slope', 1), get('intercept', 0),
+        get('amplitude', 1), get('exponent', 1), get('offset', 0), listed.length, ...listed]
+    })
+    case 'feoffset': return [Number(attribute('dx', 0)), Number(attribute('dy', 0))]
+    case 'feblend': {
+      const mode = attribute('mode', 'normal')
+      return [BLEND_MODES[mode === 'normal' ? 'source-over' : mode] ?? 0]
+    }
+    case 'fecomposite': return [Math.max(0, SVG_COMPOSITE_OPERATORS.indexOf(attribute('operator', 'over'))),
+      ...['k1', 'k2', 'k3', 'k4'].map((name) => Number(attribute(name, 0)))]
+    case 'feflood': {
+      const [r, g, b, a] = parseColor(attribute('flood-color', 'black')) || [0, 0, 0, 1]
+      return [r, g, b, a * Math.min(1, Math.max(0, Number(attribute('flood-opacity', 1))))]
+    }
+    case 'femerge': {
+      const nodes = children('femergenode').map((node) => input(node.getAttribute('in')))
+      return [nodes.length, ...nodes]
+    }
+    case 'femorphology': return [attribute('operator', 'erode') === 'dilate' ? 1 : 0, ...numbers(attribute('radius'), 2, 0)]
+    case 'feturbulence': return [...numbers(attribute('baseFrequency'), 2, 0), Number(attribute('numOctaves', 1)),
+      Number(attribute('seed', 0)), attribute('stitchTiles', 'noStitch') === 'stitch' ? 1 : 0,
+      attribute('type', 'turbulence') === 'fractalNoise' ? 1 : 0]
+    case 'fedisplacementmap': return [Number(attribute('scale', 0)), SVG_CHANNELS[attribute('xChannelSelector', 'A')] ?? 3,
+      SVG_CHANNELS[attribute('yChannelSelector', 'A')] ?? 3]
+    default: return null
+  }
+}
+
+// The program of src/svg_filter.c for the <filter> element with this id, or null when there is none or it has an
+// unknown primitive (the browser then draws without the filter chain).
+function compileSvgFilter (id) {
+  const filter = document.getElementById(id)
+  if (!filter || filter.localName?.toLowerCase() !== 'filter') return null
+  const linearByDefault = filter.getAttribute('color-interpolation-filters') !== 'sRGB'
+  const elements = filter.children.filter((child) => child.localName)
+  const results = new Map(), program = [elements.length]
+  for (const [index, element] of elements.entries()) {
+    const input = (name) => name === 'SourceGraphic' ? SVG_SOURCE_GRAPHIC : name === 'SourceAlpha' ? SVG_SOURCE_ALPHA
+      : results.has(name) ? results.get(name) : index > 0 ? index - 1 : SVG_SOURCE_GRAPHIC
+    const type = SVG_PRIMITIVES.indexOf(element.localName.toLowerCase())
+    const parameters = primitiveParameters(element, input)
+    if (type < 0 || !parameters) return null
+    const space = element.getAttribute('color-interpolation-filters')
+    const linear = space === null || space === 'auto' ? linearByDefault : space !== 'sRGB'
+    program.push(type, input(element.getAttribute('in')), input(element.getAttribute('in2')), linear ? 1 : 0, parameters.length,
+      ...parameters)
+    if (element.getAttribute('result')) results.set(element.getAttribute('result'), index)
+  }
+  return program
 }
 
 function multiply ([a1, b1, c1, d1, e1, f1], [a2, b2, c2, d2, e2, f2]) {
@@ -295,10 +403,11 @@ class CanvasRenderingContext2D {
   // An invalid filter leaves the value unchanged, as in the browser.
   get filter () { return this._filter }
   set filter (value) {
-    const filters = parseFilter(value)
-    if (!filters) return
+    const parsed = parseFilter(value)
+    if (!parsed) return
     this._filter = String(value)
-    this.filters = filters
+    this.filters = parsed.values
+    this.filterUrls = parsed.urls
   }
 
   save () {
@@ -355,7 +464,10 @@ class CanvasRenderingContext2D {
     const shadow = shadowAlpha > 0 && (this.shadowBlur > 0 || this.shadowOffsetX !== 0 || this.shadowOffsetY !== 0)
     const blend = BLEND_MODES[this.globalCompositeOperation]
     const native2d = OPERATORS[this.globalCompositeOperation] !== undefined && this.globalCompositeOperation !== 'lighter'
-    if (!shadow && !this.filters.length && (native2d || blend === undefined)) return callback()
+    // A url(#id) without a <filter> element turns the whole filter chain off, as in the browser.
+    const programs = this.filterUrls.map(compileSvgFilter)
+    const filters = programs.includes(null) ? [] : this.filters
+    if (!shadow && !filters.length && (native2d || blend === undefined)) return callback()
     native.canvasLayerBegin(this.id)
     this.layered = true
     this.fontApplied = null
@@ -367,7 +479,7 @@ class CanvasRenderingContext2D {
       const [r, g, b, a] = shadow ? parseColor(this.shadowColor) : [0, 0, 0, 0]
       const operator = native2d ? OPERATORS[this.globalCompositeOperation] : blend === undefined ? OPERATORS['source-over'] : -1
       native.canvasLayerEnd(this.id, operator, blend ?? 0, this.shadowBlur, this.shadowOffsetX, this.shadowOffsetY, r, g, b, a,
-        this.filters)
+        filters, programs)
       this.canvas.changed()
     }
   }

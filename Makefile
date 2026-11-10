@@ -20,7 +20,7 @@ SHEENBIDI_VERSION := 2.9.0
 SHEENBIDI_DIR := vendor/sheenbidi
 EMOJI_FONT_COMMIT := 8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5
 EMOJI_FONT_URL := https://raw.githubusercontent.com/google/fonts/$(EMOJI_FONT_COMMIT)/ofl/notoemoji
-OBJECTS := build/main.o build/canvas2d.o build/webgl.o build/video.o build/audio.o build/audio_processing.o build/fetch.o build/thumbnails.o build/midi.o build/recorder.o build/editor.o build/ui.o build/overlay.o build/keymap.o
+OBJECTS := build/main.o build/canvas2d.o build/svg_filter.o build/webgl.o build/video.o build/audio.o build/audio_processing.o build/fetch.o build/thumbnails.o build/midi.o build/recorder.o build/editor.o build/ui.o build/overlay.o build/keymap.o
 
 CFLAGS := -O2 -g -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -I$(QUICKJS_DIR) -Ivendor/stb -I$(PLUTOVG_DIR)/include -DPLUTOVG_BUILD_STATIC -I$(HARFBUZZ_DIR)/src -I$(SHEENBIDI_DIR)/Headers $(shell pkg-config --cflags sdl2)
 LDLIBS := $(shell pkg-config --libs sdl2 glesv2 libpulse-simple alsa) -lm -ldl -lpthread

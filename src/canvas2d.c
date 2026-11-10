@@ -12,6 +12,7 @@
 #include "native.h"
 #include "plutovg.h"
 #include "stb_image.h"
+#include "svg_filter.h"
 
 #define MAX_CANVASES 256
 #define MAX_FONTS 32
@@ -526,6 +527,12 @@ static void set_saturation(float *c, float s) {
 }
 
 // Composites one premultiplied ARGB pixel over another with a W3C blend mode.
+static uint32_t composite_pixel(uint32_t destination, uint32_t source, enum blend_mode mode);
+
+uint32_t canvas2d_composite_pixel(uint32_t destination, uint32_t source, int mode) {
+    return composite_pixel(destination, source, (enum blend_mode)mode);
+}
+
 static uint32_t composite_pixel(uint32_t destination, uint32_t source, enum blend_mode mode) {
     float as = (float)(source >> 24) / 255, ab = (float)(destination >> 24) / 255;
     if (as == 0) return destination;
@@ -562,41 +569,10 @@ static uint32_t composite_pixel(uint32_t destination, uint32_t source, enum blen
     return out;
 }
 
-// A box blur of the alpha channel, three times, close to the Gaussian of the canvas shadow (sigma = blur / 2).
-static void blur_alpha(float *alpha, int width, int height, float blur) {
-    int radius = (int)(blur / 2 * 0.9f + 0.5f);
-    if (radius < 1) return;
-    float *line = malloc(sizeof(float) * (size_t)(width > height ? width : height));
-    for (int pass = 0; pass < 3; pass++) {
-        for (int y = 0; y < height; y++) {
-            float *row = alpha + (size_t)y * (size_t)width, sum = 0;
-            for (int x = -radius; x <= radius; x++) sum += x >= 0 && x < width ? row[x] : 0;
-            for (int x = 0; x < width; x++) {
-                line[x] = sum / (float)(2 * radius + 1);
-                int out = x - radius, in = x + radius + 1;
-                sum += (in < width ? row[in] : 0) - (out >= 0 ? row[out] : 0);
-            }
-            memcpy(row, line, sizeof(float) * (size_t)width);
-        }
-        for (int x = 0; x < width; x++) {
-            float sum = 0;
-            for (int y = -radius; y <= radius; y++) sum += y >= 0 && y < height ? alpha[(size_t)y * (size_t)width + (size_t)x] : 0;
-            for (int y = 0; y < height; y++) {
-                line[y] = sum / (float)(2 * radius + 1);
-                int out = y - radius, in = y + radius + 1;
-                sum += (in < height ? alpha[(size_t)in * (size_t)width + (size_t)x] : 0) -
-                       (out >= 0 ? alpha[(size_t)out * (size_t)width + (size_t)x] : 0);
-            }
-            for (int y = 0; y < height; y++) alpha[(size_t)y * (size_t)width + (size_t)x] = line[y];
-        }
-    }
-    free(line);
-}
-
 // The CSS filter functions of the 2D canvas, in the order of FILTERS in js/canvas.js.
 enum filter_kind {
     FILTER_BLUR, FILTER_BRIGHTNESS, FILTER_CONTRAST, FILTER_GRAYSCALE, FILTER_HUE_ROTATE, FILTER_INVERT, FILTER_OPACITY,
-    FILTER_SATURATE, FILTER_SEPIA, FILTER_DROP_SHADOW,
+    FILTER_SATURATE, FILTER_SEPIA, FILTER_DROP_SHADOW, FILTER_SVG,
 };
 #define FILTER_VALUES 8 // kind, amount (or x, y, blur of drop-shadow), r, g, b, a of drop-shadow
 
@@ -613,7 +589,7 @@ static plutovg_surface_t *shadow_surface(plutovg_surface_t *layer, int width, in
             if (sx >= 0 && sx < width && sy >= 0 && sy < height)
                 alpha[(size_t)y * (size_t)width + (size_t)x] = (float)(((const uint32_t *)(data + (size_t)sy * (size_t)stride))[sx] >> 24) / 255;
         }
-    blur_alpha(alpha, width, height, blur);
+    gaussian_blur(alpha, width, height, blur / 2, blur / 2); // the shadow blur is twice the standard deviation
     plutovg_surface_t *shadow = plutovg_surface_create(width, height);
     unsigned char *out = plutovg_surface_get_data(shadow);
     for (int y = 0; y < height; y++)
@@ -659,12 +635,38 @@ static void filter_matrix(enum filter_kind kind, float amount, float m[9]) {
     }
 }
 
-// Applies one filter function to the premultiplied ARGB pixels of `layer`.
-static void apply_filter(plutovg_surface_t *layer, int width, int height, const float *values) {
+// Reads a JS array of numbers into a malloc'd float array.
+static float *read_numbers(JSContext *ctx, JSValueConst array, size_t *count) {
+    int64_t length = 0;
+    JSValue length_value = JS_GetPropertyStr(ctx, array, "length");
+    JS_ToInt64(ctx, &length, length_value);
+    JS_FreeValue(ctx, length_value);
+    *count = length > 0 ? (size_t)length : 0;
+    float *numbers = malloc(sizeof(float) * (*count + 1));
+    for (size_t i = 0; i < *count; i++) {
+        JSValue value = JS_GetPropertyUint32(ctx, array, (uint32_t)i);
+        numbers[i] = number(ctx, value);
+        JS_FreeValue(ctx, value);
+    }
+    return numbers;
+}
+
+// Applies one filter function to the premultiplied ARGB pixels of `layer`; url(#id) filters take their program
+// from the array `programs`.
+static void apply_filter(JSContext *ctx, plutovg_surface_t *layer, int width, int height, const float *values, JSValueConst programs) {
     enum filter_kind kind = (enum filter_kind)(int)values[0];
     float amount = values[1];
     unsigned char *data = plutovg_surface_get_data(layer);
     int stride = plutovg_surface_get_stride(layer);
+    if (kind == FILTER_SVG) {
+        JSValue program_value = JS_GetPropertyUint32(ctx, programs, (uint32_t)amount);
+        size_t length;
+        float *program = read_numbers(ctx, program_value, &length);
+        JS_FreeValue(ctx, program_value);
+        svg_filter_apply((uint32_t *)data, stride, width, height, program, length);
+        free(program);
+        return;
+    }
     if (kind == FILTER_DROP_SHADOW) {
         plutovg_color_t color = { values[4], values[5], values[6], values[7] };
         plutovg_surface_t *shadow = shadow_surface(layer, width, height, values[3], values[1], values[2], color);
@@ -682,7 +684,7 @@ static void apply_filter(plutovg_surface_t *layer, int width, int height, const 
             for (int y = 0; y < height; y++)
                 for (int x = 0; x < width; x++)
                     channel[(size_t)y * (size_t)width + (size_t)x] = (float)((((uint32_t *)(data + (size_t)y * (size_t)stride))[x] >> shift) & 0xFF);
-            blur_alpha(channel, width, height, 2 * amount);
+            gaussian_blur(channel, width, height, amount, amount);
             for (int y = 0; y < height; y++)
                 for (int x = 0; x < width; x++) {
                     uint32_t *pixel = (uint32_t *)(data + (size_t)y * (size_t)stride) + x;
@@ -749,7 +751,8 @@ static void composite_layer(struct canvas *canvas, plutovg_surface_t *source, in
     if (blended) plutovg_surface_destroy(blended);
 }
 
-// layerEnd(id, operator, blendMode, shadowBlur, shadowOffsetX, shadowOffsetY, r, g, b, a, [filters]): applies the
+// layerEnd(id, operator, blendMode, shadowBlur, shadowOffsetX, shadowOffsetY, r, g, b, a, [filters], [programs of
+// url() filters]): applies the
 // filters to the layer, then composites its shadow (when the shadow color is not transparent) and the layer
 // within the clip. `operator` is a plutovg operator, or -1 for the blend mode.
 CANVAS_FUNCTION(js_canvas_layer_end) {
@@ -759,19 +762,11 @@ CANVAS_FUNCTION(js_canvas_layer_end) {
     enum blend_mode mode = (enum blend_mode)(int)number(ctx, argv[2]);
     float shadow_blur = number(ctx, argv[3]), offset_x = number(ctx, argv[4]), offset_y = number(ctx, argv[5]);
     plutovg_color_t shadow = { number(ctx, argv[6]), number(ctx, argv[7]), number(ctx, argv[8]), number(ctx, argv[9]) };
-    int64_t filter_values = 0;
-    JSValue length = JS_GetPropertyStr(ctx, argv[10], "length");
-    JS_ToInt64(ctx, &filter_values, length);
-    JS_FreeValue(ctx, length);
-    for (int64_t start = 0; start + FILTER_VALUES <= filter_values; start += FILTER_VALUES) {
-        float values[FILTER_VALUES];
-        for (int k = 0; k < FILTER_VALUES; k++) {
-            JSValue value = JS_GetPropertyUint32(ctx, argv[10], (uint32_t)(start + k));
-            values[k] = number(ctx, value);
-            JS_FreeValue(ctx, value);
-        }
-        apply_filter(canvas->surface, canvas->width, canvas->height, values);
-    }
+    size_t filter_values;
+    float *filters = read_numbers(ctx, argv[10], &filter_values);
+    for (size_t start = 0; start + FILTER_VALUES <= filter_values; start += FILTER_VALUES)
+        apply_filter(ctx, canvas->surface, canvas->width, canvas->height, filters + start, argv[11]);
+    free(filters);
     if (shadow.a > 0) {
         plutovg_surface_t *shadow_layer = shadow_surface(canvas->surface, canvas->width, canvas->height, shadow_blur, offset_x,
                                                          offset_y, shadow);
@@ -1010,7 +1005,7 @@ static const JSCFunctionListEntry canvas_functions[] = {
     JS_CFUNC_DEF("canvasPattern", 3, js_canvas_pattern),
     JS_CFUNC_DEF("canvasDash", 3, js_canvas_dash),
     JS_CFUNC_DEF("canvasLayerBegin", 1, js_canvas_layer_begin),
-    JS_CFUNC_DEF("canvasLayerEnd", 11, js_canvas_layer_end),
+    JS_CFUNC_DEF("canvasLayerEnd", 12, js_canvas_layer_end),
     JS_CFUNC_DEF("canvasGetImageData", 5, js_canvas_get_image_data),
     JS_CFUNC_DEF("canvasPutImageData", 10, js_canvas_put_image_data),
     JS_CFUNC_DEF("canvasImageLoad", 1, js_canvas_image_load),
