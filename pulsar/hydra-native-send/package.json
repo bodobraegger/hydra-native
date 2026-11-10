@@ -1,0 +1,11 @@
+{
+  "name": "hydra-native-send",
+  "main": "./lib/main",
+  "version": "0.1.0",
+  "description": "Send the current line, block or file from Pulsar to hydra-native",
+  "activationCommands": {
+    "atom-text-editor": ["hydra-native:evalLine", "hydra-native:evalBlock", "hydra-native:evalCode"]
+  },
+  "license": "MIT",
+  "engines": { "atom": ">=1.0.0 <2.0.0" }
+}
