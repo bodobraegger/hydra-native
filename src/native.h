@@ -23,6 +23,11 @@ void video_close_all(void);
 
 // Audio input: Meyda-compatible "loudness" features of the audio input (src/audio_input.h).
 bool audio_start(const char *device, const char *program_directory); // the folder of hydra-native-capture
+// The input of `a` from now on: a device name as in audio_devices(), "" for the default, AUDIO_NONE for none.
+// The running input closes and the new one opens; before audio_start() it only sets the name.
+void audio_set_device(const char *device);
+struct audio_device;
+int audio_devices(struct audio_device *devices, int capacity); // see audio_input_devices() of src/audio_input.h
 bool audio_features(float specific[BARK_BAND_COUNT], float *total);
 
 // Downloads with curl, and other child processes; fetch_poll calls `done` once per finished process with its

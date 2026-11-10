@@ -38,12 +38,16 @@ static void load_webrtc_processing(void) {
     webrtc.apm = create && webrtc.process ? create(AUDIO_SAMPLE_RATE) : NULL;
 }
 
+#define DEVICE_WAIT_MS 50
+
+static void analyze(void);
 static bool started;
 static SDL_SpinLock lock;
 static bool available;
 static float latest_specific[BARK_BAND_COUNT];
 static float latest_total;
 static char device_name[256];
+static SDL_AtomicInt device_changed; // audio_set_device() asks the thread to open the new device
 
 static void compute_band_limits(int limits[BARK_BAND_COUNT + 1]) {
     float bark[SPECTRUM_SIZE];
@@ -66,7 +70,26 @@ static void compute_band_limits(int limits[BARK_BAND_COUNT + 1]) {
 
 static int capture(void *argument) {
     (void)argument;
-    if (!audio_input_open(device_name, program_directory)) return 0;
+    for (;;) {
+        char device[sizeof device_name];
+        SDL_LockSpinlock(&lock);
+        snprintf(device, sizeof device, "%s", device_name);
+        SDL_UnlockSpinlock(&lock);
+        SDL_SetAtomicInt(&device_changed, 0);
+        if (strcmp(device, AUDIO_NONE) != 0 && audio_input_open(device, program_directory)) {
+            analyze(); // until the device fails or changes
+            audio_input_close();
+        }
+        SDL_LockSpinlock(&lock);
+        available = false;
+        SDL_UnlockSpinlock(&lock);
+        // A failed or switched-off input waits for the next change.
+        while (!SDL_GetAtomicInt(&device_changed)) SDL_Delay(DEVICE_WAIT_MS);
+    }
+    return 0;
+}
+
+static void analyze(void) {
     int limits[BARK_BAND_COUNT + 1];
     compute_band_limits(limits);
     load_webrtc_processing();
@@ -74,7 +97,7 @@ static int capture(void *argument) {
     // Processed 10 ms frames collect here until a buffer of the size of Meyda is full.
     float pending[AUDIO_BUFFER_SIZE + AUDIO_FRAME_SIZE], magnitude[SPECTRUM_SIZE];
     size_t pending_count = 0;
-    while (audio_input_read(pending + pending_count)) {
+    while (!SDL_GetAtomicInt(&device_changed) && audio_input_read(pending + pending_count)) {
         if (webrtc.apm) webrtc.process(webrtc.apm, pending + pending_count, AUDIO_SAMPLE_RATE);
         pending_count += AUDIO_FRAME_SIZE;
         if (pending_count < AUDIO_BUFFER_SIZE) continue;
@@ -95,14 +118,21 @@ static int capture(void *argument) {
         available = true;
         SDL_UnlockSpinlock(&lock);
     }
-    audio_input_close();
-    return 0;
 }
+
+void audio_set_device(const char *device) {
+    SDL_LockSpinlock(&lock);
+    snprintf(device_name, sizeof device_name, "%s", device ? device : "");
+    SDL_UnlockSpinlock(&lock);
+    SDL_SetAtomicInt(&device_changed, 1);
+}
+
+int audio_devices(struct audio_device *devices, int capacity) { return audio_input_devices(devices, capacity); }
 
 bool audio_start(const char *device, const char *directory) {
     if (started) return true;
     if (!audio_input_init()) return false;
-    snprintf(device_name, sizeof device_name, "%s", device ? device : "");
+    audio_set_device(device);
     snprintf(program_directory, sizeof program_directory, "%s", directory);
     SDL_Thread *thread = SDL_CreateThread(capture, "audio", NULL);
     started = thread != NULL;

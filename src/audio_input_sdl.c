@@ -41,6 +41,26 @@ static SDL_AudioDeviceID find_device(const char *name) {
     return found;
 }
 
+int audio_input_devices(struct audio_device *devices, int capacity) {
+    if (!audio_input_init()) return 0;
+    int count = 0, used = 0;
+    SDL_AudioDeviceID *ids = SDL_GetAudioRecordingDevices(&count);
+    for (int i = 0; i < count && used < capacity; i++) {
+        const char *name = SDL_GetAudioDeviceName(ids[i]);
+        if (!name) continue;
+        snprintf(devices[used].name, sizeof devices[0].name, "%s", name);
+        snprintf(devices[used++].label, sizeof devices[0].label, "%s", name);
+    }
+    SDL_free(ids);
+#if defined(__APPLE__) // ScreenCaptureKit records the system audio; Windows has no such capture here
+    if (used < capacity) {
+        snprintf(devices[used].name, sizeof devices[0].name, "%s", AUDIO_SYSTEM_OUTPUT);
+        snprintf(devices[used++].label, sizeof devices[0].label, "system output");
+    }
+#endif
+    return used;
+}
+
 bool audio_input_init(void) {
     if (SDL_WasInit(SDL_INIT_AUDIO) || SDL_InitSubSystem(SDL_INIT_AUDIO)) return true;
     fprintf(stderr, "audio: %s\n", SDL_GetError());
