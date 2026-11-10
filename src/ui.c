@@ -39,9 +39,11 @@
 #define MIN_COMPLETION_PREFIX 2
 #define MAX_PALETTE_ROWS 12
 #define MAX_ROWS_PER_LINE 1024
-// The autocomplete list draws with blend mode difference, so these are its colors over black in every theme.
+// The box of the autocomplete list and the signature help draws with blend mode difference over the hydra output
+// (blue over black), then a dark scrim keeps the white text readable over bright visuals; the same in every theme.
 #define COMPLETION_BOX_COLOR 0x0000FFFFu
-#define COMPLETION_SELECTED_COLOR 0x6060FFFFu
+#define COMPLETION_SCRIM_COLOR 0x000000A0u
+#define COMPLETION_SELECTED_COLOR 0x6060FF80u
 #define COMPLETION_TEXT_COLOR 0xFFFFFFFFu
 
 // A color theme of the settings menu; colors are RGBA. The code floats over the visuals, so backgrounds are
@@ -665,6 +667,24 @@ static bool is_identifier_char(unsigned char c);
 static const char *const OUTPUT_NAMES[] = { "o0", "o1", "o2", "o3" };
 static const char *const SOURCE_NAMES[] = { "s0", "s1", "s2", "s3" };
 
+static bool is_hydra_name(const char *word) {
+    for (size_t i = 0; i < 4; i++)
+        if (!strcmp(word, OUTPUT_NAMES[i]) || !strcmp(word, SOURCE_NAMES[i])) return true;
+    return signature_find(signatures, signature_count, word, strlen(word)) != NULL;
+}
+
+// The identifiers of the file that start with `prefix`, without the hydra functions and outputs, whose places the
+// typed completions and __completionNames know.
+static void add_file_words(const char *prefix, size_t length) {
+    char **words;
+    size_t count = editor_words(&editor, prefix, length, &words);
+    for (size_t i = 0; i < count; i++) {
+        if (!is_hydra_name(words[i])) add_completion(words[i], strlen(words[i]), NULL);
+        free(words[i]);
+    }
+    free(words);
+}
+
 static void add_names(const char *const *names, size_t count, const char *prefix, size_t length) {
     for (size_t i = 0; i < count; i++)
         if (starts_with(names[i], prefix, length)) add_completion(names[i], strlen(names[i]), NULL);
@@ -764,6 +784,7 @@ static bool open_typed_completion(const char *prefix, size_t length, size_t star
         add_completion(helper, helper_length, insert);
     }
     free(helpers);
+    add_file_words(prefix, length); // variables of the sketch, such as a speed or a MIDI value
     return true;
 }
 
@@ -791,13 +812,7 @@ static void open_completion(bool forced) {
             if (strlen(name) > length && !strncmp(name, prefix, length)) add_completion(name, strlen(name), NULL);
         }
         free(names);
-        char **words;
-        size_t count = editor_words(&editor, prefix, length, &words);
-        for (size_t i = 0; i < count; i++) {
-            add_completion(words[i], strlen(words[i]), NULL);
-            free(words[i]);
-        }
-        free(words);
+        add_file_words(prefix, length);
     }
     completion.prefix_length = length;
     completion.selected = 0;
@@ -2738,8 +2753,7 @@ static void draw_code(void) {
 }
 
 // The list below the word that is being typed, left-aligned with its start (above the cursor line when there is
-// no room below, as in VS Code), composited with blend mode difference: over black it shows a blue box with white
-// text, over anything else it inverts what is below.
+// no room below, as in VS Code). It hides the code below it; see COMPLETION_BOX_COLOR.
 static void draw_completion_list(void) {
     size_t x, row = global_caret_row(editor.cursor, editor.sticky, &x);
     if (row < scroll_row || row >= scroll_row + visible_rows()) return;
@@ -2754,11 +2768,13 @@ static void draw_completion_list(void) {
     float top = MARGIN + (float)(row - scroll_row + 1) * line_height;
     if (top + box_height > (float)last_height - bar_height()) top -= box_height + line_height;
     overlay_set_layer(OVERLAY_POPUP);
-    for (size_t i = 0; i < completion.count; i++) {
-        float y = top + (float)i * line_height;
-        overlay_rect(left, y, box_width, line_height, i == completion.selected ? COMPLETION_SELECTED_COLOR : COMPLETION_BOX_COLOR);
-        overlay_text(left + char_width, y, completion.items[i], strlen(completion.items[i]), 0, width, NULL, COMPLETION_TEXT_COLOR);
-    }
+    overlay_rect(left, top, box_width, box_height, COMPLETION_BOX_COLOR);
+    overlay_set_layer(OVERLAY_POPUP_TEXT);
+    overlay_rect(left, top, box_width, box_height, COMPLETION_SCRIM_COLOR);
+    overlay_rect(left, top + (float)completion.selected * line_height, box_width, line_height, COMPLETION_SELECTED_COLOR);
+    for (size_t i = 0; i < completion.count; i++)
+        overlay_text(left + char_width, top + (float)i * line_height, completion.items[i], strlen(completion.items[i]), 0,
+                     width, NULL, COMPLETION_TEXT_COLOR);
     overlay_set_layer(OVERLAY_TOP);
 }
 
@@ -2775,7 +2791,7 @@ static void draw_completion_ghost(void) {
 
 // Signature help above the cursor line (below it on the first visible row): the call with its parameters and
 // defaults, the current parameter marked, and that parameter with its type. The list style draws it like the
-// autocomplete list, with blend mode difference; the ghost style in the ghost color with the parameter in the text color.
+// autocomplete list; the ghost style in the ghost color with the parameter in the text color.
 static void draw_signature_help(void) {
     if (!signature_help_open) return;
     struct call_context call;
@@ -2818,6 +2834,8 @@ static void draw_signature_help(void) {
     }
     overlay_set_layer(OVERLAY_POPUP);
     overlay_rect(left, top, box_width, box_height, COMPLETION_BOX_COLOR);
+    overlay_set_layer(OVERLAY_POPUP_TEXT);
+    overlay_rect(left, top, box_width, box_height, COMPLETION_SCRIM_COLOR);
     if (active_end > active_start) overlay_rect(active_left, top, active_width, line_height, COMPLETION_SELECTED_COLOR);
     overlay_text(text_left, top, label, strlen(label), 0, columns, NULL, COMPLETION_TEXT_COLOR);
     overlay_text(text_left, top + line_height, detail, strlen(detail), 0, columns, NULL, COMPLETION_TEXT_COLOR);

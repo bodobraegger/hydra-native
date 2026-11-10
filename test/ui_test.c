@@ -583,6 +583,8 @@ static void test_signatures(void) {
         { "render(|)", "o0\no1\no2\no3\n", "s0\n" },
         { "mod|", NULL, "modulate\n" },
         { "osc().mod|", "modulate\n", NULL },
+        { "speed = 2; osc(sp|)", "speed\n", NULL }, // a variable of the sketch fits a number
+        { "osc().modulate(); mod|", NULL, "modulate\n" }, // a transform of the file needs a chain
     };
     for (size_t i = 0; i < sizeof typed / sizeof typed[0]; i++) {
         const char *bar = strchr(typed[i].code, '|');

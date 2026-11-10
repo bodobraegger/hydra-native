@@ -33,7 +33,10 @@ enum overlay_layer {
     OVERLAY_CODE_MARKS, // flash, selection, matches, brackets and whitespace marks
     OVERLAY_CODE_TEXT,
     OVERLAY_TOP, // cursor, toolbar, panels, bars
-    OVERLAY_POPUP, // the autocomplete list and the signature help, always with blend mode difference
+    // The boxes of the autocomplete list and the signature help, always with blend mode difference. The code under
+    // a box does not show: the box composites over the hydra output alone.
+    OVERLAY_POPUP,
+    OVERLAY_POPUP_TEXT, // what the popup boxes hold, with normal blending
     OVERLAY_LAYER_COUNT
 };
 void overlay_set_layer(enum overlay_layer layer);

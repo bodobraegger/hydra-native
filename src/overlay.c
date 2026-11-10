@@ -95,6 +95,12 @@ static struct {
     void (*barrier)(void);
 } difference;
 
+// The hydra output before the overlay, while a popup is open: each popup box first restores it below itself.
+static struct {
+    GLuint texture;
+    int width, height;
+} backdrop;
+
 // With KHR_blend_equation_advanced the shader declares the blend equation that it draws with.
 static const char *advanced_fragment_source =
     "#version 300 es\n"
@@ -813,6 +819,35 @@ size_t overlay_text_columns(const char *text, size_t length) {
 
 static void draw_images(void);
 
+static void copy_backdrop(int width, int height) {
+    if (backdrop.width != width || backdrop.height != height) {
+        if (backdrop.texture) glDeleteTextures(1, &backdrop.texture);
+        backdrop.texture = window_texture(width, height);
+        backdrop.width = width;
+        backdrop.height = height;
+    }
+    glBindTexture(GL_TEXTURE_2D, backdrop.texture);
+    glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, width, height);
+    glBindTexture(GL_TEXTURE_2D, atlas);
+}
+
+// Draws the backdrop opaque into the rectangle of each quad of [first, end), over the code below the popup boxes.
+static void restore_backdrop(size_t first, size_t end, int width, int height) {
+    size_t quad = vertex_count;
+    for (size_t i = first; i < end; i += 6) {
+        float x0 = vertices[i].x, y0 = vertices[i].y, x1 = vertices[i + 2].x, y1 = vertices[i + 2].y;
+        push_quad(x0, y0, x1, y1, x0 / (float)width, 1 - y0 / (float)height, x1 / (float)width, 1 - y1 / (float)height,
+                  0xFFFFFFFFu);
+    }
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(vertex_count * sizeof *vertices), vertices, GL_STREAM_DRAW);
+    glBindTexture(GL_TEXTURE_2D, backdrop.texture);
+    glDisable(GL_BLEND);
+    glDrawArrays(GL_TRIANGLES, (GLint)quad, (GLsizei)(vertex_count - quad));
+    glEnable(GL_BLEND);
+    glBindTexture(GL_TEXTURE_2D, atlas);
+    vertex_count = quad;
+}
+
 void overlay_end(int width, int height) {
     // A full atlas starts again empty; the glyphs of this frame come back in the next frame.
     if (atlas_full) {
@@ -845,10 +880,13 @@ void overlay_end(int width, int height) {
     vertices = sorted_vertices;
     sorted_vertices = swap;
     glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(vertex_count * sizeof *vertices), vertices, GL_STREAM_DRAW);
+    bool popup = starts[OVERLAY_POPUP + 1] > starts[OVERLAY_POPUP];
+    if (popup) copy_backdrop(width, height);
     for (int layer = 0; layer < OVERLAY_LAYER_COUNT; layer++) {
         if (layer == OVERLAY_POPUP) draw_images();
         size_t first = starts[layer], end = starts[layer + 1];
         if (end == first) continue;
+        if (layer == OVERLAY_POPUP) restore_backdrop(first, end, width, height);
         if (layer_difference[layer]) draw_difference_layer(first, end, width, height);
         else glDrawArrays(GL_TRIANGLES, (GLint)first, (GLsizei)(end - first));
     }
