@@ -20,11 +20,13 @@ static struct {
     bool (*process)(void *apm, float *samples, int sample_rate);
 } webrtc;
 
+static char program_directory[1024]; // also of build/libhydra-webrtc-apm.so
+
 // WEBRTC_APM_LIBRARY_NAME is empty on macOS and Windows, which have no such library.
 static void load_webrtc_processing(void) {
     if (!WEBRTC_APM_LIBRARY_NAME[0]) return;
-    char library[1024];
-    snprintf(library, sizeof library, "%s" WEBRTC_APM_LIBRARY_NAME, SDL_GetBasePath());
+    char library[sizeof program_directory + sizeof WEBRTC_APM_LIBRARY_NAME + 1];
+    snprintf(library, sizeof library, "%s/" WEBRTC_APM_LIBRARY_NAME, program_directory);
     SDL_SharedObject *handle = SDL_LoadObject(library);
     if (!handle) {
         fprintf(stderr, "audio: no WebRTC audio processing (%s), using the own noise suppression and gain control\n",
@@ -64,7 +66,7 @@ static void compute_band_limits(int limits[BARK_BAND_COUNT + 1]) {
 
 static int capture(void *argument) {
     (void)argument;
-    if (!audio_input_open(device_name)) return 0;
+    if (!audio_input_open(device_name, program_directory)) return 0;
     int limits[BARK_BAND_COUNT + 1];
     compute_band_limits(limits);
     load_webrtc_processing();
@@ -97,10 +99,11 @@ static int capture(void *argument) {
     return 0;
 }
 
-bool audio_start(const char *device) {
+bool audio_start(const char *device, const char *directory) {
     if (started) return true;
     if (!audio_input_init()) return false;
     snprintf(device_name, sizeof device_name, "%s", device ? device : "");
+    snprintf(program_directory, sizeof program_directory, "%s", directory);
     SDL_Thread *thread = SDL_CreateThread(capture, "audio", NULL);
     started = thread != NULL;
     SDL_DetachThread(thread);

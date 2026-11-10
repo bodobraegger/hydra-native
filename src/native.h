@@ -22,7 +22,7 @@ void video_close(int handle);
 void video_close_all(void);
 
 // Audio input: Meyda-compatible "loudness" features of the audio input (src/audio_input.h).
-bool audio_start(const char *device);
+bool audio_start(const char *device, const char *program_directory); // the folder of hydra-native-capture
 bool audio_features(float specific[BARK_BAND_COUNT], float *total);
 
 // Downloads with curl, and other child processes; fetch_poll calls `done` once per finished process with its

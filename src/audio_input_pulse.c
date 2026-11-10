@@ -10,7 +10,7 @@
 static pa_simple *stream;
 bool audio_input_init(void) { return true; }
 
-bool audio_input_open(const char *device) {
+bool audio_input_open(const char *device, const char *program_directory) {
     pa_sample_spec spec = { .format = PA_SAMPLE_FLOAT32LE, .rate = AUDIO_SAMPLE_RATE, .channels = 1 };
     pa_buffer_attr attributes = {
         .maxlength = (uint32_t)-1,

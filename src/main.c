@@ -422,7 +422,7 @@ static JSValue js_find_program(JSContext *ctx, JSValueConst this, int argc, JSVa
 static const char *audio_device_option;
 
 static JSValue js_audio_start(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
-    return JS_NewBool(ctx, audio_start(audio_device_option));
+    return JS_NewBool(ctx, audio_start(audio_device_option, executable_path_directory));
 }
 
 // Returns the shape of Meyda's analyzer.get(): { loudness: { specific, total } }, or null before the first buffer.

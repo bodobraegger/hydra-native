@@ -47,10 +47,10 @@ bool audio_input_init(void) {
     return false;
 }
 
-bool audio_input_open(const char *name) {
+bool audio_input_open(const char *name, const char *program_directory) {
     if (!strcmp(name, AUDIO_SYSTEM_OUTPUT)) {
-        char path[1024];
-        snprintf(path, sizeof path, "%shydra-native-capture", SDL_GetBasePath());
+        char path[1024 + sizeof "/hydra-native-capture"];
+        snprintf(path, sizeof path, "%s/hydra-native-capture", program_directory);
         const char *const argv[] = { path, "audio", NULL };
         helper = process_start(argv, NULL, &helper_output);
         return helper != NULL;
