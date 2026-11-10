@@ -139,6 +139,7 @@ gallery and signalling server (hydra-synth/hydra-server) and from the CodeMirror
 | start without a sketch           | random example and info              | yes                                     |
 | info panel, tooltips, languages  | 9 languages, cached offline          | yes                                     |
 | Arabic text                      | HarfBuzz shaping, SheenBidi (UAX #9) | yes                                     |
+| right-to-left text in code       | logical order in the grid            | no: CodeMirror reorders such lines      |
 | emoji                            | color, Noto Color Emoji              | no: the code grid splits ZWJ sequences  |
 | extensions panel                 | categories, thumbnails, +, examples  | yes                                     |
 | save to URL                      | Ctrl+Shift+L, URL to the clipboard   | no address bar, so the clipboard        |
