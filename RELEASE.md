@@ -144,9 +144,11 @@ Open points for the user:
 > - set the opacity of the code background, and draw the background or the text with the blend mode
 >   difference, so the code stays readable over bright and dark visuals;
 > - set everything in the settings menu, which saves it in one settings file: the theme, the font (from a list
->   or a font file), the look of the code, the window size, fullscreen and vsync, the audio input (a microphone,
->   the system output or none), the language, the server, and the reload of the sketch file when another editor
->   saves it. The keys are in the same file.
+>   or a font file), the look of the code, fullscreen and vsync, the audio input (a microphone, the system
+>   output or none) and its gain, the language, the server, and the reload of the sketch file when another
+>   editor saves it. The keys are in the same file.
+> - open a sketch file with a file dialog from the settings menu, and save new code to a file with Ctrl+S; the
+>   window title shows the name of the file.
 >
 > Install: unpack the archive and start `bin/hydra-native`. The folder runs from any place.
 > RELEASE.md in the repository lists the install steps and the packages for each feature.

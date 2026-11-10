@@ -149,14 +149,19 @@ static void nothing(void) {}
 
 // The window and audio of the host, as main.c gives them, recorded for the checks of the settings rows.
 static bool fullscreen_now, vsync_now = true;
-static int window_width, window_height;
+static int audio_gain_now = 100;
+static int dialogs; // the file dialogs that the host showed
+static char chosen_path[256]; // the path that the next dialog answers
 static char audio_now[256] = "(not set)";
 static void toggle_fullscreen(void) { fullscreen_now = !fullscreen_now; }
 static bool is_fullscreen(void) { return fullscreen_now; }
 static void set_vsync(bool vsync) { vsync_now = vsync; }
-static void set_window_size(int width, int height) {
-    window_width = width;
-    window_height = height;
+static void set_audio_gain(int percent) { audio_gain_now = percent; }
+// The file dialogs answer at once with chosen_path; ui_test opens no real dialog.
+static void choose_file(bool save) {
+    dialogs++;
+    if (save) ui_save_as(chosen_path);
+    else ui_open_file(chosen_path);
 }
 static int audio_devices(struct audio_device *devices, int capacity) {
     snprintf(devices[0].name, sizeof devices[0].name, "mic-a");
@@ -266,12 +271,12 @@ static int saved_opacity(const char *settings_file) {
 // invalid entry, and a unit after the number.
 static void test_number_fields(const char *settings_file) {
     key(SDLK_COMMA, SDL_KMOD_LCTRL);
-    ui_draw(800, 600, 0);
+    ui_draw(800, 1200, 0);
     EXPECT(click_text(text_ending(" %"), 0));
     type("45");
     key(SDLK_RETURN, 0);
     EXPECT(saved_opacity(settings_file) == 45);
-    ui_draw(800, 600, 0);
+    ui_draw(800, 1200, 0);
     EXPECT_CONTAINS(drawn, "45 %\n");
 
     EXPECT(click_text("45 %", 0));
@@ -279,15 +284,15 @@ static void test_number_fields(const char *settings_file) {
     key(SDLK_RETURN, 0);
     EXPECT(saved_opacity(settings_file) == 100);
 
-    ui_draw(800, 600, 0);
+    ui_draw(800, 1200, 0);
     EXPECT(click_text("100 %", 0));
     type("abc"); // no number: the field stays open with the text, nothing changes
     key(SDLK_RETURN, 0);
-    ui_draw(800, 600, 0);
+    ui_draw(800, 1200, 0);
     EXPECT_CONTAINS(drawn, "abc|\n");
     EXPECT(saved_opacity(settings_file) == 100);
     key(SDLK_ESCAPE, 0); // cancels the field; the settings menu stays open
-    ui_draw(800, 600, 0);
+    ui_draw(800, 1200, 0);
     EXPECT(strstr(drawn, "abc") == NULL);
     EXPECT_CONTAINS(drawn, "100 %\n");
     EXPECT(saved_opacity(settings_file) == 100);
@@ -306,19 +311,19 @@ static void test_number_fields(const char *settings_file) {
     key(SDLK_RETURN, 0);
     EXPECT(saved_opacity(settings_file) == 7);
 
-    ui_draw(800, 600, 0);
+    ui_draw(800, 1200, 0);
     EXPECT(click_text(text_ending(" px"), 0));
     type("30px");
     key(SDLK_RETURN, 0);
     EXPECT(overlay_font_size() == 30);
-    ui_draw(800, 600, 0);
+    ui_draw(800, 1200, 0);
     EXPECT(click_text("30 px", 0));
     type("2"); // below the range
     key(SDLK_RETURN, 0);
     EXPECT(overlay_font_size() == OVERLAY_MIN_FONT_SIZE);
     overlay_set_font_size(20);
     key(SDLK_ESCAPE, 0); // closes the settings menu
-    ui_draw(800, 600, 0);
+    ui_draw(800, 1200, 0);
     EXPECT(strstr(drawn, "code box") == NULL);
 }
 
@@ -345,10 +350,15 @@ static void test_settings_rows(const char *settings_file) {
     EXPECT(!fullscreen_now && !saved_settings(settings_file).fullscreen);
 
     ui_draw(800, 900, 0);
-    EXPECT(click_text("1280 px", 0)); // the window width
-    type("1024");
+    EXPECT(click_text("100 %", 0)); // the input gain
+    type("250");
     key(SDLK_RETURN, 0);
-    EXPECT(window_width == 1024 && window_height == 720 && saved_settings(settings_file).window_width == 1024);
+    EXPECT(audio_gain_now == 250 && saved_settings(settings_file).audio_gain == 250);
+    ui_draw(800, 900, 0);
+    EXPECT(click_text("250 %", 0));
+    type("900%"); // above the range: 400
+    key(SDLK_RETURN, 0);
+    EXPECT(audio_gain_now == 400 && saved_settings(settings_file).audio_gain == 400);
 
     ui_draw(800, 900, 0);
     EXPECT(click_text("Microphone A", 0));
@@ -371,7 +381,7 @@ static void test_settings_rows(const char *settings_file) {
     EXPECT(click_text("hidden", 0)); // code at start
     EXPECT(!saved_settings(settings_file).code_visible);
     ui_draw(800, 900, 0);
-    EXPECT(click_text("on file change", 0));
+    EXPECT(click_text("on", 0)); // reload on file change, the first row under "file"
     EXPECT(ui_active_settings()->watch && saved_settings(settings_file).watch);
 
     ui_draw(800, 900, 0);
@@ -386,6 +396,52 @@ static void test_settings_rows(const char *settings_file) {
     type("/tmp/some-font.ttf"); // replaces the selected path
     key(SDLK_RETURN, 0);
     EXPECT_STRING(saved_settings(settings_file).font, "/tmp/some-font.ttf");
+}
+
+// The "file" row and Ctrl+S with the file dialogs of the host (stubs here): open a sketch, save to a new file when
+// none is open, the file name in the window title, and the reload row, which is dim without a file.
+static void test_files(const char *settings_file) {
+    char other[] = "/tmp/hydra-native-ui-test-other-XXXXXX.js";
+    int fd = mkstemps(other, 3);
+    close(fd);
+    write_file(other, "noise(3).out()");
+    snprintf(chosen_path, sizeof chosen_path, "%s", other);
+    key(SDLK_COMMA, SDL_KMOD_LCTRL);
+    ui_draw(800, 900, 0);
+    EXPECT(click_text(ui_file_path(), 0));
+    EXPECT(dialogs == 1);
+    EXPECT_STRING(ui_file_path(), other);
+    EXPECT_STRING(evaluated, "noise(3).out()"); // the opened sketch runs
+    EXPECT_CONTAINS(title, strrchr(other, '/') + 1);
+    type("x");
+    key(SDLK_S, SDL_KMOD_LCTRL); // saves to the open file
+    EXPECT(dialogs == 1);
+    EXPECT_STRING(read_file(other), "xnoise(3).out()");
+    unlink(other);
+
+    // Without a file (a start without a file argument): no reload, and Ctrl+S asks where to save.
+    struct settings defaults;
+    settings_defaults(&defaults);
+    static const struct ui_host host = { evaluate, toggle_fullscreen, is_fullscreen, nothing, call, nothing, share,
+                                         set_title, set_vsync, audio_devices, set_audio, set_audio_gain, choose_file };
+    ui_init(&defaults, &defaults, settings_file, NULL, NULL, &host);
+    EXPECT(ui_file_path() == NULL);
+    key(SDLK_COMMA, SDL_KMOD_LCTRL);
+    ui_draw(800, 900, 0);
+    EXPECT(click_text("on", 0)); // the dim "on" of the reload has no button
+    EXPECT(!ui_active_settings()->watch);
+    key(SDLK_ESCAPE, 0);
+    ui_set_code("osc(4).out()");
+    char saved[] = "/tmp/hydra-native-ui-test-saved-XXXXXX.js";
+    fd = mkstemps(saved, 3);
+    close(fd);
+    snprintf(chosen_path, sizeof chosen_path, "%s", saved);
+    key(SDLK_S, SDL_KMOD_LCTRL);
+    EXPECT(dialogs == 2);
+    EXPECT_STRING(ui_file_path(), saved);
+    EXPECT_STRING(read_file(saved), "osc(4).out()");
+    EXPECT_CONTAINS(title, strrchr(saved, '/') + 1);
+    unlink(saved);
 }
 
 // The call around the cursor: nested calls, commas in arrays, arrow functions and strings.
@@ -566,7 +622,7 @@ int main(void) {
     struct settings active = loaded;
     snprintf(active.theme, sizeof active.theme, "contrast"); // like --theme contrast for one run
     static const struct ui_host host = { evaluate, toggle_fullscreen, is_fullscreen, nothing, call, nothing, share,
-                                         set_title, set_vsync, set_window_size, audio_devices, set_audio };
+                                         set_title, set_vsync, audio_devices, set_audio, set_audio_gain, choose_file };
     ui_init(&loaded, &active, settings_file, NULL, path, &host);
     ui_draw(800, 600, 0);
 
@@ -643,7 +699,7 @@ int main(void) {
     key(SDLK_ESCAPE, 0);
     key(SDLK_RETURN, SDL_KMOD_LCTRL | SDL_KMOD_LALT);
     EXPECT_STRING(evaluated, "shape(1).out()\nshape(2).out()\nnoise().out()");
-    EXPECT_STRING(title, "https://hydra.ojack.xyz/?code=x"); // evaluate all puts the URL into the title
+    EXPECT_CONTAINS(title, " - https://hydra.ojack.xyz/?code=x"); // the file name, then the URL of evaluate all
     key(SDLK_G, SDL_KMOD_LCTRL);
     type("2");
     key(SDLK_RETURN, 0);
@@ -885,6 +941,7 @@ int main(void) {
     test_overlay_settings(settings_file);
     test_number_fields(settings_file);
     test_settings_rows(settings_file);
+    test_files(settings_file);
 
     unlink(settings_file);
     *strrchr(settings_file, '/') = '\0';

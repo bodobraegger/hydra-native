@@ -48,6 +48,10 @@ The program evaluates the files in the given order, in the global scope, like th
 Without a file, it starts like the web editor: with a random example and the info panel.
 The last file opens in the code overlay, and Ctrl+S saves the overlay text to it.
 If the file does not exist yet, the overlay starts empty and Ctrl+S creates the file.
+The "file" row of the settings menu shows the open file; a click on it opens a file dialog (on Linux through the
+desktop portal) for another .js file, which replaces the code (Ctrl+Z brings the old code back), runs, and
+becomes the open file. Without an open file, Ctrl+S asks for a file in a save dialog. The window title shows the
+name of the open file and the hydra.ojack.xyz URL of the code.
 With the setting "reload on file change" (watch), a change on disk replaces the overlay text and evaluates it,
 but only when the overlay has no unsaved edits. Otherwise the error bar says that the file changed, and the edits
 stay. Run `build/hydra-native --help` for all flags.
@@ -60,6 +64,7 @@ These flags act on one run and are no settings:
   (see "Send code from an editor").
 - `--socket PATH` uses another code socket than `$XDG_RUNTIME_DIR/hydra-native.sock` ("socket" in settings.json).
 - `--hidden` runs without a visible window, for the checks.
+- `--size WxH` sets the window size (default 1280x720), for example for the benchmark.
 - `--bench SECONDS` measures the frame rate after a warm-up, prints JSON and exits.
 - `--screenshot FILE` writes the window with the code as PNG after 1.5 s and exits.
 
@@ -82,15 +87,20 @@ The window title shows the hydra.ojack.xyz URL of the code after each run of all
 the web editor does. Ctrl+Shift+L copies that URL, and Ctrl+Shift+O opens the URL in the clipboard.
 PLAN.md compares every feature with the web editor.
 
-The "settings" entry of the toolbar (Ctrl+,) chooses the color theme, the autocomplete style and trigger, the
-signature help, the look of the code boxes and text, the rendering of whitespace, line wrap, the gallery and patch bay server, the font size and a font from the installed
-monospace fonts (fc-list). Each choice applies at once and goes into the settings file. The server is "off" (the
+The "settings" entry of the toolbar (Ctrl+,) chooses the open file and its reload on change, the color theme,
+the autocomplete style with its trigger and the signature help, the code display (background opacity and blend,
+text blend), the code at start, the rendering of whitespace, line wrap, the server, the window (fullscreen,
+vsync), the audio input with its gain, the language, the font size and a font from the installed monospace fonts
+(fc-list) or a font file. The rows of a group are indented under it. Each choice applies at once and goes into
+the settings file, except "code at start", which applies at the next start. The panel scrolls with the wheel.
+"input gain" multiplies the audio input before the analysis of `a` (0 to 400 %, default 100 %); the system
+output, which has no automatic gain, often needs more than 100 %. The server is "off" (the
 default; `pb` is undefined then), hydra.ojack.xyz (https://api.hydrasynth.xyz) or a custom URL; a change starts or
 stops the patch bay and the "share" button without a restart. While the patch bay is connected, the panel shows
 the stream id, which other peers pass to `s0.initStream` and which `pb.list()` shows; its "copy" button and
 Ctrl+Alt+I copy it.
 
-The numbers of the settings menu (the opacity of the code box and the font size) have - and + buttons and can
+The numbers of the settings menu (the background opacity, the input gain and the font size) have - and + buttons and can
 also be typed: a click on the value turns it into a text field with the value selected. Enter applies the typed
 value, also with its unit ("45 %", "20px"), clamped to the valid range; Escape leaves the field without a
 change. An entry that is no number shows in the error color and changes nothing. Up and Down, and the mouse
@@ -113,17 +123,16 @@ JSON, the defaults apply, the error bar shows the error with its line, and nothi
 | autocompleteStyle     | "list"           | autocomplete         |                      | list or ghost              |
 | autocompleteTrigger   | "manual"         | trigger              |                      | manual or typing           |
 | signatureHelp         | "manual"         | signatures           |                      | manual or paren            |
-| codeBackgroundOpacity | theme alpha      | code box             |                      | 0 to 100 percent           |
-| codeBackgroundBlend   | "normal"         | code box             |                      | normal or difference       |
-| codeTextBlend         | "normal"         | code text            |                      | normal or difference       |
+| codeBackgroundOpacity | theme alpha      | background opacity   |                      | 0 to 100 percent           |
+| codeBackgroundBlend   | "normal"         | background blend     |                      | normal or difference       |
+| codeTextBlend         | "normal"         | text blend           |                      | normal or difference       |
 | wordWrap              | true             | line wrap, Alt+Z     |                      | soft wrap of long lines    |
 | codeVisible           | true             | code at start        | --hide-code          | the code at the start      |
 | fullscreen            | false            | window               | --fullscreen         | fullscreen                 |
 | vsync                 | true             | window               | --no-vsync           | wait for the refresh       |
-| watch                 | false            | reload               | --watch              | reload the sketch file     |
-| windowWidth           | 1280             | window size          | --size WxH           | window width               |
-| windowHeight          | 720              | window size          | --size WxH           | window height              |
+| watch                 | false            | reload on change     | --watch              | reload the sketch file     |
 | audioSource           | "" (default)     | audio input          | --audio SOURCE       | input of `a`, or "none"    |
+| audioGain             | 100              | input gain           |                      | 0 to 400 percent           |
 | language              | "" ($LANG)       | language             | --lang CODE          | language of the info panel |
 | galleryServer         | "" (none)        | server               | --gallery-server URL | gallery and patch bay      |
 | l10nUrl               | "" (l10n)        | translation URL...   | --l10n-url URL       | editor.json of a language  |

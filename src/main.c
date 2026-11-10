@@ -49,9 +49,13 @@
 #define SCREENSHOT_DELAY_MS 1500
 
 // The options of one run; the options that are also settings go straight into the settings of this run.
+#define DEFAULT_WINDOW_WIDTH 1280
+#define DEFAULT_WINDOW_HEIGHT 720
+
 struct options {
     const char *files[32];
     int file_count;
+    int width, height; // of the window
     const char *screenshot_path;
     double bench_seconds;
     bool hidden;
@@ -1085,11 +1089,10 @@ static void usage(void) {
             "  --font PATH        monospace TrueType font of the overlay (default %s)\n"
             "  --font-size PIXELS font size of the overlay (default %.0f)\n"
             "  --theme NAME       color theme of the overlay: hydra (default), contrast, solarized, paper\n"
-            "  --hide-code        start with the code overlay hidden (Ctrl+Shift+H shows it)\n"
             "  --lang CODE        language of the info panel (ja es ar id pt-br ch ko fr de; default: $LANG)\n"
             "  --l10n-url URL     load the language of --lang from this editor.json\n"
             "  --gallery-server URL  the hydra gallery and patch bay server\n"
-            "  --size WxH         window size (default %dx%d)\n"
+            "  --hide-code        start with the code overlay hidden (Ctrl+Shift+H shows it)\n"
             "  --fullscreen       start in fullscreen\n"
             "  --no-vsync         do not wait for the display refresh\n"
             "  --audio SOURCE     audio input for `a`: a PulseAudio/PipeWire source on Linux, a part of the device\n"
@@ -1098,15 +1101,16 @@ static void usage(void) {
             "  --send             send the code on stdin to a running hydra-native and print its answer\n"
             "  --socket PATH      code socket (default $XDG_RUNTIME_DIR/%s; also \"socket\" in settings.json)\n"
             "  --hidden           do not show the window\n"
+            "  --size WxH         window size (default %dx%d)\n"
             "  --bench SECONDS    measure frame rate after a warm-up, print JSON and exit\n"
             "  --screenshot FILE  write the window content with the code as PNG after %d ms and exit\n",
-            SETTINGS_DEFAULT_FONT, (double)SETTINGS_DEFAULT_FONT_SIZE, SETTINGS_DEFAULT_WIDTH, SETTINGS_DEFAULT_HEIGHT, SOCKET_FILE_NAME,
+            SETTINGS_DEFAULT_FONT, (double)SETTINGS_DEFAULT_FONT_SIZE, SOCKET_FILE_NAME, DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT,
             SCREENSHOT_DELAY_MS);
 }
 
 // Fills `options`, and writes the options that are settings into `settings` (they override the settings file).
 static bool parse_options(int argc, char **argv, struct options *options, struct settings *settings) {
-    *options = (struct options){ 0 };
+    *options = (struct options){ .width = DEFAULT_WINDOW_WIDTH, .height = DEFAULT_WINDOW_HEIGHT };
 #define TEXT_OPTION(name, field) \
     else if (!strcmp(argument, name) && has_value) snprintf(settings->field, sizeof settings->field, "%s", argv[++i]);
     for (int i = 1; i < argc; i++) {
@@ -1129,7 +1133,7 @@ static bool parse_options(int argc, char **argv, struct options *options, struct
         else if (!strcmp(argument, "--send")) options->send = true;
         else if (!strcmp(argument, "--bench") && has_value) options->bench_seconds = atof(argv[++i]);
         else if (!strcmp(argument, "--size") && has_value) {
-            if (sscanf(argv[++i], "%dx%d", &settings->window_width, &settings->window_height) != 2) return false;
+            if (sscanf(argv[++i], "%dx%d", &options->width, &options->height) != 2) return false;
         } else if (argument[0] == '-') return false;
         else if (options->file_count < (int)(sizeof options->files / sizeof options->files[0]))
             options->files[options->file_count++] = argument;
@@ -1142,8 +1146,7 @@ static bool create_window(const struct options *options) {
     SDL_WindowFlags flags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
     if (options->hidden) flags |= SDL_WINDOW_HIDDEN;
     if (active_settings.fullscreen) flags |= SDL_WINDOW_FULLSCREEN;
-    window = window_create("hydra-native", active_settings.window_width, active_settings.window_height, flags,
-                           active_settings.vsync);
+    window = window_create("hydra-native", options->width, options->height, flags, active_settings.vsync);
     if (!window) return false;
     programs_start(window);
     const SDL_DisplayMode *mode = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(window));
@@ -1349,9 +1352,41 @@ static bool is_fullscreen(void) { return (SDL_GetWindowFlags(window) & SDL_WINDO
 
 static void set_vsync(bool vsync) { SDL_GL_SetSwapInterval(vsync ? 1 : 0); }
 
-static void set_window_size(int width, int height) {
-    if (!is_fullscreen()) SDL_SetWindowSize(window, width, height);
+// The file dialogs of SDL (the xdg portal on Linux) answer on any thread; the main loop takes the answer.
+static struct {
+    SDL_Mutex *lock;
+    char path[PATH_MAX];
+    bool ready, save;
+} chosen_file;
+
+static void SDLCALL file_chosen(void *data, const char *const *files, int filter) {
+    if (!files || !files[0]) return; // canceled, or an error
+    SDL_LockMutex(chosen_file.lock);
+    snprintf(chosen_file.path, sizeof chosen_file.path, "%s", files[0]);
+    chosen_file.save = data != NULL;
+    chosen_file.ready = true;
+    SDL_UnlockMutex(chosen_file.lock);
 }
+
+static void choose_file(bool save) {
+    static const SDL_DialogFileFilter filters[] = { { "JavaScript (hydra sketch)", "js" } };
+    if (!chosen_file.lock) chosen_file.lock = SDL_CreateMutex();
+    if (save) SDL_ShowSaveFileDialog(file_chosen, (void *)1, window, filters, 1, NULL);
+    else SDL_ShowOpenFileDialog(file_chosen, NULL, window, filters, 1, NULL, false);
+}
+
+static void take_chosen_file(void) {
+    if (!chosen_file.lock) return;
+    SDL_LockMutex(chosen_file.lock);
+    bool ready = chosen_file.ready, save = chosen_file.save;
+    char path[PATH_MAX];
+    snprintf(path, sizeof path, "%s", chosen_file.path);
+    chosen_file.ready = false;
+    SDL_UnlockMutex(chosen_file.lock);
+    if (ready && save) ui_save_as(path);
+    else if (ready) ui_open_file(path);
+}
+
 
 static void toggle_fullscreen(void) { SDL_SetWindowFullscreen(window, !is_fullscreen()); }
 
@@ -1385,6 +1420,7 @@ int main(int argc, char **argv) {
 
     signal(SIGPIPE, SIG_IGN);
     audio_device_option = settings->audio_source[0] ? settings->audio_source : NULL;
+    audio_set_gain(settings->audio_gain);
     snprintf(gallery_server_url, sizeof gallery_server_url, "%.*s", (int)sizeof gallery_server_url - 1, settings->gallery_server);
     gallery_server = gallery_server_url[0] ? gallery_server_url : NULL;
     if (!create_window(&options)) return 1;
@@ -1452,9 +1488,10 @@ int main(int argc, char **argv) {
         .share = start_share,
         .set_title = set_window_title,
         .set_vsync = set_vsync,
-        .set_window_size = set_window_size,
         .audio_devices = audio_devices,
         .set_audio = audio_set_device,
+        .set_audio_gain = audio_set_gain,
+        .choose_file = choose_file,
     };
     char emoji_font[PATH_MAX + 64];
     snprintf(emoji_font, sizeof emoji_font, "%s/../vendor/fonts/NotoEmoji.ttf", directory);
@@ -1473,7 +1510,9 @@ int main(int argc, char **argv) {
     if (gallery_server) ui_enable_gallery();
     if (!settings->code_visible) ui_set_visible(false);
     // "watch" of the settings menu applies at once.
-    long long watched_time = sketch ? modification_time(sketch) : 0;
+    // The open file of the overlay can change through the "file" row and Ctrl+S, so the check follows it.
+    char watched[PATH_MAX] = "";
+    long long watched_time = 0;
     double next_watch = 0;
 
     int listener = listen_socket(socket_path);
@@ -1487,10 +1526,15 @@ int main(int argc, char **argv) {
         if (listener >= 0 && poll(&poll_listener, 1, 0) > 0) serve_client(listener);
 
         double now = now_ms();
-        if (sketch && now >= next_watch) {
+        take_chosen_file();
+        const char *open_file = ui_file_path();
+        if (open_file && now >= next_watch) {
             next_watch = now + WATCH_INTERVAL_MS;
-            long long current = modification_time(sketch);
-            if (current != watched_time) {
+            long long current = modification_time(open_file);
+            if (strcmp(watched, open_file) != 0) {
+                snprintf(watched, sizeof watched, "%s", open_file);
+                watched_time = current;
+            } else if (current != watched_time) {
                 watched_time = current;
                 if (ui_active_settings()->watch) ui_file_changed();
             }

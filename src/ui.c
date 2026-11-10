@@ -34,7 +34,8 @@
 #define MAX_NAME_COMPLETIONS 12 // the list of names and words; typed lists (textures) may be longer
 #define MAX_SIGNATURES 512
 #define MAX_SNIPPET 512
-#define OPACITY_STEP 10 // percent, for the - and + of "code box" in the settings menu
+#define OPACITY_STEP 10 // percent, for the - and + of "background opacity" in the settings menu
+#define GAIN_STEP 10 // percent, for the - and + of "input gain"
 #define MIN_COMPLETION_PREFIX 2
 #define MAX_PALETTE_ROWS 12
 #define MAX_ROWS_PER_LINE 1024
@@ -178,6 +179,7 @@ static struct settings stored_settings, active_settings;
 static char *settings_file;
 static struct editor editor;
 static char *file_path;
+static void show_title(const char *url);
 static bool visible = true;
 static bool wrap = true; // the web editor wraps lines (CodeMirror lineWrapping)
 static size_t scroll_row, scroll_column; // scroll_column only without wrap
@@ -411,7 +413,7 @@ static bool evaluate_range(size_t start, size_t end) {
 // shows the URL.
 static void update_url(void) {
     char *url = host.call("__urlForCode", editor.text);
-    if (url) host.set_title(url);
+    if (url) show_title(url);
     free(url);
 }
 
@@ -440,8 +442,24 @@ static char *read_whole_file(const char *path, size_t *length) {
     return text;
 }
 
+// The window title: the name of the open file and the hydra.ojack.xyz URL of the code, as the tab and the address
+// bar of the browser show them. `url` NULL keeps the last URL.
+static void show_title(const char *url) {
+    static char last_url[8192];
+    if (url) snprintf(last_url, sizeof last_url, "%s", url);
+    const char *name = file_path ? strrchr(file_path, '/') : NULL;
+    name = name ? name + 1 : file_path;
+    char title[sizeof last_url + 512];
+    if (name && last_url[0]) snprintf(title, sizeof title, "%s - %s", name, last_url);
+    else snprintf(title, sizeof title, "%s", name ? name : last_url[0] ? last_url : "hydra-native");
+    host.set_title(title);
+}
+
 static void save(void) {
-    if (!file_path) return ui_show_message("no file to save: start hydra-native with a file argument", true);
+    if (!file_path) {
+        host.choose_file(true); // the answer comes through ui_save_as()
+        return;
+    }
     char *temporary;
     if (asprintf(&temporary, "%s.hydra-native-save", file_path) < 0) return;
     FILE *file = fopen(temporary, "wb");
@@ -459,6 +477,36 @@ static void save(void) {
     ui_show_message(text, !ok);
     free(temporary);
 }
+
+// The answer of the open dialog of the "file" row: the file replaces the code (Ctrl+Z brings the old code back),
+// runs, and becomes the open file.
+void ui_open_file(const char *path) {
+    size_t length;
+    char *text = read_whole_file(path, &length);
+    if (!text) {
+        char message[MAX_MESSAGE];
+        snprintf(message, sizeof message, "cannot open %s: %s", path, strerror(errno));
+        return ui_show_message(message, true);
+    }
+    free(file_path);
+    file_path = strdup(path);
+    editor_replace_text(&editor, text, length);
+    editor_set_cursor(&editor, 0, false);
+    editor.modified = false;
+    free(text);
+    evaluate_all();
+    show_title(NULL);
+}
+
+// The answer of the save dialog of Ctrl+S without an open file: the code goes there, and it becomes the open file.
+void ui_save_as(const char *path) {
+    free(file_path);
+    file_path = strdup(path);
+    save();
+    show_title(NULL);
+}
+
+const char *ui_file_path(void) { return file_path; }
 
 void ui_file_changed(void) {
     if (!file_path) return;
@@ -905,10 +953,8 @@ static uint32_t code_background_color(void) {
 
 // A click on a number of the settings menu turns it into a text field: Enter applies the typed value (clamped,
 // with an optional unit), Escape cancels, Up and Down (and the wheel) step it, Shift by ten steps.
-enum number_kind { NUMBER_OPACITY, NUMBER_FONT_SIZE, NUMBER_WIDTH, NUMBER_HEIGHT };
-#define LAST_NUMBER_KIND NUMBER_HEIGHT
-#define MIN_WINDOW_SIZE 320
-#define MAX_WINDOW_SIZE 7680
+enum number_kind { NUMBER_OPACITY, NUMBER_FONT_SIZE, NUMBER_AUDIO_GAIN };
+#define LAST_NUMBER_KIND NUMBER_AUDIO_GAIN
 static const struct {
     const char *unit; // accepted after the number, and shown after it
     const char *action; // the panel action of a click on the value
@@ -916,8 +962,7 @@ static const struct {
 } number_specs[] = {
     [NUMBER_OPACITY] = { "%", "edit opacity", 0, 100, 1 },
     [NUMBER_FONT_SIZE] = { "px", "edit size", OVERLAY_MIN_FONT_SIZE, OVERLAY_MAX_FONT_SIZE, 1 },
-    [NUMBER_WIDTH] = { "px", "edit width", MIN_WINDOW_SIZE, MAX_WINDOW_SIZE, 1 },
-    [NUMBER_HEIGHT] = { "px", "edit height", MIN_WINDOW_SIZE, MAX_WINDOW_SIZE, 1 },
+    [NUMBER_AUDIO_GAIN] = { "%", "edit gain", 0, SETTINGS_MAX_AUDIO_GAIN, 1 },
 };
 #define MAX_NUMBER_TEXT 16
 #define LARGE_STEPS 10
@@ -934,8 +979,7 @@ static double number_value(enum number_kind kind) {
     switch (kind) {
     case NUMBER_OPACITY: return code_background_percent();
     case NUMBER_FONT_SIZE: return overlay_font_size();
-    case NUMBER_WIDTH: return active_settings.window_width;
-    case NUMBER_HEIGHT: return active_settings.window_height;
+    case NUMBER_AUDIO_GAIN: return active_settings.audio_gain;
     }
     return 0;
 }
@@ -950,10 +994,11 @@ static void set_number(enum number_kind kind, double value) {
     switch (kind) {
     case NUMBER_FONT_SIZE: change_font_size((float)value - overlay_font_size()); return;
     case NUMBER_OPACITY: stored_settings.code_background_opacity = active_settings.code_background_opacity = (int)lround(value); break;
-    case NUMBER_WIDTH: stored_settings.window_width = active_settings.window_width = (int)lround(value); break;
-    case NUMBER_HEIGHT: stored_settings.window_height = active_settings.window_height = (int)lround(value); break;
+    case NUMBER_AUDIO_GAIN:
+        stored_settings.audio_gain = active_settings.audio_gain = (int)lround(value);
+        host.set_audio_gain(active_settings.audio_gain);
+        break;
     }
-    if (kind == NUMBER_WIDTH || kind == NUMBER_HEIGHT) host.set_window_size(active_settings.window_width, active_settings.window_height);
     save_settings();
 }
 
@@ -1068,7 +1113,7 @@ static void clear_all(void) {
     free(evaluate_code("hush(); speed = 1", strlen("hush(); speed = 1"), "<clear>"));
     editor_replace_text(&editor, CLEARED_CODE, strlen(CLEARED_CODE));
     char *url = host.call("__webEditorUrl", ""); // 'gallery: clear' removes the code from the URL
-    if (url) host.set_title(url);
+    if (url) show_title(url);
     free(url);
 }
 
@@ -1076,7 +1121,7 @@ static void clear_all(void) {
 static void save_to_url(void) {
     char *url = host.call("__urlForCode", editor.text);
     if (!url) return;
-    host.set_title(url);
+    show_title(url);
     SDL_SetClipboardText(url);
     ui_show_message("copied the hydra.ojack.xyz URL of the code to the clipboard", false);
     free(url);
@@ -1092,7 +1137,7 @@ static void open_url_from_clipboard(void) {
         editor_replace_text(&editor, code, strlen(code));
         editor_set_cursor(&editor, 0, false);
         evaluate_range(0, editor.length);
-        host.set_title(url);
+        show_title(url);
     }
     free(code);
     SDL_free(url);
@@ -1818,6 +1863,8 @@ static void load_settings_lists(void) {
 
 // The items of a settings row flow from the value column and wrap at the right edge of the panel, so that long
 // texts (a custom server URL, the patch bay ids, font names) stay inside it; a text longer than a row is cut.
+#define LABEL_COLUMNS 22 // the names of the settings rows; a sub-row starts with a tree mark
+
 struct panel_flow {
     float x, y, start, right;
     float top, bottom; // the panel shows only the rows between these; the wheel scrolls the others in
@@ -1891,7 +1938,16 @@ static void flow_text(struct panel_flow *flow, const char *text, uint32_t color)
 static void flow_row(struct panel_flow *flow, float label_x, const char *label, bool first) {
     flow->x = flow->start;
     if (!first) flow->y += 1.5f * overlay_line_height();
-    if (flow_visible(flow)) overlay_text(label_x, flow->y, label, strlen(label), 0, 14, NULL, theme->help_keys);
+    if (flow_visible(flow)) overlay_text(label_x, flow->y, label, strlen(label), 0, LABEL_COLUMNS, NULL, theme->help_keys);
+}
+
+// A choice that cannot change now (such as "reload on file change" without an open file): no button, dim text.
+static void flow_label_disabled(struct panel_flow *flow, const char *text, bool selected) {
+    size_t columns;
+    float x = flow_place(flow, text, &columns), width = (float)columns * overlay_char_width();
+    if (!flow_visible(flow)) return;
+    if (selected) overlay_rect(x, flow->y, width, overlay_line_height(), theme->toolbar);
+    flow_text_in(flow, x + overlay_char_width() / 2, text, columns - 1, theme->ghost);
 }
 
 static size_t settings_scroll_limit = (size_t)-1; // the rows below the panel in the last frame
@@ -1906,9 +1962,21 @@ static void draw_settings(void) {
     float label_x = left + char_width;
     if (info_scroll > settings_scroll_limit) info_scroll = settings_scroll_limit;
     float first_y = top + line_height / 2 - (float)info_scroll * line_height;
-    struct panel_flow flow = { 0, first_y, left + 15 * char_width, left + width - char_width, top, top + height };
+    struct panel_flow flow = { 0, first_y, left + (LABEL_COLUMNS + 1) * char_width, left + width - char_width, top,
+                               top + height };
     char action[32];
-    flow_row(&flow, label_x, "theme", true);
+    // The open sketch file; a click chooses another one. Its reload is dim while no file is open.
+    flow_row(&flow, label_x, "file", true);
+    flow_label(&flow, file_path ? file_path : "                              ", false, "file open");
+    flow_row(&flow, label_x, " \xE2\x94\x94 reload on change", false);
+    if (file_path) {
+        flow_label(&flow, "on", active_settings.watch, "watch 1");
+        flow_label(&flow, "off", !active_settings.watch, "watch 0");
+    } else {
+        flow_label_disabled(&flow, "on", active_settings.watch);
+        flow_label_disabled(&flow, "off", !active_settings.watch);
+    }
+    flow_row(&flow, label_x, "theme", false);
     for (size_t i = 0; i < theme_count; i++) {
         snprintf(action, sizeof action, "theme %zu", i);
         flow_label(&flow, themes[i].name, theme == &themes[i], action);
@@ -1916,21 +1984,27 @@ static void draw_settings(void) {
     flow_row(&flow, label_x, "autocomplete", false);
     flow_label(&flow, "list", active_settings.autocomplete_style == AUTOCOMPLETE_LIST, "style 0");
     flow_label(&flow, "ghost text", active_settings.autocomplete_style == AUTOCOMPLETE_GHOST, "style 1");
-    flow_row(&flow, label_x, "trigger", false);
+    flow_row(&flow, label_x, " \xE2\x94\x9C trigger", false);
     flow_label(&flow, "Ctrl+Space", active_settings.autocomplete_trigger == AUTOCOMPLETE_MANUAL, "trigger 0");
     flow_label(&flow, "while typing", active_settings.autocomplete_trigger == AUTOCOMPLETE_TYPING, "trigger 1");
-    flow_row(&flow, label_x, "signatures", false);
+    flow_row(&flow, label_x, " \xE2\x94\x94 signatures", false);
     flow_label(&flow, "Ctrl+Shift+Space", active_settings.signature_help == SIGNATURE_HELP_MANUAL, "signature 0");
     flow_label(&flow, "on (", active_settings.signature_help == SIGNATURE_HELP_PAREN, "signature 1");
-    flow_row(&flow, label_x, "code box", false);
+    flow_row(&flow, label_x, "code display", false);
+    flow_row(&flow, label_x, " \xE2\x94\x9C background opacity", false);
     flow_label(&flow, "-", false, "opacity -");
     flow_number(&flow, NUMBER_OPACITY);
     flow_label(&flow, "+", false, "opacity +");
+    flow_row(&flow, label_x, " \xE2\x94\x9C background blend", false);
     flow_label(&flow, "normal", active_settings.code_background_blend == CODE_BLEND_NORMAL, "box 0");
     flow_label(&flow, "difference", active_settings.code_background_blend == CODE_BLEND_DIFFERENCE, "box 1");
-    flow_row(&flow, label_x, "code text", false);
+    flow_row(&flow, label_x, " \xE2\x94\x94 text blend", false);
     flow_label(&flow, "normal", active_settings.code_text_blend == CODE_BLEND_NORMAL, "text 0");
     flow_label(&flow, "difference", active_settings.code_text_blend == CODE_BLEND_DIFFERENCE, "text 1");
+    flow_row(&flow, label_x, "code at start", false);
+    flow_label(&flow, "shown", active_settings.code_visible, "start 1");
+    flow_label(&flow, "hidden", !active_settings.code_visible, "start 0");
+    flow_text(&flow, "(next start)", theme->help_keys);
     flow_row(&flow, label_x, "whitespace", false);
     for (int i = WHITESPACE_NONE; i <= WHITESPACE_ALL; i++) {
         snprintf(action, sizeof action, "whitespace %d", i);
@@ -1954,19 +2028,11 @@ static void draw_settings(void) {
         flow_label(&flow, "copy", false, "copy id");
     }
     free(stream_id);
-    flow_row(&flow, label_x, "font size", false);
-    flow_label(&flow, "-", false, "size -");
-    flow_number(&flow, NUMBER_FONT_SIZE);
-    flow_label(&flow, "+", false, "size +");
     flow_row(&flow, label_x, "window", false);
     bool fullscreen = host.is_fullscreen();
     flow_label(&flow, "fullscreen", fullscreen, fullscreen ? "fullscreen 0" : "fullscreen 1");
     flow_label(&flow, "vsync on", active_settings.vsync, "vsync 1");
     flow_label(&flow, "vsync off", !active_settings.vsync, "vsync 0");
-    flow_row(&flow, label_x, "window size", false);
-    flow_number(&flow, NUMBER_WIDTH);
-    flow_text(&flow, "x", theme->text);
-    flow_number(&flow, NUMBER_HEIGHT);
     flow_row(&flow, label_x, "audio input", false);
     const char *audio = active_settings.audio_source;
     flow_label(&flow, "default", !audio[0], "audio default");
@@ -1975,19 +2041,20 @@ static void draw_settings(void) {
         flow_label(&flow, audio_choices[i].label, !strcmp(audio, audio_choices[i].name), action);
     }
     flow_label(&flow, "none", !strcmp(audio, AUDIO_NONE), "audio none");
+    flow_row(&flow, label_x, " \xE2\x94\x94 input gain", false);
+    flow_label(&flow, "-", false, "gain -");
+    flow_number(&flow, NUMBER_AUDIO_GAIN);
+    flow_label(&flow, "+", false, "gain +");
     flow_row(&flow, label_x, "language", false);
     for (size_t i = 0; i < language_choice_count; i++) {
         snprintf(action, sizeof action, "language %zu", i);
         flow_label(&flow, language_choices[i].name, !strcmp(selected_language, language_choices[i].code), action);
     }
     flow_label(&flow, active_settings.l10n_url[0] ? active_settings.l10n_url : "translation URL...", false, "l10n url");
-    flow_row(&flow, label_x, "code at start", false);
-    flow_label(&flow, "shown", active_settings.code_visible, "start 1");
-    flow_label(&flow, "hidden", !active_settings.code_visible, "start 0");
-    flow_text(&flow, "(next start)", theme->help_keys);
-    flow_row(&flow, label_x, "reload", false);
-    flow_label(&flow, "on file change", active_settings.watch, "watch 1");
-    flow_label(&flow, "off", !active_settings.watch, "watch 0");
+    flow_row(&flow, label_x, "font size", false);
+    flow_label(&flow, "-", false, "size -");
+    flow_number(&flow, NUMBER_FONT_SIZE);
+    flow_label(&flow, "+", false, "size +");
     flow_row(&flow, label_x, "font", false);
     flow_label(&flow, "file...", false, "font path");
     flow.x = flow.start;
@@ -2063,6 +2130,11 @@ static void run_settings_action(const char *action) {
         percent = percent < 0 ? 0 : percent > 100 ? 100 : percent;
         stored_settings.code_background_opacity = active_settings.code_background_opacity = percent;
         save_settings();
+    } else if (!strcmp(action, "gain -") || !strcmp(action, "gain +")) {
+        set_number(NUMBER_AUDIO_GAIN, active_settings.audio_gain + (action[5] == '+' ? GAIN_STEP : -GAIN_STEP));
+    } else if (!strcmp(action, "file open")) {
+        settings_visible = false;
+        host.choose_file(false);
     } else if (!strncmp(action, "box ", 4) && index <= CODE_BLEND_DIFFERENCE) {
         stored_settings.code_background_blend = active_settings.code_background_blend = (enum code_blend)index;
         save_settings();
@@ -2789,6 +2861,11 @@ const char *ui_code(void) { return editor.text; }
 
 bool ui_init(const struct settings *stored, const struct settings *active, const char *settings_path,
              const char *emoji_font_path, const char *path, const struct ui_host *ui_host) {
+    // A second call (ui_test starts again without a file) replaces the state of the first.
+    free(settings_file);
+    free(file_path);
+    file_path = NULL;
+    if (editor.text) editor_free(&editor);
     host = *ui_host;
     stored_settings = *stored;
     active_settings = *active;
@@ -2815,6 +2892,7 @@ bool ui_init(const struct settings *stored, const struct settings *active, const
         char *text = read_whole_file(path, &length);
         if (text) editor_set_text(&editor, text, length);
         free(text);
+        show_title(NULL);
     }
     return overlay_init(active->font, emoji_font_path, active->font_size);
 }

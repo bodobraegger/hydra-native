@@ -24,10 +24,13 @@ struct ui_host {
     // Shows the URL of the sketch, which the browser shows in the address bar, in the window title.
     void (*set_title)(const char *url);
     void (*set_vsync)(bool vsync);
-    void (*set_window_size)(int width, int height);
     // The audio input list of the settings menu (src/audio_input.h), and the input of `a` ("" default, "none").
     int (*audio_devices)(struct audio_device *devices, int capacity);
     void (*set_audio)(const char *device);
+    void (*set_audio_gain)(int percent);
+    // Shows the open dialog (`save` false) or the save dialog for a .js file; the chosen path comes later through
+    // ui_open_file() or ui_save_as(), on the main thread.
+    void (*choose_file)(bool save);
 };
 
 // The settings of this run, with the changes of the settings menu (main.c reads "watch" from it).
@@ -57,6 +60,9 @@ void ui_show_random_example(void); // like the web editor at a start without a s
 void ui_show_message(const char *text, bool error);
 void ui_console_message(const char *text); // console.warn and console.error output
 const char *ui_code(void); // the text of the overlay
-void ui_file_changed(void); // the file changed on disk (--watch)
+void ui_file_changed(void); // the file changed on disk, with "reload on file change"
+void ui_open_file(const char *path);
+void ui_save_as(const char *path);
+const char *ui_file_path(void); // the open file, or NULL
 // Code from the socket: it does not enter the editor buffer; errors show in the error bar.
 char *ui_evaluate_socket(const char *code, size_t length); // returns NULL or a malloc'd error

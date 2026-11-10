@@ -32,11 +32,10 @@ void settings_defaults(struct settings *settings) {
     // Pulsar shows invisible characters (showInvisibles) in the setup of the user, so all of them show by default.
     settings->render_whitespace = WHITESPACE_ALL;
     settings->word_wrap = true; // CodeMirror lineWrapping in the web editor
-    settings->code_visible = true;
     settings->vsync = true;
     settings->code_background_opacity = SETTINGS_THEME_OPACITY;
-    settings->window_width = SETTINGS_DEFAULT_WIDTH;
-    settings->window_height = SETTINGS_DEFAULT_HEIGHT;
+    settings->audio_gain = SETTINGS_DEFAULT_AUDIO_GAIN;
+    settings->code_visible = true;
 }
 
 // XDG_CONFIG_HOME/hydra-native when XDG_CONFIG_HOME is set, on every system (the tests set it). Else Linux:
@@ -229,6 +228,9 @@ bool settings_load(struct settings *settings, const char *path, char *error, siz
         number = settings->code_background_opacity;
         read_number(ctx, root, "codeBackgroundOpacity", &number);
         if (number >= 0) settings->code_background_opacity = number > 100 ? 100 : (int)(number + 0.5);
+        number = settings->audio_gain;
+        read_number(ctx, root, "audioGain", &number);
+        if (number >= 0) settings->audio_gain = number > SETTINGS_MAX_AUDIO_GAIN ? SETTINGS_MAX_AUDIO_GAIN : (int)(number + 0.5);
         choice = (int)settings->code_background_blend;
         read_choice(ctx, root, "codeBackgroundBlend", blend_names, 2, &choice);
         settings->code_background_blend = (enum code_blend)choice;
@@ -240,12 +242,6 @@ bool settings_load(struct settings *settings, const char *path, char *error, siz
         read_bool(ctx, root, "fullscreen", &settings->fullscreen);
         read_bool(ctx, root, "vsync", &settings->vsync);
         read_bool(ctx, root, "watch", &settings->watch);
-        number = settings->window_width;
-        read_number(ctx, root, "windowWidth", &number);
-        if (number > 0) settings->window_width = (int)number;
-        number = settings->window_height;
-        read_number(ctx, root, "windowHeight", &number);
-        if (number > 0) settings->window_height = (int)number;
         read_string(ctx, root, "audioSource", settings->audio_source, sizeof settings->audio_source);
         read_string(ctx, root, "language", settings->language, sizeof settings->language);
         read_string(ctx, root, "galleryServer", settings->gallery_server, sizeof settings->gallery_server);
@@ -307,9 +303,8 @@ bool settings_save(const struct settings *settings, const char *path, char *erro
         JS_SetPropertyStr(ctx, root, "fullscreen", JS_NewBool(ctx, settings->fullscreen));
         JS_SetPropertyStr(ctx, root, "vsync", JS_NewBool(ctx, settings->vsync));
         JS_SetPropertyStr(ctx, root, "watch", JS_NewBool(ctx, settings->watch));
-        JS_SetPropertyStr(ctx, root, "windowWidth", JS_NewInt32(ctx, settings->window_width));
-        JS_SetPropertyStr(ctx, root, "windowHeight", JS_NewInt32(ctx, settings->window_height));
         set_string(ctx, root, "audioSource", settings->audio_source);
+        JS_SetPropertyStr(ctx, root, "audioGain", JS_NewInt32(ctx, settings->audio_gain));
         set_string(ctx, root, "language", settings->language);
         set_string(ctx, root, "galleryServer", settings->gallery_server);
         set_string(ctx, root, "l10nUrl", settings->l10n_url);

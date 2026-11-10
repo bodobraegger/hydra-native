@@ -18,8 +18,6 @@
 #endif
 #define SETTINGS_DEFAULT_FONT_SIZE 20.0f
 #define SETTINGS_DEFAULT_THEME "hydra"
-#define SETTINGS_DEFAULT_WIDTH 1280
-#define SETTINGS_DEFAULT_HEIGHT 720
 #define MAX_CUSTOM_THEMES 16
 #define MAX_THEME_COLORS 48
 #define MAX_KEYBINDINGS 128
@@ -29,6 +27,8 @@ enum autocomplete_trigger { AUTOCOMPLETE_MANUAL, AUTOCOMPLETE_TYPING };
 enum signature_help { SIGNATURE_HELP_MANUAL, SIGNATURE_HELP_PAREN }; // on its key, or also after typing "("
 enum code_blend { CODE_BLEND_NORMAL, CODE_BLEND_DIFFERENCE };
 #define SETTINGS_THEME_OPACITY (-1) // codeBackgroundOpacity: the alpha of the theme
+#define SETTINGS_DEFAULT_AUDIO_GAIN 100 // percent
+#define SETTINGS_MAX_AUDIO_GAIN 400
 // editor.renderWhitespace of VS Code
 enum render_whitespace { WHITESPACE_NONE, WHITESPACE_BOUNDARY, WHITESPACE_SELECTION, WHITESPACE_TRAILING, WHITESPACE_ALL };
 
@@ -55,12 +55,12 @@ struct settings {
     enum signature_help signature_help;
     int code_background_opacity; // 0 to 100 percent, or SETTINGS_THEME_OPACITY
     enum code_blend code_background_blend, code_text_blend;
+    int audio_gain; // percent, applied to the audio input before the analysis
     bool word_wrap;
     bool code_visible;
     bool fullscreen;
     bool vsync;
     bool watch;
-    int window_width, window_height;
     char audio_source[SETTINGS_TEXT];
     char language[SETTINGS_NAME];
     char gallery_server[SETTINGS_TEXT];
