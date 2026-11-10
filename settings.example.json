@@ -5,6 +5,7 @@
   "renderWhitespace": "all",
   "autocompleteStyle": "list",
   "autocompleteTrigger": "manual",
+  "signatureHelp": "manual",
   "wordWrap": true,
   "codeVisible": true,
   "fullscreen": false,

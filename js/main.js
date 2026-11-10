@@ -129,3 +129,24 @@ const HYDRA_GLOBALS = ['hush', 'render', 'speed', 'bpm', 'time', 'mouse', 'updat
   's3', 'a', 'initCam', 'initScreen', 'initVideo', 'initImage', 'initCanvas', 'initArea', 'initWindow', 'initMonitor', 'out',
   'smooth', 'fast', 'ease', 'offset', 'fit', 'setBins', 'setSmooth', 'setScale', 'setCutoff', 'show', 'hide', 'fft']
 window.__completionNames = () => [...new Set([...Object.keys(hydra.generator.glslTransforms), ...HYDRA_GLOBALS])].join('\n')
+
+// The definitions of the hydra functions for the signature help and the typed completions of src/ui.c
+// (src/signature.h): "name<TAB>kind<TAB>input:type:default" per line, also for functions of setFunction.
+// hydra-synth adds the texture input of combine and combineCoord functions as _c1 or _c0 (generator-factory.js).
+const formatDefault = (value) => typeof value === 'number' && !Number.isNaN(value) ? String(value) : ''
+const inputName = (name) => /^_c\d$/.test(name) ? 'texture' : name
+window.__functionSignatures = () => Object.values(hydra.generator.glslTransforms).map(({ name, type, inputs = [] }) =>
+  [name, type, ...inputs.map((input) => `${inputName(input.name)}:${input.type}:${formatDefault(input.default)}`)].join('\t'))
+  .join('\n')
+
+// The helpers of a setup file (such as setup-hydra.js) that the completions of a number argument offer, when they
+// exist at run time.
+const NUMBER_HELPERS = [
+  ['cc[]', () => Array.isArray(window.cc)],
+  ['hit()', () => typeof window.hit === 'function'],
+  ['midi.beat', () => window.midi && 'beat' in window.midi],
+  ['midi.bpm', () => window.midi && 'bpm' in window.midi],
+  ['time', () => true],
+  ['a.fft[]', () => window.a && window.a.fft !== undefined]
+]
+window.__numberHelpers = () => NUMBER_HELPERS.filter(([, exists]) => exists()).map(([name]) => name).join('\n')

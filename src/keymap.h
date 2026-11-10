@@ -89,6 +89,10 @@
     X(COMPLETION_NEXT, "next completion") \
     X(COMPLETION_PREVIOUS, "previous completion") \
     X(COMPLETION_ACCEPT, "insert the completion") \
+    X(SIGNATURE_HELP, "show the parameters of the function around the cursor") \
+    X(SNIPPET_NEXT, "next argument of the inserted call") \
+    X(SNIPPET_PREVIOUS, "previous argument of the inserted call") \
+    X(SNIPPET_END, "leave the arguments of the inserted call") \
     X(PROMPT_ACCEPT, "find next, replace, go, or run the command") \
     X(PROMPT_ACCEPT_BACKWARD, "find the previous match") \
     X(PROMPT_NEXT_FIELD, "switch between find and replace") \
@@ -143,6 +147,7 @@ enum key_context {
     CONTEXT_COMPLETION, // the autocomplete list is open
     CONTEXT_GHOST, // a ghost-text suggestion shows after the cursor
     CONTEXT_PROMPT, // find, replace, go to line or the command palette is open
+    CONTEXT_SNIPPET, // an inserted call has tab stops on its arguments
 };
 
 struct key_binding {

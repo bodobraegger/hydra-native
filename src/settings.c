@@ -15,6 +15,7 @@
 
 static const char *const style_names[] = { "list", "ghost" };
 static const char *const trigger_names[] = { "manual", "typing" };
+static const char *const signature_help_names[] = { "manual", "paren" };
 static const char *const whitespace_names[] = { "none", "boundary", "selection", "trailing", "all" };
 
 const char *settings_whitespace_name(enum render_whitespace value) { return whitespace_names[value]; }
@@ -204,6 +205,9 @@ bool settings_load(struct settings *settings, const char *path, char *error, siz
         choice = (int)settings->autocomplete_trigger;
         read_choice(ctx, root, "autocompleteTrigger", trigger_names, 2, &choice);
         settings->autocomplete_trigger = (enum autocomplete_trigger)choice;
+        choice = (int)settings->signature_help;
+        read_choice(ctx, root, "signatureHelp", signature_help_names, 2, &choice);
+        settings->signature_help = (enum signature_help)choice;
         read_bool(ctx, root, "wordWrap", &settings->word_wrap);
         read_bool(ctx, root, "codeVisible", &settings->code_visible);
         read_bool(ctx, root, "fullscreen", &settings->fullscreen);
@@ -265,6 +269,7 @@ bool settings_save(const struct settings *settings, const char *path, char *erro
         set_string(ctx, root, "renderWhitespace", whitespace_names[settings->render_whitespace]);
         set_string(ctx, root, "autocompleteStyle", style_names[settings->autocomplete_style]);
         set_string(ctx, root, "autocompleteTrigger", trigger_names[settings->autocomplete_trigger]);
+        set_string(ctx, root, "signatureHelp", signature_help_names[settings->signature_help]);
         JS_SetPropertyStr(ctx, root, "wordWrap", JS_NewBool(ctx, settings->word_wrap));
         set_string(ctx, root, "galleryServer", settings->gallery_server);
         JSValue json = JS_JSONStringify(ctx, root, JS_UNDEFINED, JS_NewInt32(ctx, JSON_INDENT));

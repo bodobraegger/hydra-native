@@ -74,7 +74,7 @@ the web editor does. Ctrl+Shift+L copies that URL, and Ctrl+Shift+O opens the UR
 PLAN.md compares every feature with the web editor.
 
 The "settings" entry of the toolbar (Ctrl+,) chooses the color theme, the autocomplete style and trigger, the
-rendering of whitespace, line wrap, the gallery and patch bay server, the font size and a font from the installed
+signature help, the rendering of whitespace, line wrap, the gallery and patch bay server, the font size and a font from the installed
 monospace fonts (fc-list). Each choice applies at once and goes into the settings file. The server is "off" (the
 default; `pb` is undefined then), hydra.ojack.xyz (https://api.hydrasynth.xyz) or a custom URL; a change starts or
 stops the patch bay and the "share" button without a restart. While the patch bay is connected, the panel shows
@@ -96,6 +96,7 @@ JSON, the defaults apply, the error bar shows the error with its line, and nothi
 | renderWhitespace    | "all"            | settings menu        | none, boundary, selection, trailing, all |
 | autocompleteStyle   | "list"           | settings menu        | list or ghost                            |
 | autocompleteTrigger | "manual"         | settings menu        | manual (Ctrl+Space) or typing            |
+| signatureHelp       | "manual"         | settings menu        | manual (Ctrl+Shift+Space) or paren       |
 | wordWrap            | true             | settings menu, Alt+Z | soft wrap of long lines                  |
 | codeVisible         | true             | --hide-code          | show the code at the start               |
 | fullscreen          | false            | --fullscreen         | start in fullscreen                      |
@@ -133,7 +134,25 @@ typing" of the settings menu. The style "list" shows the candidates below the wo
 room below, with blend mode difference: a blue box with white text over black, inverted colors over anything
 else. The style "ghost
 text" shows the rest of the best candidate after the cursor, like the inline suggestions of VS Code: Tab accepts
-it, Escape dismisses it, Alt+] and Alt+[ show the other candidates. Typing an opening bracket or quote adds the closing one. Find works like
+it, Escape dismisses it, Alt+] and Alt+[ show the other candidates.
+
+The completions follow the type of the place. After a ".", the list has the transforms of a chain (color,
+coord, combine and combineCoord functions, and `out`), and no source functions. In a texture argument (`src()`,
+the first argument of combine and combineCoord functions), it has o0 to o3, s0 to s3, `src()` and the source
+functions. In a number argument, it has the default value, `() => `, `[ ]`, and the helpers of a setup file when
+they exist at run time: `cc[]`, `hit()`, `midi.beat`, `midi.bpm`, `time` and `a.fft[]`. A helper goes into an
+arrow function, because a plain value would not change. A function from these lists comes with its arguments
+and their defaults, for example `modulate(o0, 0.1)`. Tab and Shift+Tab select the next and the previous argument,
+the last Tab goes behind the call, and Escape ends the tab stops.
+
+Ctrl+Shift+Space shows the signature help of the hydra function around the cursor, as in VS Code: the call with
+its parameters and defaults, the current parameter marked, and its type and default on a second line. It follows
+the cursor between the commas, also in nested calls, and closes when the cursor leaves the call or with Escape.
+With "signatureHelp": "paren" (settings menu: "on ("), it also opens after typing "(" behind a hydra function. It
+has the look of the autocomplete style: a list box with blend mode difference, or ghost text. The definitions
+come from the running hydra-synth, so functions of `setFunction` and of extensions appear after their evaluation.
+
+Typing an opening bracket or quote adds the closing one. Find works like
 the find bar of a browser: it ignores case and accents, highlights all matches and shows their count.
 
 ## Send code from an editor
@@ -186,6 +205,8 @@ Keys marked "always" also work while the overlay is hidden.
 | Ctrl+K, then Ctrl+U, L, K, Backspace, D        | the two-key commands of the sublime keymap             |
 | Ctrl+F, F3, Shift+F3; Ctrl+H; Ctrl+G           | find; replace (Tab, Enter, Ctrl+Alt+Enter); go to line |
 | Ctrl+Space; Tab, Escape; Alt+], Alt+[          | autocomplete; accept, dismiss; other ghost candidates  |
+| Ctrl+Shift+Space                               | signature help of the hydra function around the cursor |
+| Tab, Shift+Tab; Escape (after a completion)    | next, previous argument of the call; end the tab stops |
 | Ctrl+], Ctrl+[; Tab, Shift+Tab                 | indent, outdent                                        |
 | Ctrl+M; Ctrl+Shift+M                           | go to the bracket; select inside the brackets          |
 | Ctrl+Up, Ctrl+Down                             | nothing                                                |

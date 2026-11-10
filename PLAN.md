@@ -235,7 +235,10 @@ The editor is C code in four files:
   Shift+Alt+drag selects a column), clipboard (SDL), prompts for find, replace, go to line and the command palette,
   the autocomplete list, evaluation with flash and error bar, toolbar, help, save, file reload for `--watch`,
   JavaScript syntax colors and bracket pair colors.
-- `src/keymap.c`: all keys in one table, with a context for the autocomplete list and the prompts.
+- `src/signature.c`: the hydra function definitions from hydra-synth (`__functionSignatures` in js/main.js) and
+  the call around the cursor, for the signature help, the completions by argument type and the tab stops of an
+  inserted call. The web editor has none of these; they follow VS Code.
+- `src/keymap.c`: all keys in one table, with a context for the autocomplete list, the tab stops and the prompts.
   The help (F1) and the command palette list the commands of this table. `test/ui_test.c` sends key events
   through this table, without a window.
 
@@ -272,6 +275,7 @@ so sketches and loaded scripts define keys with the browser API.
 | Web editor parity: toolbar, examples, mutator, format, screencap | 1 day       | done          |
 | Multiple cursors, wrap, find and replace, palette, autocomplete  | 2 days      | done          |
 | Web MIDI input (ALSA sequencer)                                  | 0.5 day     | done          |
+| Signature help, typed completions, tab stops (beyond the web)    | 1 day       | done          |
 | 2D canvas with plutovg                                           | 0.5 day     | done          |
 | p5.js as a source (P5 global on the 2D canvas)                   | 0.5 day     | done          |
 | URLs, languages, info, extensions, gallery share, recording      | 2 days      | done          |

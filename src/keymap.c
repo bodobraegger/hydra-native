@@ -20,6 +20,11 @@ static const struct key_binding default_keymap[] = {
     { SDLK_RIGHTBRACKET, KEY_ALT, COMMAND_COMPLETION_NEXT, .context = CONTEXT_GHOST },
     { SDLK_LEFTBRACKET, KEY_ALT, COMMAND_COMPLETION_PREVIOUS, .context = CONTEXT_GHOST },
 
+    // while an inserted call has tab stops on its arguments, as the snippets of VS Code
+    { SDLK_TAB, 0, COMMAND_SNIPPET_NEXT, .context = CONTEXT_SNIPPET },
+    { SDLK_TAB, KEY_SHIFT, COMMAND_SNIPPET_PREVIOUS, .context = CONTEXT_SNIPPET },
+    { SDLK_ESCAPE, 0, COMMAND_SNIPPET_END, .context = CONTEXT_SNIPPET },
+
     // while find, replace, go to line or the command palette is open
     { SDLK_RETURN, KEY_CTRL | KEY_ALT, COMMAND_REPLACE_ALL, .context = CONTEXT_PROMPT },
     { SDLK_RETURN, 0, COMMAND_PROMPT_ACCEPT, .context = CONTEXT_PROMPT },
@@ -96,7 +101,7 @@ static const struct key_binding default_keymap[] = {
     { SDLK_F3, KEY_CTRL, COMMAND_FIND_UNDER },
     { SDLK_F3, KEY_CTRL | KEY_SHIFT, COMMAND_FIND_UNDER_PREVIOUS },
     { SDLK_F3, KEY_ALT, COMMAND_FIND_ALL_UNDER },
-    { SDLK_SPACE, KEY_CTRL | KEY_SHIFT, COMMAND_SELECT_SCOPE },
+    { SDLK_SPACE, KEY_CTRL | KEY_SHIFT, COMMAND_SIGNATURE_HELP }, // in sublime: select scope, which the palette keeps
     { SDLK_Q, KEY_ALT, COMMAND_NONE }, // wrapLines of the sublime keymap needs the hardwrap addon, which the web lacks
     { SDLK_LEFTBRACKET, KEY_CTRL | KEY_SHIFT, COMMAND_NONE }, // fold: the web editor loads no fold addon
     { SDLK_RIGHTBRACKET, KEY_CTRL | KEY_SHIFT, COMMAND_NONE },

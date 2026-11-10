@@ -15,6 +15,7 @@
 #include "editor.h"
 #include "keymap.h"
 #include "overlay.h"
+#include "signature.h"
 #include "thumbnails.h"
 #include "unicode.h"
 
@@ -29,7 +30,10 @@
 #define FONT_SIZE_STEP 2.0f
 #define MAX_MESSAGE 512
 #define MAX_PROMPT 256
-#define MAX_COMPLETIONS 12
+#define MAX_COMPLETIONS 24
+#define MAX_NAME_COMPLETIONS 12 // the list of names and words; typed lists (textures) may be longer
+#define MAX_SIGNATURES 512
+#define MAX_SNIPPET 512
 #define MIN_COMPLETION_PREFIX 2
 #define MAX_PALETTE_ROWS 12
 #define MAX_ROWS_PER_LINE 1024
@@ -217,10 +221,27 @@ static size_t match_count, active_match; // active_match is match_count when no 
 static struct {
     bool open;
     char *items[MAX_COMPLETIONS];
+    char *inserts[MAX_COMPLETIONS]; // a snippet such as "modulate(${o0}, ${0.1})", or NULL to insert the item
     size_t count;
+    size_t limit;
     size_t selected;
     size_t prefix_length;
 } completion;
+
+// The hydra functions of the running hydra-synth (also those of setFunction), loaded again after each evaluation.
+static struct signature signatures[MAX_SIGNATURES];
+static size_t signature_count;
+static bool signatures_stale = true;
+static bool signature_help_open;
+
+// The tab stops of an inserted call: Tab and Shift+Tab select its arguments until the cursor leaves the current one.
+static struct {
+    bool active;
+    size_t starts[MAX_SIGNATURE_INPUTS], ends[MAX_SIGNATURE_INPUTS];
+    size_t count, current;
+    size_t exit; // the end of the inserted text, where the last Tab goes
+    unsigned generation; // counts insertions, so that the edit of an insertion does not move its own stops
+} snippet;
 
 static struct {
     bool dragging;
@@ -345,6 +366,7 @@ static char *evaluate_code(const char *code, size_t length, const char *name) {
     console_message[0] = '\0';
     char *error = host.evaluate(code, length, name);
     evaluating = false;
+    signatures_stale = true; // the code may have called setFunction
     if (!error && console_message[0]) error = strdup(console_message);
     return error;
 }
@@ -470,48 +492,202 @@ static void paste(void) {
     SDL_free(text);
 }
 
-// ---------------------------------------------------------------- autocomplete
+// ---------------------------------------------------------------- signatures, snippets and autocomplete
+
+static void load_signatures(void) {
+    if (!signatures_stale) return;
+    signatures_stale = false;
+    char *text = host.call("__functionSignatures", "");
+    signature_count = text ? signatures_parse(text, signatures, MAX_SIGNATURES) : 0;
+    free(text);
+}
+
+// The hydra function whose parentheses hold `offset`, or NULL.
+static const struct signature *call_at(size_t offset, struct call_context *call) {
+    load_signatures();
+    const struct signature *found;
+    return signature_call_at(editor.text, offset, signatures, signature_count, call, &found) ? found : NULL;
+}
+
+static void select_tab_stop(size_t index) {
+    snippet.current = index;
+    editor_set_cursor(&editor, snippet.starts[index], false);
+    editor_set_cursor(&editor, snippet.ends[index], true);
+}
+
+// Replaces the selection with `text`, whose "${value}" parts become tab stops with that value.
+static void insert_snippet(const char *text) {
+    char plain[MAX_SNIPPET];
+    size_t length = 0, count = 0, starts[MAX_SIGNATURE_INPUTS], ends[MAX_SIGNATURE_INPUTS];
+    for (const char *c = text; *c && length + 1 < sizeof plain; c++) {
+        if (c[0] == '$' && c[1] == '{' && count < MAX_SIGNATURE_INPUTS) {
+            starts[count] = length;
+            for (c += 2; *c && *c != '}' && length + 1 < sizeof plain; c++) plain[length++] = *c;
+            ends[count++] = length;
+            if (!*c) break;
+        } else {
+            plain[length++] = *c;
+        }
+    }
+    size_t start, end;
+    editor_selection(&editor, &start, &end);
+    editor_insert(&editor, plain, length, EDIT_OTHER);
+    snippet.generation++;
+    snippet.active = count > 0;
+    snippet.count = count;
+    snippet.exit = start + length;
+    for (size_t i = 0; i < count; i++) {
+        snippet.starts[i] = start + starts[i];
+        snippet.ends[i] = start + ends[i];
+    }
+    if (count) select_tab_stop(0);
+}
+
+// After an edit inside the current tab stop, the stop grows or shrinks and the later ones move. The snippet ends
+// when the cursor leaves the current stop.
+static void follow_snippet(size_t old_length) {
+    if (!snippet.active) return;
+    size_t grown = editor.length - old_length, *current_end = &snippet.ends[snippet.current]; // wraps when it shrinks
+    *current_end += grown;
+    for (size_t i = snippet.current + 1; i < snippet.count; i++) {
+        snippet.starts[i] += grown;
+        snippet.ends[i] += grown;
+    }
+    snippet.exit += grown;
+    if (editor_selection_count(&editor) > 1 || editor.cursor < snippet.starts[snippet.current] ||
+        editor.cursor > *current_end || snippet.exit > editor.length)
+        snippet.active = false;
+}
+
+static void next_tab_stop(int direction) {
+    if (direction > 0 && snippet.current + 1 >= snippet.count) {
+        snippet.active = false;
+        editor_set_cursor(&editor, snippet.exit, false);
+    } else if (direction > 0) {
+        select_tab_stop(snippet.current + 1);
+    } else if (snippet.current > 0) {
+        select_tab_stop(snippet.current - 1);
+    }
+}
 
 static void close_completion(void) {
-    for (size_t i = 0; i < completion.count; i++) free(completion.items[i]);
+    for (size_t i = 0; i < completion.count; i++) {
+        free(completion.items[i]);
+        free(completion.inserts[i]);
+    }
     completion.count = 0;
     completion.open = false;
 }
 
-static bool add_completion(const char *word, size_t length) {
+static bool add_completion(const char *word, size_t length, const char *insert) {
     for (size_t i = 0; i < completion.count; i++)
         if (strlen(completion.items[i]) == length && !strncmp(completion.items[i], word, length)) return true;
-    if (completion.count == MAX_COMPLETIONS) return false;
+    if (completion.count == completion.limit) return false;
+    completion.inserts[completion.count] = insert ? strdup(insert) : NULL;
     completion.items[completion.count++] = strndup(word, length);
     return true;
 }
 
-// Hydra names first (from __completionNames in js/main.js), then the identifiers of the file.
+static bool starts_with(const char *text, const char *prefix, size_t length) {
+    return strlen(text) >= length && !strncmp(text, prefix, length);
+}
+
+// A known function becomes its call with the defaults as tab stops, unless a "(" follows already.
+static void add_function_completion(const char *name, size_t length) {
+    char insert[MAX_SNIPPET];
+    const struct signature *signature = signature_find(signatures, signature_count, name, length);
+    bool call_follows = editor.cursor < editor.length && editor.text[editor.cursor] == '(';
+    if (signature && !call_follows) signature_snippet(signature, insert, sizeof insert);
+    add_completion(name, length, signature && !call_follows ? insert : NULL);
+}
+
+// Completions by the type of the argument at the word that starts at `start`: transforms after a ".", textures
+// for a texture input, values and helpers for a number input. False when the place has no type.
+static bool open_typed_completion(const char *prefix, size_t length, size_t start) {
+    if (start > 0 && editor.text[start - 1] == '.') {
+        for (size_t i = 0; i < signature_count; i++)
+            if (signature_is_chained(&signatures[i]) && starts_with(signatures[i].name, prefix, length))
+                add_function_completion(signatures[i].name, strlen(signatures[i].name));
+        if (starts_with("out", prefix, length)) add_completion("out", 3, "out(${o0})");
+        return true;
+    }
+    struct call_context call;
+    const struct signature *signature = call_at(start, &call);
+    if (!signature || !call.direct || call.argument >= signature->input_count) return false;
+    const struct signature_input *input = &signature->inputs[call.argument];
+    if (signature_input_is_texture(input)) {
+        static const char *const textures[] = { "o0", "o1", "o2", "o3", "s0", "s1", "s2", "s3" };
+        for (size_t i = 0; i < sizeof textures / sizeof textures[0]; i++)
+            if (starts_with(textures[i], prefix, length)) add_completion(textures[i], strlen(textures[i]), NULL);
+        if (starts_with("src", prefix, length)) add_completion("src", 3, "src(${o0})");
+        for (size_t i = 0; i < signature_count; i++)
+            if (!signature_is_chained(&signatures[i]) && starts_with(signatures[i].name, prefix, length))
+                add_function_completion(signatures[i].name, strlen(signatures[i].name));
+        return true;
+    }
+    if (input->default_value[0] && starts_with(input->default_value, prefix, length))
+        add_completion(input->default_value, strlen(input->default_value), NULL);
+    if (!length) {
+        add_completion("() => ", 6, NULL);
+        add_completion("[ ]", 3, "[${}]");
+    }
+    // A helper changes over time, so it goes into an arrow function unless one is open already.
+    size_t before = start;
+    while (before > 0 && isspace((unsigned char)editor.text[before - 1])) before--;
+    bool in_arrow = before >= 2 && !strncmp(editor.text + before - 2, "=>", 2);
+    char *helpers = host.call("__numberHelpers", "");
+    for (char *helper = helpers ? strtok(helpers, "\n") : NULL; helper; helper = strtok(NULL, "\n")) {
+        if (!starts_with(helper, prefix, length)) continue;
+        char insert[MAX_SNIPPET];
+        size_t helper_length = strlen(helper);
+        bool indexed = helper_length >= 2 && (!strcmp(helper + helper_length - 2, "[]") || !strcmp(helper + helper_length - 2, "()"));
+        snprintf(insert, sizeof insert, "%s%.*s%s%s", in_arrow ? "" : "() => ", (int)(indexed ? helper_length - 1 : helper_length),
+                 helper, indexed ? "${0}" : "", indexed ? helper + helper_length - 1 : "");
+        add_completion(helper, helper_length, insert);
+    }
+    free(helpers);
+    return true;
+}
+
+// Typed completions where the place has a type (a chosen function comes with its arguments); else plain hydra
+// names first (from __completionNames in js/main.js), then the identifiers of the file.
 static void open_completion(bool forced) {
     close_completion();
     size_t start, length = editor_word_before_cursor(&editor, &start);
     if (length < (forced ? 0 : MIN_COMPLETION_PREFIX) || editor_has_selection(&editor)) return;
     const char *prefix = editor.text + start;
-    char *names = host.call("__completionNames", "");
-    for (char *name = names ? strtok(names, "\n") : NULL; name; name = strtok(NULL, "\n"))
-        if (strlen(name) > length && !strncmp(name, prefix, length) && !add_completion(name, strlen(name))) break;
-    free(names);
-    char **words;
-    size_t count = editor_words(&editor, prefix, length, &words);
-    for (size_t i = 0; i < count; i++) {
-        add_completion(words[i], strlen(words[i]));
-        free(words[i]);
+    load_signatures();
+    completion.limit = MAX_COMPLETIONS;
+    if (!open_typed_completion(prefix, length, start)) {
+        completion.limit = MAX_NAME_COMPLETIONS;
+        char *names = host.call("__completionNames", "");
+        for (char *name = names ? strtok(names, "\n") : NULL; name && completion.count < completion.limit; name = strtok(NULL, "\n"))
+            if (strlen(name) > length && !strncmp(name, prefix, length)) add_completion(name, strlen(name), NULL);
+        free(names);
+        char **words;
+        size_t count = editor_words(&editor, prefix, length, &words);
+        for (size_t i = 0; i < count; i++) {
+            add_completion(words[i], strlen(words[i]), NULL);
+            free(words[i]);
+        }
+        free(words);
     }
-    free(words);
     completion.prefix_length = length;
     completion.selected = 0;
     completion.open = completion.count > 0;
 }
 
 static void accept_completion(void) {
-    const char *item = completion.items[completion.selected];
-    size_t start, length = editor_word_before_cursor(&editor, &start);
-    if (strlen(item) > length) editor_insert(&editor, item + length, strlen(item) - length, EDIT_OTHER);
+    size_t start;
+    editor_word_before_cursor(&editor, &start);
+    editor_set_cursor(&editor, start, true); // the typed word is replaced
+    const char *insert = completion.inserts[completion.selected];
+    if (insert) {
+        insert_snippet(insert);
+    } else {
+        const char *item = completion.items[completion.selected];
+        editor_insert(&editor, item, strlen(item), EDIT_OTHER);
+    }
     close_completion();
 }
 
@@ -702,6 +878,13 @@ static void set_autocomplete(enum autocomplete_style style, enum autocomplete_tr
     ui_show_message(text, false);
 }
 
+static void set_signature_help(enum signature_help mode) {
+    stored_settings.signature_help = active_settings.signature_help = mode;
+    save_settings();
+    ui_show_message(mode == SIGNATURE_HELP_PAREN ? "signature help: Ctrl+Shift+Space and after \"(\""
+                                                 : "signature help: Ctrl+Shift+Space", false);
+}
+
 static void set_font(const char *path) {
     if (!overlay_set_font(path)) return ui_show_message("cannot use this font", true);
     snprintf(stored_settings.font, sizeof stored_settings.font, "%s", path);
@@ -767,6 +950,7 @@ static void open_url_from_clipboard(void) {
 
 static void escape(void) {
     if (completion.open) close_completion();
+    else if (signature_help_open) signature_help_open = false;
     else if (prompt.kind != PROMPT_NONE) prompt.kind = PROMPT_NONE;
     else if (help_visible) help_visible = false;
     else if (info_visible) info_visible = false;
@@ -797,8 +981,11 @@ static bool is_completion_command(enum command command) {
 // Open suggestions follow Backspace and close for any other command, as in VS Code.
 static void run_command(enum command command, bool extend) {
     bool was_open = completion.open;
+    size_t old_length = editor.length;
+    unsigned generation = snippet.generation;
     if (was_open && !is_completion_command(command) && command != COMMAND_BACKSPACE) close_completion();
     run_command_body(command, extend);
+    if (generation == snippet.generation) follow_snippet(old_length);
     if (was_open && command == COMMAND_BACKSPACE) open_completion(true);
 }
 
@@ -965,6 +1152,15 @@ static void run_command_body(enum command command, bool extend) {
     case COMMAND_COMPLETION_NEXT: completion.selected = (completion.selected + 1) % completion.count; return;
     case COMMAND_COMPLETION_PREVIOUS: completion.selected = (completion.selected + completion.count - 1) % completion.count; return;
     case COMMAND_COMPLETION_ACCEPT: accept_completion(); break;
+    case COMMAND_SIGNATURE_HELP: {
+        struct call_context call;
+        signature_help_open = call_at(editor.cursor, &call) != NULL;
+        if (!signature_help_open) ui_show_message("no hydra function around the cursor", false);
+        break;
+    }
+    case COMMAND_SNIPPET_NEXT: next_tab_stop(1); break;
+    case COMMAND_SNIPPET_PREVIOUS: next_tab_stop(-1); break;
+    case COMMAND_SNIPPET_END: snippet.active = false; break;
     case COMMAND_PROMPT_ACCEPT: accept_prompt(1); break;
     case COMMAND_PROMPT_ACCEPT_BACKWARD: accept_prompt(-1); break;
     case COMMAND_PROMPT_NEXT_FIELD: prompt.field = prompt.kind == PROMPT_REPLACE ? !prompt.field : 0; return;
@@ -1006,6 +1202,8 @@ static void run_command_body(enum command command, bool extend) {
 static enum key_context key_context(void) {
     if (completion.open) return active_settings.autocomplete_style == AUTOCOMPLETE_GHOST ? CONTEXT_GHOST : CONTEXT_COMPLETION;
     if (prompt.kind != PROMPT_NONE) return CONTEXT_PROMPT;
+    follow_snippet(editor.length); // the snippet ends when a mouse click moved the cursor out of it
+    if (snippet.active) return CONTEXT_SNIPPET;
     return CONTEXT_ANY;
 }
 
@@ -1049,7 +1247,12 @@ void ui_text_input(const char *text) {
         reveal_cursor();
         return;
     }
+    size_t old_length = editor.length;
     editor_type(&editor, text, strlen(text));
+    follow_snippet(old_length);
+    struct call_context call;
+    if (!strcmp(text, "(") && active_settings.signature_help == SIGNATURE_HELP_PAREN && call_at(editor.cursor, &call))
+        signature_help_open = true;
     bool word = isalnum((unsigned char)text[0]) || text[0] == '_' || text[0] == '$';
     // Open suggestions follow the typed word; new ones open only with the trigger "while typing" (the default is
     // Ctrl+Space alone).
@@ -1426,7 +1629,8 @@ static void draw_settings(void) {
     if (!font_choices_loaded) load_font_choices();
     float label_x = left + char_width, value_x = left + 15 * char_width, y = top + line_height / 2;
     char action[32];
-    const char *labels[] = { "theme", "autocomplete", "trigger", "whitespace", "line wrap", "server", "font size", "font" };
+    const char *labels[] = { "theme", "autocomplete", "trigger", "signatures", "whitespace", "line wrap", "server", "font size",
+                             "font" };
     for (size_t row = 0; row < sizeof labels / sizeof labels[0]; row++)
         overlay_text(label_x, y + (float)row * 1.5f * line_height, labels[row], strlen(labels[row]), 0, 14, NULL, theme->help_keys);
     float x = value_x;
@@ -1440,6 +1644,9 @@ static void draw_settings(void) {
     y += 1.5f * line_height;
     x = panel_label(value_x, y, "Ctrl+Space", active_settings.autocomplete_trigger == AUTOCOMPLETE_MANUAL, "trigger 0");
     panel_label(x, y, "while typing", active_settings.autocomplete_trigger == AUTOCOMPLETE_TYPING, "trigger 1");
+    y += 1.5f * line_height;
+    x = panel_label(value_x, y, "Ctrl+Shift+Space", active_settings.signature_help == SIGNATURE_HELP_MANUAL, "signature 0");
+    panel_label(x, y, "on (", active_settings.signature_help == SIGNATURE_HELP_PAREN, "signature 1");
     y += 1.5f * line_height;
     x = value_x;
     for (int i = WHITESPACE_NONE; i <= WHITESPACE_ALL; i++) {
@@ -1486,6 +1693,7 @@ static void run_settings_action(const char *action) {
     if (!strncmp(action, "theme ", 6) && index < theme_count) set_theme(&themes[index]);
     else if (!strncmp(action, "style ", 6)) set_autocomplete((enum autocomplete_style)index, active_settings.autocomplete_trigger);
     else if (!strncmp(action, "trigger ", 8)) set_autocomplete(active_settings.autocomplete_style, (enum autocomplete_trigger)index);
+    else if (!strncmp(action, "signature ", 10) && index <= SIGNATURE_HELP_PAREN) set_signature_help((enum signature_help)index);
     else if (!strncmp(action, "whitespace ", 11) && index <= WHITESPACE_ALL) {
         stored_settings.render_whitespace = active_settings.render_whitespace = (enum render_whitespace)index;
         save_settings();
@@ -1981,6 +2189,57 @@ static void draw_completion_ghost(void) {
     overlay_text(left, top, rest, strlen(rest), 0, visible_columns() - (x - scroll_column), NULL, theme->ghost);
 }
 
+// Signature help above the cursor line (below it on the first visible row): the call with its parameters and
+// defaults, the current parameter marked, and that parameter with its type. The list style draws it like the
+// autocomplete list, with blend mode difference; the ghost style in the ghost color with the parameter in the text color.
+static void draw_signature_help(void) {
+    if (!signature_help_open) return;
+    struct call_context call;
+    const struct signature *signature = call_at(editor.cursor, &call);
+    if (!signature) {
+        signature_help_open = false;
+        return;
+    }
+    char label[MAX_SNIPPET], detail[MAX_SNIPPET];
+    size_t active_start, active_end;
+    signature_label(signature, call.argument, label, sizeof label, &active_start, &active_end);
+    if (call.argument < signature->input_count) {
+        const struct signature_input *input = &signature->inputs[call.argument];
+        snprintf(detail, sizeof detail, "%s: %s%s%s%s", input->name, input->type, signature_input_is_texture(input) ? " (texture)" : "",
+                 input->default_value[0] ? ", default " : "", input->default_value);
+    } else {
+        snprintf(detail, sizeof detail, "%s takes %zu arguments", signature->name, signature->input_count);
+    }
+    size_t x, row = global_caret_row(editor.cursor, editor.sticky, &x);
+    if (row < scroll_row || row >= scroll_row + visible_rows()) return;
+    size_t name_x;
+    global_row(call.name_start, &name_x);
+    if (name_x <= x) x = name_x;
+    float char_width = overlay_char_width(), line_height = overlay_line_height();
+    size_t columns = strlen(label) > strlen(detail) ? strlen(label) : strlen(detail);
+    float box_width = (float)(columns + 2) * char_width, box_height = 2 * line_height;
+    float left = MARGIN + (float)(x > scroll_column ? x - scroll_column : 0) * char_width - char_width;
+    if (left < 0) left = 0;
+    size_t screen_row = row - scroll_row;
+    float top = MARGIN + (screen_row >= 2 ? (float)(screen_row - 2) : (float)(screen_row + 1)) * line_height;
+    float text_left = left + char_width, active_left = text_left + (float)active_start * char_width;
+    float active_width = (float)(active_end - active_start) * char_width;
+    if (active_settings.autocomplete_style == AUTOCOMPLETE_GHOST) {
+        overlay_rect(left, top, box_width, box_height, theme->line_background);
+        overlay_text(text_left, top, label, strlen(label), 0, columns, NULL, theme->ghost);
+        if (active_end > active_start)
+            overlay_text(active_left, top, label + active_start, active_end - active_start, 0, columns, NULL, theme->text);
+        overlay_text(text_left, top + line_height, detail, strlen(detail), 0, columns, NULL, theme->ghost);
+        return;
+    }
+    overlay_difference_begin();
+    overlay_rect(left, top, box_width, box_height, COMPLETION_BOX_COLOR);
+    if (active_end > active_start) overlay_rect(active_left, top, active_width, line_height, COMPLETION_SELECTED_COLOR);
+    overlay_text(text_left, top, label, strlen(label), 0, columns, NULL, COMPLETION_TEXT_COLOR);
+    overlay_text(text_left, top + line_height, detail, strlen(detail), 0, columns, NULL, COMPLETION_TEXT_COLOR);
+    overlay_difference_end(left, top, box_width, box_height);
+}
+
 static void draw_completion(void) {
     if (!completion.open) return;
     if (active_settings.autocomplete_style == AUTOCOMPLETE_GHOST) draw_completion_ghost();
@@ -2056,6 +2315,7 @@ void ui_draw(int width, int height, double now_ms) {
     if (extensions_visible) draw_extensions();
     if (settings_visible) draw_settings();
     draw_toolbar();
+    draw_signature_help();
     draw_completion();
     if (prompt.kind != PROMPT_NONE) draw_prompt(width, height);
     else if (message[0] && (message_is_error || now < message_until))

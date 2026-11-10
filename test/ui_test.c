@@ -8,6 +8,7 @@
 
 #include "../src/overlay.h"
 #include "../src/settings.h"
+#include "../src/signature.h"
 #include "../src/ui.h"
 
 static int failures;
@@ -68,8 +69,15 @@ void overlay_text_fitted(float x, float y, const char *text, size_t length, floa
 float overlay_text_shaped_width(const char *text, size_t length, bool right_to_left) { return (float)length * 10; }
 size_t overlay_text_columns(const char *text, size_t length) { return length; }
 
+// The definitions of hydra-synth in the format of __functionSignatures (js/main.js); "wobble" comes with setFunction.
+#define SIGNATURES "osc\tsrc\tfrequency:float:60\tsync:float:0.1\toffset:float:0\nnoise\tsrc\tscale:float:10\toffset:float:0.1\n" \
+                   "src\tsrc\ttex:sampler2D:\nmodulate\tcombineCoord\ttexture:vec4:\tamount:float:0.1\n"               \
+                   "rotate\tcoord\tangle:float:10\tspeed:float:0\n"
+static bool set_function_called;
+
 static char *evaluate(const char *code, size_t length, const char *name) {
     snprintf(evaluated, sizeof evaluated, "%.*s", (int)length, code);
+    if (strstr(evaluated, "setFunction")) set_function_called = true;
     if (!next_error[0]) return NULL;
     char *error = strdup(next_error);
     next_error[0] = '\0';
@@ -82,6 +90,9 @@ static char *call(const char *function, const char *argument) {
     if (!strcmp(function, "__mutate")) return strdup("noise(9).out()");
     if (!strcmp(function, "__mutateUndo")) return strdup("noise().out()");
     if (!strcmp(function, "__completionNames")) return strdup("noise\nosc\nout");
+    if (!strcmp(function, "__functionSignatures"))
+        return strdup(set_function_called ? SIGNATURES "wobble\tcolor\tamount:float:0.5\n" : SIGNATURES);
+    if (!strcmp(function, "__numberHelpers")) return strdup("cc[]\ntime");
     if (!strcmp(function, "__urlForCode")) return strdup("https://hydra.ojack.xyz/?code=x");
     if (!strcmp(function, "__setPatchBayServer")) {
         snprintf(patch_bay_server, sizeof patch_bay_server, "%s", argument);
@@ -138,6 +149,143 @@ static void write_file(const char *path, const char *text) {
     FILE *file = fopen(path, "wb");
     fputs(text, file);
     fclose(file);
+}
+
+// The call around the cursor: nested calls, commas in arrays, arrow functions and strings.
+static void expect_call(const char *text, const char *name, size_t argument, bool direct) {
+    struct signature list[8];
+    size_t count = signatures_parse(SIGNATURES, list, 8);
+    struct call_context call;
+    const struct signature *found = NULL;
+    const char *cursor = strchr(text, '|');
+    char code[256];
+    snprintf(code, sizeof code, "%.*s%s", (int)(cursor - text), text, cursor + 1);
+    bool inside = signature_call_at(code, (size_t)(cursor - text), list, count, &call, &found);
+    if (!name) {
+        EXPECT(!inside);
+        return;
+    }
+    if (!inside) {
+        fprintf(stderr, "no call found in \"%s\", expected %s\n", text, name);
+        failures++;
+        return;
+    }
+    if (strcmp(found->name, name) || call.argument != argument || call.direct != direct) {
+        fprintf(stderr, "in \"%s\": got %s argument %zu direct %d, expected %s argument %zu direct %d\n", text, found->name,
+                call.argument, call.direct, name, argument, direct);
+        failures++;
+    }
+}
+
+// Typed autocomplete, signature help and the tab stops of an inserted call (src/signature.c and src/ui.c).
+static void test_signatures(void) {
+    expect_call("osc(|", "osc", 0, true);
+    expect_call("osc(1, noise(3, |))", "noise", 1, true);
+    expect_call("osc(1, noise(3, 4), |)", "osc", 2, true);
+    expect_call("osc([1, 2, |3], 0.1)", "osc", 0, false);
+    expect_call("osc([1, 2, 3], |0.1)", "osc", 1, true);
+    expect_call("osc(() => Math.sin(time, |2), 0.1)", "osc", 0, false);
+    expect_call("osc((a, b) => a, 0.1, |)", "osc", 2, true);
+    expect_call("osc(\"a,b\", |)", "osc", 1, true);
+    expect_call("osc(1 /* a, b */, |)", "osc", 1, true);
+    expect_call("osc().modulate(o1, |", "modulate", 1, true);
+    expect_call("osc(1).out(|)", NULL, 0, false);
+    struct signature list[8];
+    size_t count = signatures_parse(SIGNATURES, list, 8);
+    size_t starts[4], ends[4];
+    const char *code = "modulate( o1 , () => [1, 2] )";
+    EXPECT(signature_arguments(code, strlen(code), 8, starts, ends, 4) == 2 && starts[1] == 15 && ends[1] == 27);
+    char text[128];
+    signature_snippet(signature_find(list, count, "modulate", 8), text, sizeof text);
+    EXPECT_STRING(text, "modulate(${o0}, ${0.1})");
+
+    // The tests before leave the trigger "while typing"; these use Ctrl+Space.
+    key(SDLK_P, SDL_KMOD_LCTRL | SDL_KMOD_LSHIFT);
+    type("autocomplete on Ctrl+Space or while");
+    key(SDLK_RETURN, 0);
+
+    // Signature help on Ctrl+Shift+Space: the current parameter follows the cursor between the commas.
+    ui_set_code("osc(10, 0.2).modulate(o1, 0.3).out()");
+    key(SDLK_HOME, SDL_KMOD_LCTRL);
+    for (int i = 0; i < 27; i++) key(SDLK_RIGHT, 0); // after "modulate(o1, "
+    key(SDLK_SPACE, SDL_KMOD_LCTRL | SDL_KMOD_LSHIFT);
+    ui_draw(800, 600, 0);
+    EXPECT_CONTAINS(drawn, "modulate(texture, amount = 0.1)\namount: float, default 0.1\n");
+    for (int i = 0; i < 5; i++) key(SDLK_LEFT, 0);
+    ui_draw(800, 600, 0);
+    EXPECT_CONTAINS(drawn, "texture: vec4 (texture)");
+    key(SDLK_HOME, 0);
+    for (int i = 0; i < 8; i++) key(SDLK_RIGHT, 0); // after "osc(10, "
+    ui_draw(800, 600, 0);
+    EXPECT_CONTAINS(drawn, "osc(frequency = 60, sync = 0.1, offset = 0)\nsync: float, default 0.1\n");
+    key(SDLK_END, 0); // outside every call: the help closes
+    ui_draw(800, 600, 0);
+    EXPECT(strstr(drawn, "frequency = 60") == NULL);
+
+    // Completions by type: textures, numbers, and transforms after a ".".
+    ui_set_code("osc().modulate()");
+    key(SDLK_END, 0);
+    key(SDLK_LEFT, 0);
+    key(SDLK_SPACE, SDL_KMOD_LCTRL);
+    ui_draw(800, 600, 0);
+    EXPECT_CONTAINS(drawn, "o0\no1\no2\no3\ns0\ns1\ns2\ns3\nsrc\nosc\nnoise\n");
+    EXPECT(strstr(drawn, "rotate\n") == NULL);
+    key(SDLK_ESCAPE, 0);
+    type("o2, ");
+    key(SDLK_SPACE, SDL_KMOD_LCTRL);
+    ui_draw(800, 600, 0);
+    EXPECT_CONTAINS(drawn, "0.1\n() => \n[ ]\ncc[]\ntime\n");
+    key(SDLK_DOWN, 0);
+    key(SDLK_DOWN, 0);
+    key(SDLK_DOWN, 0);
+    key(SDLK_RETURN, 0); // cc[] in an arrow function, the index selected
+    type("3");
+    key(SDLK_TAB, 0);
+    key(SDLK_RETURN, SDL_KMOD_LCTRL);
+    EXPECT_STRING(evaluated, "osc().modulate(o2, () => cc[3])");
+
+    // Tab stops: the transform with its defaults, Tab and Shift+Tab between the arguments, the last Tab leaves.
+    ui_set_code("osc().");
+    key(SDLK_END, 0);
+    key(SDLK_SPACE, SDL_KMOD_LCTRL);
+    ui_draw(800, 600, 0);
+    EXPECT_CONTAINS(drawn, "modulate\nrotate\nout\n");
+    EXPECT(strstr(drawn, "noise\n") == NULL);
+    key(SDLK_RETURN, 0); // modulate
+    type("s1");
+    key(SDLK_TAB, 0);
+    type("0.25");
+    key(SDLK_TAB, SDL_KMOD_LSHIFT);
+    type("o3");
+    key(SDLK_TAB, 0);
+    key(SDLK_TAB, 0);
+    type(".out()");
+    key(SDLK_RETURN, SDL_KMOD_LCTRL);
+    EXPECT_STRING(evaluated, "osc().modulate(o3, 0.25).out()");
+    key(SDLK_HOME, 0);
+    type("rot");
+    key(SDLK_SPACE, SDL_KMOD_LCTRL);
+    key(SDLK_ESCAPE, 0); // closes the list
+    ui_set_code("osc().rot");
+    key(SDLK_END, 0);
+    key(SDLK_SPACE, SDL_KMOD_LCTRL);
+    key(SDLK_RETURN, 0);
+    key(SDLK_ESCAPE, 0); // ends the tab stops, the selected angle stays
+    type("1");
+    key(SDLK_RETURN, SDL_KMOD_LCTRL);
+    EXPECT_STRING(evaluated, "osc().rotate(1, 0)");
+
+    // A function of setFunction appears after the evaluation.
+    ui_set_code("setFunction({ name: 'wobble' })\nosc().wob");
+    key(SDLK_HOME, SDL_KMOD_LCTRL);
+    key(SDLK_RETURN, SDL_KMOD_LCTRL);
+    key(SDLK_END, SDL_KMOD_LCTRL);
+    key(SDLK_SPACE, SDL_KMOD_LCTRL);
+    key(SDLK_RETURN, 0);
+    key(SDLK_ESCAPE, 0); // ends the tab stops
+    key(SDLK_ESCAPE, 0); // clears the selection
+    key(SDLK_RETURN, SDL_KMOD_LCTRL);
+    EXPECT_STRING(evaluated, "osc().wobble(0.5)");
 }
 
 int main(void) {
@@ -471,6 +619,8 @@ int main(void) {
     ui_draw(800, 600, 0);
     EXPECT(strstr(drawn, "pb.id") == NULL);
     key(SDLK_ESCAPE, 0);
+
+    test_signatures();
 
     unlink(settings_file);
     *strrchr(settings_file, '/') = '\0';

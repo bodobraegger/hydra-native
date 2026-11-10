@@ -19,6 +19,7 @@
 
 enum autocomplete_style { AUTOCOMPLETE_LIST, AUTOCOMPLETE_GHOST };
 enum autocomplete_trigger { AUTOCOMPLETE_MANUAL, AUTOCOMPLETE_TYPING };
+enum signature_help { SIGNATURE_HELP_MANUAL, SIGNATURE_HELP_PAREN }; // on its key, or also after typing "("
 // editor.renderWhitespace of VS Code
 enum render_whitespace { WHITESPACE_NONE, WHITESPACE_BOUNDARY, WHITESPACE_SELECTION, WHITESPACE_TRAILING, WHITESPACE_ALL };
 
@@ -42,6 +43,7 @@ struct settings {
     enum render_whitespace render_whitespace;
     enum autocomplete_style autocomplete_style;
     enum autocomplete_trigger autocomplete_trigger;
+    enum signature_help signature_help;
     bool word_wrap;
     bool code_visible;
     bool fullscreen;
