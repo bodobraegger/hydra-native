@@ -1080,22 +1080,24 @@ static void usage(void) {
             "usage: hydra-native [options] [file.js | https://hydra.ojack.xyz/?code=... ...]\n"
             "       hydra-native --send < code.js\n"
             "  The last file opens in the code overlay; Ctrl+S saves it. See src/keymap.c for all keys.\n"
-            "  --watch            load and evaluate the last file again when it changes on disk\n"
+            "Settings for one run (the settings menu, Ctrl+, sets them for good in settings.json):\n"
+            "  --watch            reload the last file when it changes on disk\n"
             "  --font PATH        monospace TrueType font of the overlay (default %s)\n"
             "  --font-size PIXELS font size of the overlay (default %.0f)\n"
             "  --theme NAME       color theme of the overlay: hydra (default), contrast, solarized, paper\n"
-            "                     Options override ~/.config/hydra-native/settings.json for one run.\n"
             "  --hide-code        start with the code overlay hidden (Ctrl+Shift+H shows it)\n"
             "  --lang CODE        language of the info panel (ja es ar id pt-br ch ko fr de; default: $LANG)\n"
             "  --l10n-url URL     load the language of --lang from this editor.json\n"
-            "  --gallery-server URL  the hydra gallery server for Ctrl+Shift+G (VITE_SERVER_URL of the web editor)\n"
+            "  --gallery-server URL  the hydra gallery and patch bay server\n"
             "  --size WxH         window size (default %dx%d)\n"
             "  --fullscreen       start in fullscreen\n"
-            "  --audio SOURCE     audio source for `a`: a PulseAudio/PipeWire source on Linux, a part of the device\n"
-            "                     name on macOS and Windows; @DEFAULT_MONITOR@: the system output, not on Windows\n"
-            "  --socket PATH      code socket (default $XDG_RUNTIME_DIR/%s)\n"
             "  --no-vsync         do not wait for the display refresh\n"
-            "  --hidden           do not show the window (checks)\n"
+            "  --audio SOURCE     audio input for `a`: a PulseAudio/PipeWire source on Linux, a part of the device\n"
+            "                     name on macOS and Windows; @DEFAULT_MONITOR@: the system output; none: no input\n"
+            "For scripts and tests:\n"
+            "  --send             send the code on stdin to a running hydra-native and print its answer\n"
+            "  --socket PATH      code socket (default $XDG_RUNTIME_DIR/%s; also \"socket\" in settings.json)\n"
+            "  --hidden           do not show the window\n"
             "  --bench SECONDS    measure frame rate after a warm-up, print JSON and exit\n"
             "  --screenshot FILE  write the window content with the code as PNG after %d ms and exit\n",
             SETTINGS_DEFAULT_FONT, (double)SETTINGS_DEFAULT_FONT_SIZE, SETTINGS_DEFAULT_WIDTH, SETTINGS_DEFAULT_HEIGHT, SOCKET_FILE_NAME,
@@ -1345,6 +1347,12 @@ static void wait_for_frame(double deadline, int listener) {
 
 static bool is_fullscreen(void) { return (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) != 0; }
 
+static void set_vsync(bool vsync) { SDL_GL_SetSwapInterval(vsync ? 1 : 0); }
+
+static void set_window_size(int width, int height) {
+    if (!is_fullscreen()) SDL_SetWindowSize(window, width, height);
+}
+
 static void toggle_fullscreen(void) { SDL_SetWindowFullscreen(window, !is_fullscreen()); }
 
 
@@ -1443,6 +1451,10 @@ int main(int argc, char **argv) {
         .screencap = request_screencap,
         .share = start_share,
         .set_title = set_window_title,
+        .set_vsync = set_vsync,
+        .set_window_size = set_window_size,
+        .audio_devices = audio_devices,
+        .set_audio = audio_set_device,
     };
     char emoji_font[PATH_MAX + 64];
     snprintf(emoji_font, sizeof emoji_font, "%s/../vendor/fonts/NotoEmoji.ttf", directory);
@@ -1460,8 +1472,8 @@ int main(int argc, char **argv) {
     }
     if (gallery_server) ui_enable_gallery();
     if (!settings->code_visible) ui_set_visible(false);
-    const char *watched = settings->watch ? sketch : NULL;
-    long long watched_time = watched ? modification_time(watched) : 0;
+    // "watch" of the settings menu applies at once.
+    long long watched_time = sketch ? modification_time(sketch) : 0;
     double next_watch = 0;
 
     int listener = listen_socket(socket_path);
@@ -1475,12 +1487,12 @@ int main(int argc, char **argv) {
         if (listener >= 0 && poll(&poll_listener, 1, 0) > 0) serve_client(listener);
 
         double now = now_ms();
-        if (watched && now >= next_watch) {
+        if (sketch && now >= next_watch) {
             next_watch = now + WATCH_INTERVAL_MS;
-            long long current = modification_time(watched);
+            long long current = modification_time(sketch);
             if (current != watched_time) {
                 watched_time = current;
-                ui_file_changed();
+                if (ui_active_settings()->watch) ui_file_changed();
             }
         }
 

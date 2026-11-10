@@ -146,7 +146,17 @@ static const char *const keywords[] = {
     "case", "default", "try", "catch", "throw",
 };
 
-enum prompt_kind { PROMPT_NONE, PROMPT_FIND, PROMPT_REPLACE, PROMPT_GO_TO_LINE, PROMPT_PALETTE, PROMPT_SHARE, PROMPT_SERVER };
+enum prompt_kind {
+    PROMPT_NONE,
+    PROMPT_FIND,
+    PROMPT_REPLACE,
+    PROMPT_GO_TO_LINE,
+    PROMPT_PALETTE,
+    PROMPT_SHARE,
+    PROMPT_SERVER,
+    PROMPT_FONT_PATH,
+    PROMPT_L10N_URL,
+};
 
 // The server of the deployed web editor (VITE_SERVER_URL of hydra.ojack.xyz) for gallery and patch bay.
 #define WEB_EDITOR_SERVER "https://api.hydrasynth.xyz"
@@ -773,6 +783,10 @@ static void prompt_changed(void) {
 
 static void run_command(enum command command, bool extend);
 
+static void save_settings(void);
+static void set_font(const char *path);
+static void load_settings_lists(void);
+
 static void accept_prompt(int direction) {
     switch (prompt.kind) {
     case PROMPT_FIND: find(direction); break;
@@ -790,9 +804,20 @@ static void accept_prompt(int direction) {
         prompt.kind = PROMPT_NONE;
         set_server(prompt.query);
         break;
+    case PROMPT_FONT_PATH:
+        prompt.kind = PROMPT_NONE;
+        set_font(prompt.query);
+        break;
+    case PROMPT_L10N_URL:
+        prompt.kind = PROMPT_NONE;
+        snprintf(stored_settings.l10n_url, sizeof stored_settings.l10n_url, "%s", prompt.query);
+        snprintf(active_settings.l10n_url, sizeof active_settings.l10n_url, "%s", prompt.query);
+        save_settings();
+        ui_show_message("translation URL: applies at the next start", false);
+        break;
     case PROMPT_SHARE:
         prompt.kind = PROMPT_NONE;
-        if (!host.share(editor.text, prompt.query)) ui_show_message("no gallery server: start with --gallery-server URL", true);
+        if (!host.share(editor.text, prompt.query)) ui_show_message("no gallery server: choose one in the settings (Ctrl+,)", true);
         else ui_show_message("sharing with the gallery...", false);
         break;
     case PROMPT_PALETTE: {
@@ -880,7 +905,10 @@ static uint32_t code_background_color(void) {
 
 // A click on a number of the settings menu turns it into a text field: Enter applies the typed value (clamped,
 // with an optional unit), Escape cancels, Up and Down (and the wheel) step it, Shift by ten steps.
-enum number_kind { NUMBER_OPACITY, NUMBER_FONT_SIZE };
+enum number_kind { NUMBER_OPACITY, NUMBER_FONT_SIZE, NUMBER_WIDTH, NUMBER_HEIGHT };
+#define LAST_NUMBER_KIND NUMBER_HEIGHT
+#define MIN_WINDOW_SIZE 320
+#define MAX_WINDOW_SIZE 7680
 static const struct {
     const char *unit; // accepted after the number, and shown after it
     const char *action; // the panel action of a click on the value
@@ -888,6 +916,8 @@ static const struct {
 } number_specs[] = {
     [NUMBER_OPACITY] = { "%", "edit opacity", 0, 100, 1 },
     [NUMBER_FONT_SIZE] = { "px", "edit size", OVERLAY_MIN_FONT_SIZE, OVERLAY_MAX_FONT_SIZE, 1 },
+    [NUMBER_WIDTH] = { "px", "edit width", MIN_WINDOW_SIZE, MAX_WINDOW_SIZE, 1 },
+    [NUMBER_HEIGHT] = { "px", "edit height", MIN_WINDOW_SIZE, MAX_WINDOW_SIZE, 1 },
 };
 #define MAX_NUMBER_TEXT 16
 #define LARGE_STEPS 10
@@ -901,7 +931,13 @@ static struct {
 } number_field;
 
 static double number_value(enum number_kind kind) {
-    return kind == NUMBER_OPACITY ? code_background_percent() : overlay_font_size();
+    switch (kind) {
+    case NUMBER_OPACITY: return code_background_percent();
+    case NUMBER_FONT_SIZE: return overlay_font_size();
+    case NUMBER_WIDTH: return active_settings.window_width;
+    case NUMBER_HEIGHT: return active_settings.window_height;
+    }
+    return 0;
 }
 
 static void format_number(enum number_kind kind, double value, char *text, size_t size) {
@@ -911,12 +947,14 @@ static void format_number(enum number_kind kind, double value, char *text, size_
 static void set_number(enum number_kind kind, double value) {
     if (value < number_specs[kind].minimum) value = number_specs[kind].minimum;
     if (value > number_specs[kind].maximum) value = number_specs[kind].maximum;
-    if (kind == NUMBER_FONT_SIZE) {
-        change_font_size((float)value - overlay_font_size());
-    } else {
-        stored_settings.code_background_opacity = active_settings.code_background_opacity = (int)lround(value);
-        save_settings();
+    switch (kind) {
+    case NUMBER_FONT_SIZE: change_font_size((float)value - overlay_font_size()); return;
+    case NUMBER_OPACITY: stored_settings.code_background_opacity = active_settings.code_background_opacity = (int)lround(value); break;
+    case NUMBER_WIDTH: stored_settings.window_width = active_settings.window_width = (int)lround(value); break;
+    case NUMBER_HEIGHT: stored_settings.window_height = active_settings.window_height = (int)lround(value); break;
     }
+    if (kind == NUMBER_WIDTH || kind == NUMBER_HEIGHT) host.set_window_size(active_settings.window_width, active_settings.window_height);
+    save_settings();
 }
 
 // A number with an optional unit ("45", "45 %", "20px"); false for anything else.
@@ -1060,6 +1098,8 @@ static void open_url_from_clipboard(void) {
     SDL_free(url);
 }
 
+const struct settings *ui_active_settings(void) { return &active_settings; }
+
 static void escape(void) {
     if (completion.open) close_completion();
     else if (signature_help_open) signature_help_open = false;
@@ -1169,6 +1209,7 @@ static void run_command_body(enum command command, bool extend) {
         return;
     case COMMAND_TOGGLE_SETTINGS:
         settings_visible = !settings_visible;
+        if (settings_visible) load_settings_lists();
         info_visible = extensions_visible = false;
         info_scroll = 0;
         return;
@@ -1745,11 +1786,58 @@ static void load_font_choices(void) {
         }
 }
 
+// The audio inputs and the languages of the settings menu, read when it opens.
+#define MAX_AUDIO_DEVICES 32
+#define MAX_LANGUAGES 16
+static struct audio_device audio_choices[MAX_AUDIO_DEVICES];
+static int audio_choice_count;
+static struct {
+    char code[16], name[64];
+} language_choices[MAX_LANGUAGES];
+static size_t language_choice_count;
+static char selected_language[16];
+
+static void load_settings_lists(void) {
+    audio_choice_count = host.audio_devices ? host.audio_devices(audio_choices, MAX_AUDIO_DEVICES) : 0;
+    language_choice_count = 0;
+    selected_language[0] = '\0';
+    char *languages = host.call("__languages", "");
+    for (char *line = languages ? strtok(languages, "\n") : NULL; line && language_choice_count < MAX_LANGUAGES;
+         line = strtok(NULL, "\n")) {
+        char *name = strchr(line, '\t'), *selected = name ? strchr(name + 1, '\t') : NULL;
+        if (!selected) continue;
+        *name++ = '\0';
+        *selected++ = '\0';
+        snprintf(language_choices[language_choice_count].code, sizeof language_choices[0].code, "%s", line);
+        snprintf(language_choices[language_choice_count].name, sizeof language_choices[0].name, "%s", name);
+        if (*selected == '1') snprintf(selected_language, sizeof selected_language, "%s", line);
+        language_choice_count++;
+    }
+    free(languages);
+}
+
 // The items of a settings row flow from the value column and wrap at the right edge of the panel, so that long
 // texts (a custom server URL, the patch bay ids, font names) stay inside it; a text longer than a row is cut.
 struct panel_flow {
     float x, y, start, right;
+    float top, bottom; // the panel shows only the rows between these; the wheel scrolls the others in
 };
+
+static bool flow_visible(const struct panel_flow *flow) {
+    return flow->y >= flow->top && flow->y + overlay_line_height() <= flow->bottom;
+}
+
+// Text in `columns` columns; a longer text shows its end after "...", which tells apart long names that start
+// alike (audio devices, server URLs).
+static void flow_text_in(const struct panel_flow *flow, float x, const char *text, size_t columns, uint32_t color) {
+    size_t length = strlen(text), text_columns = overlay_text_columns(text, length);
+    if (text_columns <= columns || columns <= 3) {
+        overlay_text(x, flow->y, text, length, 0, columns, NULL, color);
+        return;
+    }
+    overlay_text(x, flow->y, "...", 3, 0, 3, NULL, color);
+    overlay_text(x + 3 * overlay_char_width(), flow->y, text, length, text_columns - (columns - 3), columns - 3, NULL, color);
+}
 
 static float flow_place(struct panel_flow *flow, const char *text, size_t *columns) {
     float char_width = overlay_char_width();
@@ -1769,8 +1857,9 @@ static float flow_place(struct panel_flow *flow, const char *text, size_t *colum
 static void flow_label(struct panel_flow *flow, const char *text, bool selected, const char *action) {
     size_t columns;
     float x = flow_place(flow, text, &columns), width = (float)columns * overlay_char_width();
+    if (!flow_visible(flow)) return;
     overlay_rect(x, flow->y, width, overlay_line_height(), selected ? theme->popup_selected : theme->toolbar);
-    overlay_text(x + overlay_char_width() / 2, flow->y, text, strlen(text), 0, columns - 1, NULL, theme->text);
+    flow_text_in(flow, x + overlay_char_width() / 2, text, columns - 1, theme->text);
     add_panel_button(x, flow->y, width, overlay_line_height(), action);
 }
 
@@ -1783,6 +1872,7 @@ static void flow_number(struct panel_flow *flow, enum number_kind kind) {
     size_t columns;
     float x = flow_place(flow, text, &columns), width = (float)columns * overlay_char_width();
     float text_width = (float)overlay_text_columns(text, strlen(text)) * overlay_char_width();
+    if (!flow_visible(flow)) return;
     overlay_rect(x, flow->y, width, overlay_line_height(), editing ? theme->popup_background : theme->toolbar);
     if (editing && number_field.selected)
         overlay_rect(x + overlay_char_width() / 2, flow->y, text_width, overlay_line_height(), theme->selection);
@@ -1794,15 +1884,17 @@ static void flow_number(struct panel_flow *flow, enum number_kind kind) {
 static void flow_text(struct panel_flow *flow, const char *text, uint32_t color) {
     size_t columns;
     float x = flow_place(flow, text, &columns);
-    overlay_text(x, flow->y, text, strlen(text), 0, columns, NULL, color);
+    if (flow_visible(flow)) flow_text_in(flow, x, text, columns, color);
 }
 
 // Starts the next row with its name in the label column.
 static void flow_row(struct panel_flow *flow, float label_x, const char *label, bool first) {
     flow->x = flow->start;
     if (!first) flow->y += 1.5f * overlay_line_height();
-    overlay_text(label_x, flow->y, label, strlen(label), 0, 14, NULL, theme->help_keys);
+    if (flow_visible(flow)) overlay_text(label_x, flow->y, label, strlen(label), 0, 14, NULL, theme->help_keys);
 }
+
+static size_t settings_scroll_limit = (size_t)-1; // the rows below the panel in the last frame
 
 // The settings menu: theme, autocomplete, font size and font, saved in the settings file at once.
 static void draw_settings(void) {
@@ -1812,7 +1904,9 @@ static void draw_settings(void) {
     panel_button_count = 0;
     if (!font_choices_loaded) load_font_choices();
     float label_x = left + char_width;
-    struct panel_flow flow = { 0, top + line_height / 2, left + 15 * char_width, left + width - char_width };
+    if (info_scroll > settings_scroll_limit) info_scroll = settings_scroll_limit;
+    float first_y = top + line_height / 2 - (float)info_scroll * line_height;
+    struct panel_flow flow = { 0, first_y, left + 15 * char_width, left + width - char_width, top, top + height };
     char action[32];
     flow_row(&flow, label_x, "theme", true);
     for (size_t i = 0; i < theme_count; i++) {
@@ -1864,19 +1958,53 @@ static void draw_settings(void) {
     flow_label(&flow, "-", false, "size -");
     flow_number(&flow, NUMBER_FONT_SIZE);
     flow_label(&flow, "+", false, "size +");
+    flow_row(&flow, label_x, "window", false);
+    bool fullscreen = host.is_fullscreen();
+    flow_label(&flow, "fullscreen", fullscreen, fullscreen ? "fullscreen 0" : "fullscreen 1");
+    flow_label(&flow, "vsync on", active_settings.vsync, "vsync 1");
+    flow_label(&flow, "vsync off", !active_settings.vsync, "vsync 0");
+    flow_row(&flow, label_x, "window size", false);
+    flow_number(&flow, NUMBER_WIDTH);
+    flow_text(&flow, "x", theme->text);
+    flow_number(&flow, NUMBER_HEIGHT);
+    flow_row(&flow, label_x, "audio input", false);
+    const char *audio = active_settings.audio_source;
+    flow_label(&flow, "default", !audio[0], "audio default");
+    for (int i = 0; i < audio_choice_count; i++) {
+        snprintf(action, sizeof action, "audio %d", i);
+        flow_label(&flow, audio_choices[i].label, !strcmp(audio, audio_choices[i].name), action);
+    }
+    flow_label(&flow, "none", !strcmp(audio, AUDIO_NONE), "audio none");
+    flow_row(&flow, label_x, "language", false);
+    for (size_t i = 0; i < language_choice_count; i++) {
+        snprintf(action, sizeof action, "language %zu", i);
+        flow_label(&flow, language_choices[i].name, !strcmp(selected_language, language_choices[i].code), action);
+    }
+    flow_label(&flow, active_settings.l10n_url[0] ? active_settings.l10n_url : "translation URL...", false, "l10n url");
+    flow_row(&flow, label_x, "code at start", false);
+    flow_label(&flow, "shown", active_settings.code_visible, "start 1");
+    flow_label(&flow, "hidden", !active_settings.code_visible, "start 0");
+    flow_text(&flow, "(next start)", theme->help_keys);
+    flow_row(&flow, label_x, "reload", false);
+    flow_label(&flow, "on file change", active_settings.watch, "watch 1");
+    flow_label(&flow, "off", !active_settings.watch, "watch 0");
     flow_row(&flow, label_x, "font", false);
-    size_t rows = (size_t)((top + height - flow.y - line_height / 2) / line_height);
-    if (info_scroll > font_choice_count) info_scroll = font_choice_count;
-    for (size_t i = info_scroll, row = 0; i < font_choice_count && row < rows; i++, row++) {
+    flow_label(&flow, "file...", false, "font path");
+    flow.x = flow.start;
+    flow.y += 1.25f * line_height;
+    for (size_t i = 0; i < font_choice_count; i++) {
         snprintf(action, sizeof action, "font %zu", i);
         flow.x = flow.start;
-        flow.y = flow.y + (row ? line_height : 0);
+        flow.y = flow.y + (i ? line_height : 0);
         flow_label(&flow, font_choices[i].family, !strcmp(font_choices[i].file, active_settings.font), action);
     }
+    // The wheel scrolls until the last row is in the panel.
+    float below = flow.y + 1.5f * line_height - (top + height);
+    settings_scroll_limit = info_scroll + (below > 0 ? (size_t)ceilf(below / line_height) : 0);
 }
 
 static void run_settings_action(const char *action) {
-    for (enum number_kind kind = NUMBER_OPACITY; kind <= NUMBER_FONT_SIZE; kind++)
+    for (enum number_kind kind = NUMBER_OPACITY; kind <= LAST_NUMBER_KIND; kind++)
         if (!strcmp(action, number_specs[kind].action)) {
             if (!number_field.open || number_field.kind != kind) open_number_field(kind);
             return;
@@ -1887,6 +2015,49 @@ static void run_settings_action(const char *action) {
     else if (!strncmp(action, "style ", 6)) set_autocomplete((enum autocomplete_style)index, active_settings.autocomplete_trigger);
     else if (!strncmp(action, "trigger ", 8)) set_autocomplete(active_settings.autocomplete_style, (enum autocomplete_trigger)index);
     else if (!strncmp(action, "signature ", 10) && index <= SIGNATURE_HELP_PAREN) set_signature_help((enum signature_help)index);
+    else if (!strncmp(action, "fullscreen ", 11)) {
+        if (host.is_fullscreen() != (index == 1)) host.toggle_fullscreen();
+        stored_settings.fullscreen = active_settings.fullscreen = index == 1;
+        save_settings();
+    } else if (!strncmp(action, "vsync ", 6)) {
+        stored_settings.vsync = active_settings.vsync = index == 1;
+        host.set_vsync(active_settings.vsync);
+        save_settings();
+    } else if (!strncmp(action, "audio ", 6)) {
+        const char *name = !strcmp(action, "audio default") ? ""
+                           : !strcmp(action, "audio none")  ? AUDIO_NONE
+                           : (int)index < audio_choice_count ? audio_choices[index].name
+                                                              : NULL;
+        if (name) {
+            snprintf(stored_settings.audio_source, sizeof stored_settings.audio_source, "%s", name);
+            snprintf(active_settings.audio_source, sizeof active_settings.audio_source, "%s", name);
+            host.set_audio(name);
+            save_settings();
+        }
+    } else if (!strncmp(action, "language ", 9) && index < language_choice_count) {
+        free(host.call("__setLanguage", language_choices[index].code));
+        snprintf(selected_language, sizeof selected_language, "%s", language_choices[index].code);
+        snprintf(stored_settings.language, sizeof stored_settings.language, "%s", selected_language);
+        snprintf(active_settings.language, sizeof active_settings.language, "%s", selected_language);
+        save_settings();
+    } else if (!strcmp(action, "l10n url")) {
+        settings_visible = false;
+        open_prompt(PROMPT_L10N_URL);
+        snprintf(prompt.query, sizeof prompt.query, "%.*s", (int)sizeof prompt.query - 1, active_settings.l10n_url);
+        prompt.query_selected = prompt.query[0] != '\0';
+    } else if (!strncmp(action, "start ", 6)) {
+        stored_settings.code_visible = active_settings.code_visible = index == 1;
+        save_settings();
+        ui_show_message("code at start: applies at the next start", false);
+    } else if (!strncmp(action, "watch ", 6)) {
+        stored_settings.watch = active_settings.watch = index == 1;
+        save_settings();
+    } else if (!strcmp(action, "font path")) {
+        settings_visible = false;
+        open_prompt(PROMPT_FONT_PATH);
+        snprintf(prompt.query, sizeof prompt.query, "%.*s", (int)sizeof prompt.query - 1, active_settings.font);
+        prompt.query_selected = true;
+    }
     else if (!strcmp(action, "opacity -") || !strcmp(action, "opacity +")) {
         int percent = code_background_percent() + (action[8] == '+' ? OPACITY_STEP : -OPACITY_STEP);
         percent = percent < 0 ? 0 : percent > 100 ? 100 : percent;
@@ -2034,7 +2205,7 @@ static bool wheel_number(int lines) {
         if (pointer_x < panel_buttons[i].x || pointer_x > panel_buttons[i].x + panel_buttons[i].width ||
             pointer_y < panel_buttons[i].y || pointer_y > panel_buttons[i].y + panel_buttons[i].height)
             continue;
-        for (enum number_kind kind = NUMBER_OPACITY; kind <= NUMBER_FONT_SIZE; kind++)
+        for (enum number_kind kind = NUMBER_OPACITY; kind <= LAST_NUMBER_KIND; kind++)
             if (!strcmp(panel_buttons[i].action, number_specs[kind].action)) {
                 step_number(kind, steps);
                 return true;
@@ -2497,6 +2668,10 @@ static void draw_prompt(int width, int height) {
         break;
     case PROMPT_GO_TO_LINE: snprintf(text, sizeof text, "go to line: %s", prompt.query); break;
     case PROMPT_SERVER: snprintf(text, sizeof text, "gallery and patch bay server URL: %s   (Enter: OK, empty: off)", prompt.query); break;
+    case PROMPT_FONT_PATH: snprintf(text, sizeof text, "font file (.ttf, .otf, .ttc): %s   (Enter: OK)", prompt.query); break;
+    case PROMPT_L10N_URL:
+        snprintf(text, sizeof text, "editor.json URL of the language: %s   (Enter: OK, empty: the l10n project)", prompt.query);
+        break;
     case PROMPT_SHARE: {
         float line_height = overlay_line_height(), y = (float)height - bar_height();
         size_t lines = sizeof share_confirmation / sizeof share_confirmation[0], columns = visible_columns();

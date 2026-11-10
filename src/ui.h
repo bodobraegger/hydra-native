@@ -6,6 +6,7 @@
 
 #include <SDL3/SDL.h>
 
+#include "audio_input.h"
 #include "settings.h"
 
 struct ui_host {
@@ -22,7 +23,15 @@ struct ui_host {
     bool (*share)(const char *code, const char *name);
     // Shows the URL of the sketch, which the browser shows in the address bar, in the window title.
     void (*set_title)(const char *url);
+    void (*set_vsync)(bool vsync);
+    void (*set_window_size)(int width, int height);
+    // The audio input list of the settings menu (src/audio_input.h), and the input of `a` ("" default, "none").
+    int (*audio_devices)(struct audio_device *devices, int capacity);
+    void (*set_audio)(const char *device);
 };
+
+// The settings of this run, with the changes of the settings menu (main.c reads "watch" from it).
+const struct settings *ui_active_settings(void);
 
 // `file_path` may be NULL (no file) or a path that does not exist yet (Ctrl+S creates it).
 // `stored` is the content of the settings file at `settings_file` (NULL: none), `active` the settings of this run

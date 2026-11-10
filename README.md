@@ -33,24 +33,35 @@ make check       # make test, then the checks in hidden windows (ctest label "ch
 ## Run
 
 ```sh
-build/hydra-native sketch.js                    # window, vsync, code overlay, code socket
-build/hydra-native --fullscreen setup.js sketch.js
-build/hydra-native --watch sketch.js            # load and evaluate sketch.js again when another program saves it
-build/hydra-native --audio @DEFAULT_MONITOR@ sketch.js   # FFT of the system output instead of the microphone
-build/hydra-native --font /usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf --font-size 24 sketch.js
-build/hydra-native --screenshot shot.png sketch.js       # write the window with the code as PNG after 1.5 s and exit
+build/hydra-native sketch.js                             # window, vsync, code overlay, code socket
+build/hydra-native setup.js sketch.js                    # evaluates setup.js, then shows and evaluates sketch.js
 build/hydra-native 'https://hydra.ojack.xyz/?code=...'  # a sketch URL of the web editor
-build/hydra-native --lang de                             # the info panel in German
-build/hydra-native --gallery-server URL sketch.js        # Ctrl+Shift+G shares with this hydra server; pb joins its room
+build/hydra-native --fullscreen --audio @DEFAULT_MONITOR@ sketch.js  # settings for this run only
 ```
+
+The settings menu (Ctrl+,) sets everything that the program can be told: the theme, the font, the window, the
+audio input, the language, the server, the reload on file change and more. It saves them in settings.json. Each
+of these settings also has a flag that overrides it for one run (see "Settings file"). The flags for scripts and
+tests are in "Scripts and tests".
 
 The program evaluates the files in the given order, in the global scope, like the browser console.
 Without a file, it starts like the web editor: with a random example and the info panel.
 The last file opens in the code overlay, and Ctrl+S saves the overlay text to it.
 If the file does not exist yet, the overlay starts empty and Ctrl+S creates the file.
-With `--watch`, a change on disk replaces the overlay text and evaluates it, but only when the overlay has no unsaved edits.
-Otherwise the error bar says that the file changed, and the edits stay.
-Run `build/hydra-native --help` for all options.
+With the setting "reload on file change" (watch), a change on disk replaces the overlay text and evaluates it,
+but only when the overlay has no unsaved edits. Otherwise the error bar says that the file changed, and the edits
+stay. Run `build/hydra-native --help` for all flags.
+
+## Scripts and tests
+
+These flags act on one run and are no settings:
+
+- `--send` sends the code on stdin to a running hydra-native through the code socket and prints its answer
+  (see "Send code from an editor").
+- `--socket PATH` uses another code socket than `$XDG_RUNTIME_DIR/hydra-native.sock` ("socket" in settings.json).
+- `--hidden` runs without a visible window, for the checks.
+- `--bench SECONDS` measures the frame rate after a warm-up, prints JSON and exits.
+- `--screenshot FILE` writes the window with the code as PNG after 1.5 s and exits.
 
 ## Code overlay
 
@@ -62,9 +73,9 @@ New shaders compile in the background, and each output shows its old shader unti
 Thus an evaluation does not stop the visuals, and a shader compile error comes some frames after the evaluation.
 The next successful evaluation clears the bar.
 Ctrl+Shift+H hides and shows the overlay; the visuals keep running, and the evaluation keys keep working.
-The default font is DejaVu Sans Mono at 20 pixels (`--font`, `--font-size`, Ctrl+plus and Ctrl+minus).
+The default font is DejaVu Sans Mono at 20 pixels (settings menu: font size and font; Ctrl+plus and Ctrl+minus).
 The toolbar at the top right has the buttons of the web editor: run, clear, extensions, example, mutate
-(Shift: undo, Ctrl: change a function), share (with `--gallery-server`) and info. The info panel has the
+(Shift: undo, Ctrl: change a function), share (with a server in the settings) and info. The info panel has the
 languages of the web editor (from hydra-synth/l10n, cached in ~/.cache/hydra-native/l10n).
 The extensions panel lists the catalog of hydra-synth/hydra-extensions; "+" adds the load code to the top.
 The window title shows the hydra.ojack.xyz URL of the code after each run of all code, as the address bar of
@@ -93,32 +104,32 @@ the start, and command line options override it for one run. The settings menu w
 temporary file, then rename), and keys that hydra-native does not know stay in it. When the file is no valid
 JSON, the defaults apply, the error bar shows the error with its line, and nothing overwrites the file.
 
-| Key                   | Default          | Option               | Meaning                                  |
-| --------------------- | ---------------- | -------------------- | ---------------------------------------- |
-| font                  | DejaVu Sans Mono | --font PATH          | monospace font file                      |
-| fontSize              | 20               | --font-size PIXELS   | font size of the overlay                 |
-| theme                 | "hydra"          | --theme NAME         | built-in or custom theme                 |
-| renderWhitespace      | "all"            | settings menu        | none, boundary, selection, trailing, all |
-| autocompleteStyle     | "list"           | settings menu        | list or ghost                            |
-| autocompleteTrigger   | "manual"         | settings menu        | manual (Ctrl+Space) or typing            |
-| signatureHelp         | "manual"         | settings menu        | manual (Ctrl+Shift+Space) or paren       |
-| codeBackgroundOpacity | theme alpha      | settings menu        | 0 to 100 percent for the code line boxes |
-| codeBackgroundBlend   | "normal"         | settings menu        | normal or difference (a white box)       |
-| codeTextBlend         | "normal"         | settings menu        | normal or difference                     |
-| wordWrap              | true             | settings menu, Alt+Z | soft wrap of long lines                  |
-| codeVisible           | true             | --hide-code          | show the code at the start               |
-| fullscreen            | false            | --fullscreen         | start in fullscreen                      |
-| vsync                 | true             | --no-vsync           | wait for the display refresh             |
-| watch                 | false            | --watch              | reload the sketch on changes             |
-| windowWidth           | 1280             | --size WxH           | window width                             |
-| windowHeight          | 720              | --size WxH           | window height                            |
-| audioSource           | "" (default)     | --audio SOURCE       | audio source for `a`                     |
-| language              | "" ($LANG)       | --lang CODE          | language of the info panel               |
-| galleryServer         | "" (none)        | --gallery-server URL | gallery and patch bay server             |
-| l10nUrl               | "" (l10n)        | --l10n-url URL       | editor.json of a language                |
-| socket                | "" (runtime dir) | --socket PATH        | the code socket                          |
-| themes                | {}               |                      | custom themes, see below                 |
-| keybindings           | {}               |                      | keys of commands, see below              |
+| Key                   | Default          | Settings menu        | Flag for one run     | Meaning                    |
+| --------------------- | ---------------- | -------------------- | -------------------- | -------------------------- |
+| font                  | DejaVu Sans Mono | font (list, file...) | --font PATH          | monospace font file        |
+| fontSize              | 20               | font size            | --font-size PIXELS   | font size of the overlay   |
+| theme                 | "hydra"          | theme                | --theme NAME         | built-in or custom theme   |
+| renderWhitespace      | "all"            | whitespace           |                      | none to all                |
+| autocompleteStyle     | "list"           | autocomplete         |                      | list or ghost              |
+| autocompleteTrigger   | "manual"         | trigger              |                      | manual or typing           |
+| signatureHelp         | "manual"         | signatures           |                      | manual or paren            |
+| codeBackgroundOpacity | theme alpha      | code box             |                      | 0 to 100 percent           |
+| codeBackgroundBlend   | "normal"         | code box             |                      | normal or difference       |
+| codeTextBlend         | "normal"         | code text            |                      | normal or difference       |
+| wordWrap              | true             | line wrap, Alt+Z     |                      | soft wrap of long lines    |
+| codeVisible           | true             | code at start        | --hide-code          | the code at the start      |
+| fullscreen            | false            | window               | --fullscreen         | fullscreen                 |
+| vsync                 | true             | window               | --no-vsync           | wait for the refresh       |
+| watch                 | false            | reload               | --watch              | reload the sketch file     |
+| windowWidth           | 1280             | window size          | --size WxH           | window width               |
+| windowHeight          | 720              | window size          | --size WxH           | window height              |
+| audioSource           | "" (default)     | audio input          | --audio SOURCE       | input of `a`, or "none"    |
+| language              | "" ($LANG)       | language             | --lang CODE          | language of the info panel |
+| galleryServer         | "" (none)        | server               | --gallery-server URL | gallery and patch bay      |
+| l10nUrl               | "" (l10n)        | translation URL...   | --l10n-url URL       | editor.json of a language  |
+| socket                | "" (runtime dir) |                      | --socket PATH        | the code socket (scripts)  |
+| themes                | {}               |                      |                      | custom themes, see below   |
+| keybindings           | {}               |                      |                      | keys, see below            |
 
 The code overlay can blend with the visuals. "codeBackgroundOpacity" sets the opacity of the box behind each code
 line; without it, the theme sets it (72 % in "hydra"). With "codeBackgroundBlend": "difference", the box is white
@@ -128,8 +139,8 @@ selection, the cursor, the flash of an evaluation, the find matches and the bars
 the blend mode difference of the autocomplete list.
 
 "all" is the default of renderWhitespace because Pulsar showed invisible characters (showInvisibles) in the
-setup that hydra-native follows. --hidden, --screenshot, --bench and --send act on one run and are no settings.
-Options switch a boolean only in one direction; a setting of true for fullscreen, for example, needs the file.
+setup that hydra-native follows. The flags of a boolean switch it only in one direction for the run; the settings
+menu sets both.
 
 A custom theme in "themes" has a name, an optional "base" (a built-in theme, "hydra" by default) and colors as
 "#rrggbb" or "#rrggbbaa": lineBackground, selection, flash, bracket, cursor, text, keyword, number, string,
@@ -268,7 +279,7 @@ editor cannot read fails here too. `vidRecorder.start()` and `vidRecorder.stop()
 sequencer (libremidi on macOS and Windows, see PORTING.md). The `timeStamp` of a MIDI message is its arrival time
 in the kernel, in the time of `performance.now()`.
 
-With `--gallery-server URL`, `pb` joins the room 'iclc' of the signalling server at that URL, as the web editor
+With a gallery server (settings menu: server), `pb` joins the room 'iclc' of the signalling server at that URL, as the web editor
 does with its server, and publishes the output of hydra-native. `pb.list()` shows the peers, and
 `s0.initStream(id)` receives a peer, such as a web editor in the same room. node runs the patch bay code of the
 web editor in tools/patch-bay.mjs, with the prebuilt WebRTC of @roamhq/wrtc (`pnpm install` downloads it).

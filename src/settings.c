@@ -303,7 +303,16 @@ bool settings_save(const struct settings *settings, const char *path, char *erro
         set_string(ctx, root, "codeBackgroundBlend", blend_names[settings->code_background_blend]);
         set_string(ctx, root, "codeTextBlend", blend_names[settings->code_text_blend]);
         JS_SetPropertyStr(ctx, root, "wordWrap", JS_NewBool(ctx, settings->word_wrap));
+        JS_SetPropertyStr(ctx, root, "codeVisible", JS_NewBool(ctx, settings->code_visible));
+        JS_SetPropertyStr(ctx, root, "fullscreen", JS_NewBool(ctx, settings->fullscreen));
+        JS_SetPropertyStr(ctx, root, "vsync", JS_NewBool(ctx, settings->vsync));
+        JS_SetPropertyStr(ctx, root, "watch", JS_NewBool(ctx, settings->watch));
+        JS_SetPropertyStr(ctx, root, "windowWidth", JS_NewInt32(ctx, settings->window_width));
+        JS_SetPropertyStr(ctx, root, "windowHeight", JS_NewInt32(ctx, settings->window_height));
+        set_string(ctx, root, "audioSource", settings->audio_source);
+        set_string(ctx, root, "language", settings->language);
         set_string(ctx, root, "galleryServer", settings->gallery_server);
+        set_string(ctx, root, "l10nUrl", settings->l10n_url);
         JSValue json = JS_JSONStringify(ctx, root, JS_UNDEFINED, JS_NewInt32(ctx, JSON_INDENT));
         const char *output = JS_ToCString(ctx, json);
         // A temporary file and rename(): a reader never sees half a file.

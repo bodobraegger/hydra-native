@@ -16,6 +16,7 @@ static char evaluated[4096];
 static char next_error[256];
 static char patch_bay_server[256]; // the argument of the last __setPatchBayServer
 static char drawn[16384]; // all texts of the last frame, one per line
+static char language_now[16]; // the argument of the last __setLanguage
 static float copy_x, copy_y; // where the "copy" button of the settings panel shows its text
 #define STREAM_ID "stream456-a-long-id-of-the-signalling-server"
 
@@ -120,6 +121,11 @@ static char *call(const char *function, const char *argument) {
     if (!strcmp(function, "__functionSignatures"))
         return strdup(set_function_called ? SIGNATURES "wobble\tcolor\tamount:float:0.5\n" : SIGNATURES);
     if (!strcmp(function, "__numberHelpers")) return strdup("cc[]\ntime");
+    if (!strcmp(function, "__languages")) return strdup("en\tEnglish\t1\nde\tDeutsch\t0");
+    if (!strcmp(function, "__setLanguage")) {
+        snprintf(language_now, sizeof language_now, "%s", argument);
+        return strdup(argument);
+    }
     if (!strcmp(function, "__urlForCode")) return strdup("https://hydra.ojack.xyz/?code=x");
     if (!strcmp(function, "__setPatchBayServer")) {
         snprintf(patch_bay_server, sizeof patch_bay_server, "%s", argument);
@@ -140,7 +146,26 @@ static bool share(const char *code, const char *name) {
 static char title[4096];
 static void set_title(const char *url) { snprintf(title, sizeof title, "%s", url); }
 static void nothing(void) {}
-static bool never(void) { return false; }
+
+// The window and audio of the host, as main.c gives them, recorded for the checks of the settings rows.
+static bool fullscreen_now, vsync_now = true;
+static int window_width, window_height;
+static char audio_now[256] = "(not set)";
+static void toggle_fullscreen(void) { fullscreen_now = !fullscreen_now; }
+static bool is_fullscreen(void) { return fullscreen_now; }
+static void set_vsync(bool vsync) { vsync_now = vsync; }
+static void set_window_size(int width, int height) {
+    window_width = width;
+    window_height = height;
+}
+static int audio_devices(struct audio_device *devices, int capacity) {
+    snprintf(devices[0].name, sizeof devices[0].name, "mic-a");
+    snprintf(devices[0].label, sizeof devices[0].label, "Microphone A");
+    snprintf(devices[1].name, sizeof devices[1].name, AUDIO_SYSTEM_OUTPUT);
+    snprintf(devices[1].label, sizeof devices[1].label, "system output");
+    return 2;
+}
+static void set_audio(const char *device) { snprintf(audio_now, sizeof audio_now, "%s", device); }
 
 // ---------------------------------------------------------------- input helpers
 
@@ -295,6 +320,72 @@ static void test_number_fields(const char *settings_file) {
     key(SDLK_ESCAPE, 0); // closes the settings menu
     ui_draw(800, 600, 0);
     EXPECT(strstr(drawn, "code box") == NULL);
+}
+
+static struct settings saved_settings(const char *settings_file) {
+    struct settings loaded;
+    char error[SETTINGS_TEXT];
+    settings_defaults(&loaded);
+    settings_load(&loaded, settings_file, error, sizeof error);
+    return loaded;
+}
+
+// The rows of the settings menu for the options that also exist as flags: each applies at once (or says that it
+// applies at the next start) and goes into settings.json.
+static void test_settings_rows(const char *settings_file) {
+    write_file(settings_file, "{}\n"); // a file before was broken on purpose, and a broken file is not overwritten
+    key(SDLK_COMMA, SDL_KMOD_LCTRL);
+    ui_draw(800, 900, 0);
+    EXPECT(click_text("vsync off", 0));
+    EXPECT(!vsync_now && !saved_settings(settings_file).vsync);
+    EXPECT(click_text("fullscreen", 0));
+    EXPECT(fullscreen_now && saved_settings(settings_file).fullscreen);
+    ui_draw(800, 900, 0);
+    EXPECT(click_text("fullscreen", 0)); // selected now: a click leaves fullscreen
+    EXPECT(!fullscreen_now && !saved_settings(settings_file).fullscreen);
+
+    ui_draw(800, 900, 0);
+    EXPECT(click_text("1280 px", 0)); // the window width
+    type("1024");
+    key(SDLK_RETURN, 0);
+    EXPECT(window_width == 1024 && window_height == 720 && saved_settings(settings_file).window_width == 1024);
+
+    ui_draw(800, 900, 0);
+    EXPECT(click_text("Microphone A", 0));
+    EXPECT_STRING(audio_now, "mic-a");
+    EXPECT_STRING(saved_settings(settings_file).audio_source, "mic-a");
+    ui_draw(800, 900, 0);
+    EXPECT(click_text("system output", 0));
+    EXPECT_STRING(audio_now, AUDIO_SYSTEM_OUTPUT);
+    ui_draw(800, 900, 0);
+    EXPECT(click_text("none", 1)); // the first "none" is of the whitespace row
+    EXPECT_STRING(audio_now, AUDIO_NONE);
+    EXPECT_STRING(saved_settings(settings_file).audio_source, AUDIO_NONE);
+
+    ui_draw(800, 900, 0);
+    EXPECT(click_text("Deutsch", 0));
+    EXPECT_STRING(language_now, "de");
+    EXPECT_STRING(saved_settings(settings_file).language, "de");
+
+    ui_draw(800, 900, 0);
+    EXPECT(click_text("hidden", 0)); // code at start
+    EXPECT(!saved_settings(settings_file).code_visible);
+    ui_draw(800, 900, 0);
+    EXPECT(click_text("on file change", 0));
+    EXPECT(ui_active_settings()->watch && saved_settings(settings_file).watch);
+
+    ui_draw(800, 900, 0);
+    EXPECT(click_text("translation URL...", 0)); // a prompt; the menu closes
+    type("http://127.0.0.1:9/editor.json");
+    key(SDLK_RETURN, 0);
+    EXPECT_STRING(saved_settings(settings_file).l10n_url, "http://127.0.0.1:9/editor.json");
+
+    key(SDLK_COMMA, SDL_KMOD_LCTRL);
+    ui_draw(800, 900, 0);
+    EXPECT(click_text("file...", 0)); // the font path, for systems without a font list
+    type("/tmp/some-font.ttf"); // replaces the selected path
+    key(SDLK_RETURN, 0);
+    EXPECT_STRING(saved_settings(settings_file).font, "/tmp/some-font.ttf");
 }
 
 // The call around the cursor: nested calls, commas in arrays, arrow functions and strings.
@@ -474,7 +565,8 @@ int main(void) {
     EXPECT(loaded.theme_count == 1 && !strcmp(loaded.themes[0].base, "solarized") && loaded.keybinding_count == 1);
     struct settings active = loaded;
     snprintf(active.theme, sizeof active.theme, "contrast"); // like --theme contrast for one run
-    static const struct ui_host host = { evaluate, nothing, never, nothing, call, nothing, share, set_title };
+    static const struct ui_host host = { evaluate, toggle_fullscreen, is_fullscreen, nothing, call, nothing, share,
+                                         set_title, set_vsync, set_window_size, audio_devices, set_audio };
     ui_init(&loaded, &active, settings_file, NULL, path, &host);
     ui_draw(800, 600, 0);
 
@@ -792,6 +884,7 @@ int main(void) {
     test_signatures();
     test_overlay_settings(settings_file);
     test_number_fields(settings_file);
+    test_settings_rows(settings_file);
 
     unlink(settings_file);
     *strrchr(settings_file, '/') = '\0';
