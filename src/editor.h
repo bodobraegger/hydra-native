@@ -17,8 +17,6 @@ enum motion {
     MOTION_DOWN,
     MOTION_LINE_START, // first non-blank character, then column 0
     MOTION_LINE_END,
-    MOTION_WORD_LEFT,
-    MOTION_WORD_RIGHT,
     MOTION_GROUP_LEFT, // goGroupLeft of CodeMirror 5 (Ctrl+Left)
     MOTION_GROUP_RIGHT,
     MOTION_SUBWORD_LEFT, // camelCase parts, Alt+Left in the sublime keymap

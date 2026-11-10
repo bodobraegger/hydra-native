@@ -83,12 +83,12 @@ static void test_utf8_and_motion(void) {
     EXPECT_TEXT(&editor, "äx\nab");
 
     load(&editor, "osc(10).out(o1)");
-    editor_move(&editor, MOTION_WORD_RIGHT, false);
+    editor_move(&editor, MOTION_GROUP_RIGHT, false);
     EXPECT(editor.cursor == 3);
-    editor_move(&editor, MOTION_WORD_RIGHT, true);
+    editor_move(&editor, MOTION_GROUP_RIGHT, true);
     EXPECT(editor.cursor == 4 && editor.anchor == 3);
     editor_move(&editor, MOTION_DOCUMENT_END, false);
-    editor_move(&editor, MOTION_WORD_LEFT, false);
+    editor_move(&editor, MOTION_GROUP_LEFT, false);
     EXPECT(editor.cursor == 14);
 
     load(&editor, "    noise()");

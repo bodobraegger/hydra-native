@@ -594,22 +594,6 @@ static size_t group_position(const struct editor *editor, size_t offset, int dir
     return position;
 }
 
-static size_t word_left(const struct editor *editor, size_t offset) {
-    while (offset > 0 && class_of((unsigned char)editor->text[offset - 1]) == CLASS_SPACE) offset--;
-    if (offset == 0) return 0;
-    enum char_class class = class_of((unsigned char)editor->text[offset - 1]);
-    while (offset > 0 && class_of((unsigned char)editor->text[offset - 1]) == class) offset--;
-    return offset;
-}
-
-static size_t word_right(const struct editor *editor, size_t offset) {
-    while (offset < editor->length && class_of((unsigned char)editor->text[offset]) == CLASS_SPACE) offset++;
-    if (offset == editor->length) return offset;
-    enum char_class class = class_of((unsigned char)editor->text[offset]);
-    while (offset < editor->length && class_of((unsigned char)editor->text[offset]) == class) offset++;
-    return offset;
-}
-
 enum subword_class { SUBWORD_OTHER, SUBWORD_LOWER, SUBWORD_UPPER };
 
 static enum subword_class subword_class(char c) {
@@ -669,8 +653,6 @@ static void move_one(struct editor *editor, void *data) {
         break;
     }
     case MOTION_LINE_END: offset = editor_line_end(editor, line); break;
-    case MOTION_WORD_LEFT: offset = word_left(editor, offset); break;
-    case MOTION_WORD_RIGHT: offset = word_right(editor, offset); break;
     case MOTION_GROUP_LEFT: offset = group_position(editor, offset, -1); break;
     case MOTION_GROUP_RIGHT: offset = group_position(editor, offset, 1); break;
     case MOTION_SUBWORD_LEFT: offset = collapse ? start : subword(editor, offset, -1); break;
