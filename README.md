@@ -1,10 +1,7 @@
 # hydra-native
 
 hydra-native runs Hydra sketches in a native window without a browser.
-It runs the unchanged hydra-synth code in the QuickJS engine: commit 9d29a9f of its main branch, which is
-1.4.0 with four fixes (the debug option, an empty `src()`, an error for a function passed without parentheses,
-and a `sum()` that compiles).
-A small regl replacement draws with OpenGL ES through SDL3.
+It runs the hydra-synth code in the QuickJS engine. A small regl replacement draws with OpenGL ES through SDL3.
 A code editor in C draws the sketch over the visuals, like the editor of hydra.ojack.xyz.
 Video comes from child processes (GStreamer, ffmpeg, the Mutter ScreenCast API) and audio comes from PulseAudio or PipeWire.
 See [PLAN.md](PLAN.md) for the measurements, the design and the open work.
@@ -182,7 +179,6 @@ The package is not tested in Pulsar yet.
 
 All keys are in one table in `src/keymap.c`; change a key there and run `make`.
 F1 shows every command with its keys, and Ctrl+Shift+P finds a command by name.
-The main keys follow the web editor, the user's Pulsar keymap and VS Code.
 Keys marked "always" also work while the overlay is hidden.
 
 | Key                                            | Action                                                 |
