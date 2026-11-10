@@ -266,25 +266,24 @@ so sketches and loaded scripts define keys with the browser API.
 
 ## Effort estimate
 
-| Work package                                                     | Effort      | State         |
-| ---------------------------------------------------------------- | ----------- | ------------- |
-| Baseline measurement in Brave                                    | 0.5 day     | done          |
-| MVP: QuickJS, hydra-synth, regl shim, window, socket, watch      | 1 day       | done          |
-| MVP: webcam, monitor, area, window, video inputs; audio FFT      | 0.5 day     | done          |
-| Pulsar sender package (eval line, block, all)                    | 0.2 day     | done, untried |
-| In-window editor in C: overlay, editing, eval keys, files        | 2 days      | done          |
-| Web editor parity: toolbar, examples, mutator, format, screencap | 1 day       | done          |
-| Multiple cursors, wrap, find and replace, palette, autocomplete  | 2 days      | done          |
-| Web MIDI input (ALSA sequencer)                                  | 0.5 day     | done          |
-| Signature help, typed completions, tab stops (beyond the web)    | 1 day       | done          |
-| 2D canvas with plutovg                                           | 0.5 day     | done          |
-| p5.js as a source (P5 global on the 2D canvas)                   | 0.5 day     | done          |
-| URLs, languages, info, extensions, gallery share, recording      | 2 days      | done          |
-| Portal picker for initScreen, MIDI output, sublime commands      | 1 day       | done          |
-| webRTC initStream and pb (editor patch bay, @roamhq/wrtc)        | 3 to 5 days | done          |
-| Zero-copy PipeWire and V4L2 input (needs PipeWire headers)       | 3 to 5 days | open          |
-| Robustness for stage use (error overlay, crash recovery, tests)  | 3 to 5 days | open          |
-| Fast native-to-native sync, faster than webRTC                   | to plan     | open          |
+| Work package                                                     | Effort      | State |
+| ---------------------------------------------------------------- | ----------- | ----- |
+| Baseline measurement in Brave                                    | 0.5 day     | done  |
+| MVP: QuickJS, hydra-synth, regl shim, window, socket, watch      | 1 day       | done  |
+| MVP: webcam, monitor, area, window, video inputs; audio FFT      | 0.5 day     | done  |
+| In-window editor in C: overlay, editing, eval keys, files        | 2 days      | done  |
+| Web editor parity: toolbar, examples, mutator, format, screencap | 1 day       | done  |
+| Multiple cursors, wrap, find and replace, palette, autocomplete  | 2 days      | done  |
+| Web MIDI input (ALSA sequencer)                                  | 0.5 day     | done  |
+| Signature help, typed completions, tab stops (beyond the web)    | 1 day       | done  |
+| 2D canvas with plutovg                                           | 0.5 day     | done  |
+| p5.js as a source (P5 global on the 2D canvas)                   | 0.5 day     | done  |
+| URLs, languages, info, extensions, gallery share, recording      | 2 days      | done  |
+| Portal picker for initScreen, MIDI output, sublime commands      | 1 day       | done  |
+| webRTC initStream and pb (editor patch bay, @roamhq/wrtc)        | 3 to 5 days | done  |
+| Zero-copy PipeWire and V4L2 input (needs PipeWire headers)       | 3 to 5 days | open  |
+| Robustness for stage use (error overlay, crash recovery, tests)  | 3 to 5 days | open  |
+| Fast native-to-native sync, faster than webRTC                   | to plan     | open  |
 
 ## System packages
 

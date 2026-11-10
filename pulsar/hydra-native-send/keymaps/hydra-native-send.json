@@ -1,9 +1,0 @@
-{
-  "atom-workspace atom-text-editor[data-grammar~='js']": {
-    "ctrl-enter": "hydra-native:evalLine",
-    "shift-enter": "hydra-native:evalLine",
-    "alt-enter": "hydra-native:evalBlock",
-    "ctrl-alt-enter": "hydra-native:evalCode",
-    "ctrl-shift-enter": "hydra-native:evalCode"
-  }
-}

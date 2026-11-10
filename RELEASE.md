@@ -90,7 +90,7 @@ Optional, for each feature:
 - initMonitor, initArea and initWindow use the ScreenCast API of Mutter, so they work only on GNOME.
 - The patch bay needs `node` on the PATH.
 - The default font is DejaVu Sans Mono of the system. Without fonts-dejavu-mono, choose a font file in the settings menu.
-- The code socket is a Unix socket, and the Pulsar package `pulsar/hydra-native-send` is not tested in Pulsar.
+- The code socket is a Unix socket.
 - CI builds the archive and runs the checks without a window. The checks that render run only on a machine with a
   GPU (step 1 above).
 
@@ -134,7 +134,7 @@ Open points for the user:
 >   argument (textures, numbers, the transforms of a chain), and insert a call with its defaults as tab stops;
 > - open a sketch file or a sketch URL of hydra.ojack.xyz, save to the file, and reload it when another
 >   editor saves it;
-> - send code from Pulsar, Neovim or another editor through a Unix socket;
+> - send code from Neovim or another editor through a Unix socket;
 > - use a webcam, a video file, an image, the screen, a monitor, an area or a window as a source;
 > - use the microphone or the system output for `a`, with the audio processing of Chrome;
 > - use MIDI input and output, with the arrival time of each message, P5 and the 2D canvas;

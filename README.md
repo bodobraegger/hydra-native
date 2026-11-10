@@ -205,10 +205,6 @@ socat - UNIX-CONNECT:$XDG_RUNTIME_DIR/hydra-native.sock < block.js
 ```
 
 From Neovim or Vim, send the visual selection with `:'<,'>w !build/hydra-native --send`.
-For Pulsar, `pulsar/hydra-native-send` is a small package with the keys of the user's keymap:
-Ctrl+Enter and Shift+Enter evaluate the line or the selection, Alt+Enter the block, Ctrl+Alt+Enter and Ctrl+Shift+Enter the file.
-Install it with `pulsar -p link pulsar/hydra-native-send` and disable atom-hydra, because both packages use the same keys.
-The package is not tested in Pulsar yet.
 
 ## Keys
 
