@@ -17,14 +17,44 @@ jobs:
       matrix:
         include:
           - os: ubuntu-26.04
+            package: true
+          # The ports (PORTING.md): the window and GLES context on ANGLE, the ported sources, and the screen
+          # capture tool. No program yet, so no archive; a failure here does not stop the release of Linux.
+          - os: macos-15
+            port: true
+          - os: windows-2025
+            port: true
     runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.port == true }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build the port
+        if: matrix.port
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then
+            brew install sdl3 ninja
+            cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          else
+            cmake -S . -B build -A x64
+          fi
+          cmake --build build --config Release
+
+      # Opens a hidden window with ANGLE (Metal on macOS, Direct3D 11 on Windows) and reads a drawn pixel back.
+      - name: Run the window test
+        if: matrix.port
+        run: ctest --test-dir build -C Release -L window --output-on-failure
+
+      - name: Build the screen capture tool
+        if: matrix.port
+        continue-on-error: true
+        run: cmake --build build --config Release --target hydra-native-capture
 
       # The packages of the build in README.md, python3 for test/portal_test.py, and the speech samples
       # of test/audio_test.c (alsa-utils).
       - name: Install the build dependencies
-        if: runner.os == 'Linux'
+        if: matrix.package
         run: |
           sudo apt-get update
           sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -33,13 +63,17 @@ jobs:
 
       # pnpm runs on the Node.js of the runner image, in the version of packageManager in package.json.
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        if: matrix.package
         with:
           cache: true
       - run: pnpm install --frozen-lockfile
+        if: matrix.package
 
       - run: make
+        if: matrix.package
 
       - name: Run the checks without a window
+        if: matrix.package
         run: |
           make test
           echo "Skipped: the ctest label 'check' of 'make check' (check.js, fetch, gallery, patch_bay)."
@@ -47,6 +81,7 @@ jobs:
           echo "Run 'make check' on a machine with a GPU before a release."
 
       - name: Package
+        if: matrix.package
         id: package
         run: |
           version=
@@ -55,6 +90,7 @@ jobs:
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: matrix.package
         with:
           path: ${{ steps.package.outputs.archive }}
           archive: false

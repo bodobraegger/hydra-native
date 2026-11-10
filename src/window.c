@@ -16,6 +16,7 @@
 static void use_angle(void) {
     const char *base = SDL_GetBasePath();
     char path[1024];
+    SDL_SetHint(SDL_HINT_VIDEO_FORCE_EGL, "1");
     SDL_SetHint(SDL_HINT_OPENGL_ES_DRIVER, "1");
     snprintf(path, sizeof path, "%s%s", base ? base : "", EGL_LIBRARY);
     SDL_SetHint(SDL_HINT_EGL_LIBRARY, path);

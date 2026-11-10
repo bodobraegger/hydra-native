@@ -6,8 +6,9 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 # The program finds its bundle next to itself and its tools, fonts and icon one directory up, so every
 # build directory is a direct child of the source directory (build/, build-clean/).
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+# The generator expression keeps Visual Studio from adding a Release/ or Debug/ folder.
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY $<1:${CMAKE_BINARY_DIR}>)
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY $<1:${CMAKE_BINARY_DIR}>)
 
 # ---------------------------------------------------------------- downloaded sources, pinned by hash
 
