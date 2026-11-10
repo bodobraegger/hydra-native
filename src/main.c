@@ -441,27 +441,56 @@ static void fetch_done(int id, bool ok, const char *data, size_t length) {
     call_global("__fetchDone", 3, arguments);
 }
 
-#define MAX_MIDI_INPUTS 64
+#define MAX_MIDI_PORTS 64
 
 static JSValue js_midi_start(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
     return JS_NewBool(ctx, midi_start());
 }
 
-// midiInputs() returns [[id, name, manufacturer], ...] with id "client:port".
-static JSValue js_midi_inputs(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
-    struct midi_input inputs[MAX_MIDI_INPUTS];
-    int count = midi_inputs(inputs, MAX_MIDI_INPUTS);
+static JSValue midi_port_list(JSContext *ctx, int (*list)(struct midi_port *ports, int capacity)) {
+    struct midi_port ports[MAX_MIDI_PORTS];
+    int count = list(ports, MAX_MIDI_PORTS);
     JSValue array = JS_NewArray(ctx);
     for (int i = 0; i < count; i++) {
         char id[32];
-        snprintf(id, sizeof id, "%d:%d", inputs[i].client, inputs[i].port);
+        snprintf(id, sizeof id, "%d:%d", ports[i].client, ports[i].port);
         JSValue entry = JS_NewArray(ctx);
         JS_SetPropertyUint32(ctx, entry, 0, JS_NewString(ctx, id));
-        JS_SetPropertyUint32(ctx, entry, 1, JS_NewString(ctx, inputs[i].name));
-        JS_SetPropertyUint32(ctx, entry, 2, JS_NewString(ctx, inputs[i].manufacturer));
+        JS_SetPropertyUint32(ctx, entry, 1, JS_NewString(ctx, ports[i].name));
+        JS_SetPropertyUint32(ctx, entry, 2, JS_NewString(ctx, ports[i].manufacturer));
         JS_SetPropertyUint32(ctx, array, (uint32_t)i, entry);
     }
     return array;
+}
+
+// midiInputs() and midiOutputs() return [[id, name, manufacturer], ...] with id "client:port".
+static JSValue js_midi_inputs(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    return midi_port_list(ctx, midi_inputs);
+}
+
+static JSValue js_midi_outputs(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    return midi_port_list(ctx, midi_outputs);
+}
+
+// midiSend(id, [bytes]) sends one or more MIDI messages to the port "client:port".
+static JSValue js_midi_send(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    const char *id = JS_ToCString(ctx, argv[0]);
+    int client = -1, port = -1;
+    if (id) sscanf(id, "%d:%d", &client, &port);
+    JS_FreeCString(ctx, id);
+    JSValue length_value = JS_GetPropertyStr(ctx, argv[1], "length");
+    int32_t length = 0;
+    JS_ToInt32(ctx, &length, length_value);
+    JS_FreeValue(ctx, length_value);
+    unsigned char bytes[1024];
+    if (length < 0 || length > (int32_t)sizeof bytes) return JS_ThrowRangeError(ctx, "MIDI data too long");
+    for (int32_t i = 0; i < length; i++) {
+        JSValue item = JS_GetPropertyUint32(ctx, argv[1], (uint32_t)i);
+        bytes[i] = (unsigned char)to_int(ctx, item);
+        JS_FreeValue(ctx, item);
+    }
+    if (client < 0 || !midi_send(client, port, bytes, length)) return JS_ThrowInternalError(ctx, "cannot send MIDI");
+    return JS_UNDEFINED;
 }
 
 static JSValue midi_messages;
@@ -557,6 +586,8 @@ static const JSCFunctionListEntry native_functions[] = {
     JS_CFUNC_DEF("fetchStart", 1, js_fetch_start),
     JS_CFUNC_DEF("midiStart", 0, js_midi_start),
     JS_CFUNC_DEF("midiInputs", 0, js_midi_inputs),
+    JS_CFUNC_DEF("midiOutputs", 0, js_midi_outputs),
+    JS_CFUNC_DEF("midiSend", 2, js_midi_send),
     JS_CFUNC_DEF("midiPoll", 0, js_midi_poll),
     JS_CFUNC_DEF("now", 0, js_now),
     JS_CFUNC_DEF("screencap", 0, js_screencap),

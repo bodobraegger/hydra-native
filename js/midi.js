@@ -1,5 +1,4 @@
-// navigator.requestMIDIAccess() for MIDI input, through the ALSA sequencer of src/midi.c.
-// MIDI output is not available (the outputs map stays empty).
+// navigator.requestMIDIAccess() for MIDI input and output, through the ALSA sequencer of src/midi.c.
 import { onAfterFrame } from './dom-shim.js'
 
 class MIDIInput {
@@ -21,15 +20,49 @@ class MIDIInput {
   }
 }
 
+class MIDIOutput {
+  constructor (id, name, manufacturer) {
+    Object.assign(this, { id, name, manufacturer, type: 'output', state: 'connected', connection: 'open' })
+    this.pending = []
+  }
+
+  // A timestamp in the future (performance.now() time) waits until then, with the resolution of a frame.
+  send (data, timestamp) {
+    const bytes = Array.from(data)
+    const delay = timestamp ? timestamp - performance.now() : 0
+    if (delay > 0) {
+      const timer = setTimeout(() => {
+        this.pending = this.pending.filter((item) => item !== timer)
+        native.midiSend(this.id, bytes)
+      }, delay)
+      this.pending.push(timer)
+    } else {
+      native.midiSend(this.id, bytes)
+    }
+  }
+
+  clear () {
+    for (const timer of this.pending) clearTimeout(timer)
+    this.pending = []
+  }
+
+  addEventListener () {}
+  removeEventListener () {}
+  open () { return Promise.resolve(this) }
+  close () { return Promise.resolve(this) }
+}
+
 let access
 
-function updateInputs () {
-  const current = native.midiInputs()
+function updatePorts (map, current, Port) {
   const ids = new Set(current.map(([id]) => id))
-  for (const id of [...access.inputs.keys()]) if (!ids.has(id)) access.inputs.delete(id)
-  for (const [id, name, manufacturer] of current) {
-    if (!access.inputs.has(id)) access.inputs.set(id, new MIDIInput(id, name, manufacturer))
-  }
+  for (const id of [...map.keys()]) if (!ids.has(id)) map.delete(id)
+  for (const [id, name, manufacturer] of current) if (!map.has(id)) map.set(id, new Port(id, name, manufacturer))
+}
+
+function updateInputs () {
+  updatePorts(access.inputs, native.midiInputs(), MIDIInput)
+  updatePorts(access.outputs, native.midiOutputs(), MIDIOutput)
   if (access.onstatechange) access.onstatechange({ target: access })
 }
 
