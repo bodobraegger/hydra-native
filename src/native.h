@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <GLES3/gl3.h>
 
 #define BARK_BAND_COUNT 24
@@ -15,3 +16,7 @@ void video_close_all(void);
 // Audio input: Meyda-compatible "loudness" features from a PulseAudio/PipeWire source.
 bool audio_start(const char *device);
 bool audio_features(float specific[BARK_BAND_COUNT], float *total);
+
+// Downloads with curl; fetch_poll calls `done` once per finished download.
+int fetch_start(const char *url);
+void fetch_poll(void (*done)(int id, bool ok, const char *data, size_t length));

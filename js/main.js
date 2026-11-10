@@ -12,17 +12,43 @@ const hydra = new Hydra({ canvas, enableStreamCapture: false })
 window.hydraSynth = hydra
 installSources(hydra.s[0].constructor.prototype)
 
-// Loads local files only (absolute paths or file:// URLs), like a <script> tag in global scope.
-window.loadScript = (url = '') => {
-  const path = url.replace(/^file:\/\//, '')
-  try {
-    globalThis.eval(native.readFile(path))
-    console.log(`loaded script ${path}`)
-  } catch (error) {
-    console.error(`error loading script ${path}:`, error, error.stack || '')
-  }
-  return Promise.resolve()
+const URL_PATTERN = /^https?:\/\//
+const pendingFetches = new Map()
+
+// src/main.c calls this when a download of native.fetchStart() ends.
+window.__fetchDone = (id, ok, text) => {
+  const callback = pendingFetches.get(id)
+  pendingFetches.delete(id)
+  if (callback) callback(ok, text)
 }
+
+function runScript (code, url) {
+  try {
+    globalThis.eval(code)
+    console.log(`loaded script ${url}`)
+  } catch (error) {
+    console.error(`error loading script ${url}:`, error, error.stack || '')
+  }
+}
+
+// Like hydra-synth's loadScript (a <script> tag): runs the file in the global scope and always resolves.
+// Paths, file:// URLs and http(s) URLs work; downloads use curl.
+window.loadScript = (url = '') => new Promise((resolve) => {
+  if (!URL_PATTERN.test(url)) {
+    const path = url.replace(/^file:\/\//, '')
+    try {
+      runScript(native.readFile(path), path)
+    } catch (error) {
+      console.error(`error loading script ${path}:`, error)
+    }
+    return resolve()
+  }
+  pendingFetches.set(native.fetchStart(url), (ok, text) => {
+    if (ok) runScript(text, url)
+    else console.error(`error loading script ${url}`)
+    resolve()
+  })
+})
 
 window.addEventListener('resize', () => {
   const [width, height] = native.drawableSize()

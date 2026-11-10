@@ -2,7 +2,7 @@ QUICKJS_VERSION := 2026-06-04
 QUICKJS_DIR := vendor/quickjs
 QUICKJS_SOURCES := $(addprefix $(QUICKJS_DIR)/,quickjs.c dtoa.c libregexp.c libunicode.c cutils.c quickjs-libc.c)
 QUICKJS_OBJECTS := $(patsubst $(QUICKJS_DIR)/%.c,build/quickjs/%.o,$(QUICKJS_SOURCES))
-OBJECTS := build/main.o build/video.o build/audio.o build/editor.o build/ui.o build/overlay.o build/keymap.o
+OBJECTS := build/main.o build/video.o build/audio.o build/fetch.o build/editor.o build/ui.o build/overlay.o build/keymap.o
 
 CFLAGS := -O2 -g -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -I$(QUICKJS_DIR) -Ivendor/stb $(shell pkg-config --cflags sdl2)
 LDLIBS := $(shell pkg-config --libs sdl2 glesv2 libpulse-simple) -lm -ldl -lpthread

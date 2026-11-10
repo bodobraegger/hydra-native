@@ -421,6 +421,20 @@ static JSValue js_audio_features(JSContext *ctx, JSValueConst this, int argc, JS
     return features;
 }
 
+static JSValue js_fetch_start(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    const char *url = JS_ToCString(ctx, argv[0]);
+    if (!url) return JS_EXCEPTION;
+    int id = fetch_start(url);
+    JS_FreeCString(ctx, url);
+    if (id < 0) return JS_ThrowInternalError(ctx, "cannot start curl");
+    return JS_NewInt32(ctx, id);
+}
+
+static void fetch_done(int id, bool ok, const char *data, size_t length) {
+    JSValue arguments[3] = { JS_NewInt32(js, id), JS_NewBool(js, ok), JS_NewStringLen(js, data, length) };
+    call_global("__fetchDone", 3, arguments);
+}
+
 static JSValue js_now(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
     return JS_NewFloat64(ctx, now_ms());
 }
@@ -484,6 +498,7 @@ static const JSCFunctionListEntry native_functions[] = {
     JS_CFUNC_DEF("videoClose", 1, js_video_close),
     JS_CFUNC_DEF("audioStart", 0, js_audio_start),
     JS_CFUNC_DEF("audioFeatures", 0, js_audio_features),
+    JS_CFUNC_DEF("fetchStart", 1, js_fetch_start),
     JS_CFUNC_DEF("now", 0, js_now),
     JS_CFUNC_DEF("readFile", 1, js_read_file),
     JS_CFUNC_DEF("drawableSize", 0, js_drawable_size),
@@ -883,6 +898,7 @@ int main(int argc, char **argv) {
 
         JSValue arguments[1] = { JS_NewFloat64(js, now) };
         call_global("__frame", 1, arguments);
+        fetch_poll(fetch_done);
         run_pending_jobs();
         check_pending_evaluations();
         double after_js = now_ms();
