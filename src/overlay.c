@@ -2,6 +2,7 @@
 #include "overlay.h"
 #include "unicode.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -67,7 +68,10 @@ static int shelf_x, shelf_y, shelf_height; // the shelf packer of the atlas
 static float current_font_size, char_width, ascent, line_height;
 static GLuint atlas, program, vertex_array, vertex_buffer;
 static GLint screen_location;
-static struct vertex *vertices;
+static struct vertex *vertices, *sorted_vertices; // in draw order; overlay_end() sorts them by layer
+static uint8_t *quad_layers; // the layer of each quad of `vertices`
+static enum overlay_layer current_layer = OVERLAY_TOP;
+static bool layer_difference[OVERLAY_LAYER_COUNT] = { [OVERLAY_POPUP] = true };
 // Images (RGBA textures, such as extension thumbnails) draw after the text, one draw call each.
 #define MAX_IMAGES 64
 static struct {
@@ -78,14 +82,11 @@ static int image_count;
 static bool atlas_full;
 static size_t vertex_count, vertex_capacity;
 
-// A layer that overlay_end() composites with blend mode difference (|destination - source|): the autocomplete
-// list. KHR_blend_equation_advanced does it in the blending stage where the context has it; otherwise a shader
-// reads a copy of the screen below the layer.
+// Layers that overlay_end() composites with blend mode difference (|destination - source|): the autocomplete
+// list, and the code when the settings ask for it. KHR_blend_equation_advanced does it in the blending stage
+// where the context has it; otherwise a shader reads a copy of the screen below the layer.
 #define GL_DIFFERENCE_KHR_VALUE 0x929E
 static struct {
-    size_t first, end; // its vertices
-    bool used;
-    float x, y, width, height;
     GLuint framebuffer, texture, below; // the layer, and the copy of the screen for the shader
     int texture_width, texture_height;
     GLuint program;
@@ -439,7 +440,13 @@ float overlay_line_height(void) { return line_height; }
 void overlay_begin(void) {
     vertex_count = 0;
     image_count = 0;
-    difference.used = false;
+    current_layer = OVERLAY_TOP;
+}
+
+void overlay_set_layer(enum overlay_layer layer) { current_layer = layer; }
+
+void overlay_set_difference(enum overlay_layer layer, bool difference) {
+    if (layer != OVERLAY_POPUP) layer_difference[layer] = difference;
 }
 
 void overlay_image(float x, float y, float width, float height, unsigned texture) {
@@ -450,7 +457,10 @@ static void push_quad(float x0, float y0, float x1, float y1, float u0, float v0
     if (vertex_count + 6 > vertex_capacity) {
         vertex_capacity = vertex_capacity ? vertex_capacity * 2 : 6 * 4096;
         vertices = realloc(vertices, vertex_capacity * sizeof *vertices);
+        sorted_vertices = realloc(sorted_vertices, vertex_capacity * sizeof *sorted_vertices);
+        quad_layers = realloc(quad_layers, vertex_capacity / 6);
     }
+    quad_layers[vertex_count / 6] = (uint8_t)current_layer;
     uint8_t rgba[4] = { color >> 24, (color >> 16) & 0xFF, (color >> 8) & 0xFF, color & 0xFF };
     struct vertex corners[4] = {
         { x0, y0, u0, v0, { 0 } }, { x1, y0, u1, v0, { 0 } }, { x1, y1, u1, v1, { 0 } }, { x0, y1, u0, v1, { 0 } },
@@ -465,17 +475,6 @@ static void push_quad(float x0, float y0, float x1, float y1, float u0, float v0
 
 // Color glyphs keep their colors and take only the alpha of the text color.
 static uint32_t glyph_color(const struct glyph *glyph, uint32_t color) { return glyph->color ? 0xFFFFFF00u | (color & 0xFF) : color; }
-
-void overlay_difference_begin(void) { difference.first = vertex_count; }
-
-void overlay_difference_end(float x, float y, float width, float height) {
-    difference.end = vertex_count;
-    difference.used = difference.end > difference.first;
-    difference.x = x;
-    difference.y = y;
-    difference.width = width;
-    difference.height = height;
-}
 
 const char *overlay_difference_method(void) { return difference.checked ? (difference.advanced ? "KHR_blend_equation_advanced" : "shader") : "none"; }
 
@@ -520,9 +519,9 @@ static GLuint window_texture(int width, int height) {
     return texture;
 }
 
-// Draws the vertices of the layer into a window-sized texture (premultiplied), then composites the rectangle of
-// the layer onto the window with |destination - source|.
-static void draw_difference_layer(int width, int height) {
+// Draws the vertices [first, end) into a window-sized texture (premultiplied), then composites their bounding
+// rectangle onto the window with |destination - source|. The shader path copies the window below that rectangle.
+static void draw_difference_layer(size_t first, size_t end, int width, int height) {
     if (!difference.checked) check_difference_support();
     if (difference.texture_width != width || difference.texture_height != height) {
         if (difference.texture) {
@@ -537,18 +536,33 @@ static void draw_difference_layer(int width, int height) {
         difference.texture_width = width;
         difference.texture_height = height;
     }
+    float x0 = (float)width, y0 = (float)height, x1 = 0, y1 = 0;
+    for (size_t i = first; i < end; i++) {
+        x0 = fminf(x0, vertices[i].x);
+        y0 = fminf(y0, vertices[i].y);
+        x1 = fmaxf(x1, vertices[i].x);
+        y1 = fmaxf(y1, vertices[i].y);
+    }
+    x0 = floorf(fmaxf(x0, 0));
+    y0 = floorf(fmaxf(y0, 0));
+    x1 = ceilf(fminf(x1, (float)width));
+    y1 = ceilf(fminf(y1, (float)height));
+    if (x1 <= x0 || y1 <= y0) return;
     glBindFramebuffer(GL_FRAMEBUFFER, difference.framebuffer);
+    glEnable(GL_SCISSOR_TEST); // only the rectangle of the layer is cleared and drawn
+    glScissor((GLint)x0, height - (GLint)y1, (GLsizei)(x1 - x0), (GLsizei)(y1 - y0));
     glClearColor(0, 0, 0, 0);
     glClear(GL_COLOR_BUFFER_BIT);
     glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
     glUseProgram(program);
     glBindTexture(GL_TEXTURE_2D, atlas);
-    glDrawArrays(GL_TRIANGLES, (GLint)difference.first, (GLsizei)(difference.end - difference.first));
+    glDrawArrays(GL_TRIANGLES, (GLint)first, (GLsizei)(end - first));
+    glDisable(GL_SCISSOR_TEST);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
 
     // The quad of the layer rectangle; v counts from the bottom, as the rows of the textures do.
     size_t quad = vertex_count;
-    float x0 = difference.x, y0 = difference.y, x1 = x0 + difference.width, y1 = y0 + difference.height;
     push_quad(x0, y0, x1, y1, x0 / (float)width, 1 - y0 / (float)height, x1 / (float)width, 1 - y1 / (float)height, 0xFFFFFFFFu);
     glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(vertex_count * sizeof *vertices), vertices, GL_STREAM_DRAW);
     glActiveTexture(GL_TEXTURE0);
@@ -572,6 +586,8 @@ static void draw_difference_layer(int width, int height) {
         glEnable(GL_BLEND);
     }
     vertex_count = quad;
+    glUseProgram(program);
+    glBindTexture(GL_TEXTURE_2D, atlas);
 }
 
 void overlay_rect(float x, float y, float width, float height, uint32_t color) {
@@ -795,6 +811,8 @@ size_t overlay_text_columns(const char *text, size_t length) {
     return columns;
 }
 
+static void draw_images(void);
+
 void overlay_end(int width, int height) {
     // A full atlas starts again empty; the glyphs of this frame come back in the next frame.
     if (atlas_full) {
@@ -813,13 +831,33 @@ void overlay_end(int width, int height) {
     glBindTexture(GL_TEXTURE_2D, atlas);
     glBindVertexArray(vertex_array);
     glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);
-    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(vertex_count * sizeof *vertices), vertices, GL_STREAM_DRAW);
-    if (difference.used) { // the layer draws last, over everything else
-        glDrawArrays(GL_TRIANGLES, 0, (GLsizei)difference.first);
-        glDrawArrays(GL_TRIANGLES, (GLint)difference.end, (GLsizei)(vertex_count - difference.end));
-    } else {
-        glDrawArrays(GL_TRIANGLES, 0, (GLsizei)vertex_count);
+    // A stable sort of the quads by layer, so that each layer is one range in draw order.
+    size_t starts[OVERLAY_LAYER_COUNT + 1] = { 0 }, quads = vertex_count / 6;
+    for (size_t q = 0; q < quads; q++) starts[quad_layers[q] + 1] += 6;
+    for (int layer = 0; layer < OVERLAY_LAYER_COUNT; layer++) starts[layer + 1] += starts[layer];
+    size_t next[OVERLAY_LAYER_COUNT];
+    memcpy(next, starts, sizeof next);
+    for (size_t q = 0; q < quads; q++) {
+        memcpy(sorted_vertices + next[quad_layers[q]], vertices + 6 * q, 6 * sizeof *vertices);
+        next[quad_layers[q]] += 6;
     }
+    struct vertex *swap = vertices;
+    vertices = sorted_vertices;
+    sorted_vertices = swap;
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(vertex_count * sizeof *vertices), vertices, GL_STREAM_DRAW);
+    for (int layer = 0; layer < OVERLAY_LAYER_COUNT; layer++) {
+        if (layer == OVERLAY_POPUP) draw_images();
+        size_t first = starts[layer], end = starts[layer + 1];
+        if (end == first) continue;
+        if (layer_difference[layer]) draw_difference_layer(first, end, width, height);
+        else glDrawArrays(GL_TRIANGLES, (GLint)first, (GLsizei)(end - first));
+    }
+    glBindVertexArray(0);
+    glDisable(GL_BLEND);
+}
+
+// Images draw after the top layer, one draw call each, from quads after the vertices of the layers.
+static void draw_images(void) {
     if (image_count) {
         size_t first = vertex_count;
         for (int i = 0; i < image_count; i++)
@@ -830,8 +868,7 @@ void overlay_end(int width, int height) {
             glBindTexture(GL_TEXTURE_2D, images[i].texture);
             glDrawArrays(GL_TRIANGLES, (GLint)(first + 6 * (size_t)i), 6);
         }
+        vertex_count = first;
+        glBindTexture(GL_TEXTURE_2D, atlas);
     }
-    if (difference.used) draw_difference_layer(width, height);
-    glBindVertexArray(0);
-    glDisable(GL_BLEND);
 }

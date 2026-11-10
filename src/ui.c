@@ -34,6 +34,7 @@
 #define MAX_NAME_COMPLETIONS 12 // the list of names and words; typed lists (textures) may be longer
 #define MAX_SIGNATURES 512
 #define MAX_SNIPPET 512
+#define OPACITY_STEP 10 // percent, for the - and + of "code box" in the settings menu
 #define MIN_COMPLETION_PREFIX 2
 #define MAX_PALETTE_ROWS 12
 #define MAX_ROWS_PER_LINE 1024
@@ -1332,6 +1333,21 @@ static void draw_toolbar(void) {
     }
 }
 
+// The opacity of the code boxes in percent, from the setting or from the alpha of the theme.
+static int code_background_percent(void) {
+    int opacity = active_settings.code_background_opacity;
+    return opacity == SETTINGS_THEME_OPACITY ? (int)((theme->line_background & 0xFFu) * 100 + 127) / 255 : opacity;
+}
+
+// The box behind a code line: the color of the theme, or white for blend mode difference (which inverts what
+// is below), with the alpha of the theme or of "codeBackgroundOpacity".
+static uint32_t code_background_color(void) {
+    int opacity = active_settings.code_background_opacity;
+    uint32_t alpha = opacity == SETTINGS_THEME_OPACITY ? theme->line_background & 0xFFu : (uint32_t)(opacity * 255 + 50) / 100;
+    uint32_t rgb = active_settings.code_background_blend == CODE_BLEND_DIFFERENCE ? 0xFFFFFF00u : theme->line_background & 0xFFFFFF00u;
+    return rgb | alpha;
+}
+
 // ---------------------------------------------------------------- info panel
 
 // The info window of the web editor (src/views/info.js) with its language buttons; the texts come from
@@ -1685,6 +1701,17 @@ static void draw_settings(void) {
     flow_row(&flow, label_x, "signatures", false);
     flow_label(&flow, "Ctrl+Shift+Space", active_settings.signature_help == SIGNATURE_HELP_MANUAL, "signature 0");
     flow_label(&flow, "on (", active_settings.signature_help == SIGNATURE_HELP_PAREN, "signature 1");
+    flow_row(&flow, label_x, "code box", false);
+    char opacity[16];
+    snprintf(opacity, sizeof opacity, "%d %%", code_background_percent());
+    flow_label(&flow, "-", false, "opacity -");
+    flow_text(&flow, opacity, theme->text);
+    flow_label(&flow, "+", false, "opacity +");
+    flow_label(&flow, "normal", active_settings.code_background_blend == CODE_BLEND_NORMAL, "box 0");
+    flow_label(&flow, "difference", active_settings.code_background_blend == CODE_BLEND_DIFFERENCE, "box 1");
+    flow_row(&flow, label_x, "code text", false);
+    flow_label(&flow, "normal", active_settings.code_text_blend == CODE_BLEND_NORMAL, "text 0");
+    flow_label(&flow, "difference", active_settings.code_text_blend == CODE_BLEND_DIFFERENCE, "text 1");
     flow_row(&flow, label_x, "whitespace", false);
     for (int i = WHITESPACE_NONE; i <= WHITESPACE_ALL; i++) {
         snprintf(action, sizeof action, "whitespace %d", i);
@@ -1731,6 +1758,18 @@ static void run_settings_action(const char *action) {
     else if (!strncmp(action, "style ", 6)) set_autocomplete((enum autocomplete_style)index, active_settings.autocomplete_trigger);
     else if (!strncmp(action, "trigger ", 8)) set_autocomplete(active_settings.autocomplete_style, (enum autocomplete_trigger)index);
     else if (!strncmp(action, "signature ", 10) && index <= SIGNATURE_HELP_PAREN) set_signature_help((enum signature_help)index);
+    else if (!strcmp(action, "opacity -") || !strcmp(action, "opacity +")) {
+        int percent = code_background_percent() + (action[8] == '+' ? OPACITY_STEP : -OPACITY_STEP);
+        percent = percent < 0 ? 0 : percent > 100 ? 100 : percent;
+        stored_settings.code_background_opacity = active_settings.code_background_opacity = percent;
+        save_settings();
+    } else if (!strncmp(action, "box ", 4) && index <= CODE_BLEND_DIFFERENCE) {
+        stored_settings.code_background_blend = active_settings.code_background_blend = (enum code_blend)index;
+        save_settings();
+    } else if (!strncmp(action, "text ", 5) && index <= CODE_BLEND_DIFFERENCE) {
+        stored_settings.code_text_blend = active_settings.code_text_blend = (enum code_blend)index;
+        save_settings();
+    }
     else if (!strncmp(action, "whitespace ", 11) && index <= WHITESPACE_ALL) {
         stored_settings.render_whitespace = active_settings.render_whitespace = (enum render_whitespace)index;
         save_settings();
@@ -2019,7 +2058,9 @@ static void draw_bidi_row(size_t line, size_t row_start, size_t row_end, size_t 
     struct editor_cell *cells;
     size_t count = editor_row_cells(&editor, line, row_start, row_end, indent, &cells);
     size_t row_columns = count ? cells[count - 1].column + cells[count - 1].width - indent : 0;
-    if (row_columns > 0) column_rect(y, indent, indent + row_columns, theme->line_background);
+    overlay_set_layer(OVERLAY_CODE_BACKGROUND);
+    if (row_columns > 0) column_rect(y, indent, indent + row_columns, code_background_color());
+    overlay_set_layer(OVERLAY_CODE_MARKS);
     if (now < flash_until && flash_start != flash_end && flash_start <= row_end && flash_end >= row_start)
         column_rect(y, indent, indent + (row_columns > 0 ? row_columns : 1), theme->flash);
     for (size_t i = 0; i < selection_count; i++) {
@@ -2041,6 +2082,7 @@ static void draw_bidi_row(size_t line, size_t row_start, size_t row_end, size_t 
         if ((c == ' ' || c == '\t') && whitespace_shown(line_start, editor_line_end(&editor, line), cells[i].start, selections, selection_count))
             draw_whitespace(cells[i].column, y, c == '\t');
     }
+    overlay_set_layer(OVERLAY_CODE_TEXT);
     for (size_t i = 0; i < count;) {
         size_t end = i + 1, first = cells[i].start, last = cells[i].end;
         while (end < count && cells[end].level == cells[i].level) {
@@ -2058,6 +2100,7 @@ static void draw_bidi_row(size_t line, size_t row_start, size_t row_end, size_t 
         }
         i = end;
     }
+    overlay_set_layer(OVERLAY_TOP);
     free(cells);
 }
 
@@ -2071,11 +2114,13 @@ static void draw_row(size_t line, size_t row_start, size_t row_end, size_t inden
     bool last_row = row_end == editor_line_end(&editor, line);
     size_t limit = scroll_column + visible_columns();
     size_t from = indent > scroll_column ? indent : scroll_column, to = indent + row_columns < limit ? indent + row_columns : limit;
+    overlay_set_layer(OVERLAY_CODE_BACKGROUND);
     if (row_columns > 0 && to > from) {
         float x = MARGIN + (float)(from - scroll_column) * overlay_char_width();
         overlay_rect(x - TEXT_PADDING, y, (float)(to - from) * overlay_char_width() + 2 * TEXT_PADDING, overlay_line_height(),
-                     theme->line_background);
+                     code_background_color());
     }
+    overlay_set_layer(OVERLAY_CODE_MARKS);
     if (now < flash_until && flash_start != flash_end && flash_start <= row_end && flash_end >= row_start)
         column_rect(y, indent, indent + (row_columns > 0 ? row_columns : 1), theme->flash);
     for (size_t i = 0; i < selection_count; i++) {
@@ -2114,8 +2159,10 @@ static void draw_row(size_t line, size_t row_start, size_t row_end, size_t inden
     size_t skip = scroll_column > indent ? scroll_column - indent : 0;
     size_t shift = indent > scroll_column ? indent - scroll_column : 0;
     size_t columns = visible_columns() > shift ? visible_columns() - shift : 0;
+    overlay_set_layer(OVERLAY_CODE_TEXT);
     overlay_text(MARGIN + (float)shift * overlay_char_width(), y, editor.text + row_start, row_end - row_start, skip,
                  columns, colors + (row_start - line_start), theme->text);
+    overlay_set_layer(OVERLAY_TOP);
 }
 
 static void draw_code(void) {
@@ -2207,13 +2254,13 @@ static void draw_completion_list(void) {
     if (left < 0) left = 0;
     float top = MARGIN + (float)(row - scroll_row + 1) * line_height;
     if (top + box_height > (float)last_height - bar_height()) top -= box_height + line_height;
-    overlay_difference_begin();
+    overlay_set_layer(OVERLAY_POPUP);
     for (size_t i = 0; i < completion.count; i++) {
         float y = top + (float)i * line_height;
         overlay_rect(left, y, box_width, line_height, i == completion.selected ? COMPLETION_SELECTED_COLOR : COMPLETION_BOX_COLOR);
         overlay_text(left + char_width, y, completion.items[i], strlen(completion.items[i]), 0, width, NULL, COMPLETION_TEXT_COLOR);
     }
-    overlay_difference_end(left, top, box_width, box_height);
+    overlay_set_layer(OVERLAY_TOP);
 }
 
 // Ghost text: the rest of the selected candidate after the cursor, in the dim ghost color of the theme.
@@ -2270,12 +2317,12 @@ static void draw_signature_help(void) {
         overlay_text(text_left, top + line_height, detail, strlen(detail), 0, columns, NULL, theme->ghost);
         return;
     }
-    overlay_difference_begin();
+    overlay_set_layer(OVERLAY_POPUP);
     overlay_rect(left, top, box_width, box_height, COMPLETION_BOX_COLOR);
     if (active_end > active_start) overlay_rect(active_left, top, active_width, line_height, COMPLETION_SELECTED_COLOR);
     overlay_text(text_left, top, label, strlen(label), 0, columns, NULL, COMPLETION_TEXT_COLOR);
     overlay_text(text_left, top + line_height, detail, strlen(detail), 0, columns, NULL, COMPLETION_TEXT_COLOR);
-    overlay_difference_end(left, top, box_width, box_height);
+    overlay_set_layer(OVERLAY_TOP);
 }
 
 static void draw_completion(void) {
@@ -2348,6 +2395,8 @@ void ui_draw(int width, int height, double now_ms) {
         return;
     }
     update_matches();
+    overlay_set_difference(OVERLAY_CODE_BACKGROUND, active_settings.code_background_blend == CODE_BLEND_DIFFERENCE);
+    overlay_set_difference(OVERLAY_CODE_TEXT, active_settings.code_text_blend == CODE_BLEND_DIFFERENCE);
     draw_code();
     if (info_visible) draw_info();
     if (extensions_visible) draw_extensions();

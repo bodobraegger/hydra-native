@@ -48,6 +48,15 @@ in XDG_CONFIG_HOME on Linux, because SDL_GetPrefPath gives the data folder (XDG_
 macOS: ANGLE on Metal gives GLES 3. ScreenCaptureKit needs the screen recording permission, and the camera
 needs the camera permission in Info.plist. The analog gain control sets the input volume through Core Audio.
 
+Blend mode difference (the autocomplete list, the signature help, and the code with "codeBackgroundBlend" or
+"codeTextBlend" set to "difference", src/overlay.c): with GL_KHR_blend_equation_advanced, GL_DIFFERENCE_KHR
+blends in one pass; without it, a shader reads a copy of the window below each difference layer
+(glCopyTexSubImage2D of its bounding rectangle). Mesa on this machine has the extension. ANGLE on Direct3D 11 does
+not offer it, so Windows takes the shader path. Whether ANGLE on Metal offers it is not checked; the shader path
+works there in any case, because it needs only GLES 3.0. At 1920x1080 with both code layers on difference and
+the code of the artrio sketch, both paths cost about 0.8 ms per frame more than normal blending (best of four
+runs: 239 fps normal, 200 fps extension, 202 fps shader), and the overlay CPU time grows from 0.2 to 0.35 ms.
+
 Windows: ANGLE on Direct3D 11 gives GLES 3. Windows.Graphics.Capture needs Windows 10 1903 or newer. quickjs-ng
 replaces QuickJS, which does not build with MSVC. The code socket becomes a named pipe.
 

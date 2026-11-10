@@ -16,6 +16,7 @@
 static const char *const style_names[] = { "list", "ghost" };
 static const char *const trigger_names[] = { "manual", "typing" };
 static const char *const signature_help_names[] = { "manual", "paren" };
+static const char *const blend_names[] = { "normal", "difference" };
 static const char *const whitespace_names[] = { "none", "boundary", "selection", "trailing", "all" };
 
 const char *settings_whitespace_name(enum render_whitespace value) { return whitespace_names[value]; }
@@ -31,6 +32,7 @@ void settings_defaults(struct settings *settings) {
     settings->code_visible = true;
     settings->vsync = true;
     settings->analog_agc = true;
+    settings->code_background_opacity = SETTINGS_THEME_OPACITY;
     settings->window_width = SETTINGS_DEFAULT_WIDTH;
     settings->window_height = SETTINGS_DEFAULT_HEIGHT;
 }
@@ -208,6 +210,15 @@ bool settings_load(struct settings *settings, const char *path, char *error, siz
         choice = (int)settings->signature_help;
         read_choice(ctx, root, "signatureHelp", signature_help_names, 2, &choice);
         settings->signature_help = (enum signature_help)choice;
+        number = settings->code_background_opacity;
+        read_number(ctx, root, "codeBackgroundOpacity", &number);
+        if (number >= 0) settings->code_background_opacity = number > 100 ? 100 : (int)(number + 0.5);
+        choice = (int)settings->code_background_blend;
+        read_choice(ctx, root, "codeBackgroundBlend", blend_names, 2, &choice);
+        settings->code_background_blend = (enum code_blend)choice;
+        choice = (int)settings->code_text_blend;
+        read_choice(ctx, root, "codeTextBlend", blend_names, 2, &choice);
+        settings->code_text_blend = (enum code_blend)choice;
         read_bool(ctx, root, "wordWrap", &settings->word_wrap);
         read_bool(ctx, root, "codeVisible", &settings->code_visible);
         read_bool(ctx, root, "fullscreen", &settings->fullscreen);
@@ -270,6 +281,12 @@ bool settings_save(const struct settings *settings, const char *path, char *erro
         set_string(ctx, root, "autocompleteStyle", style_names[settings->autocomplete_style]);
         set_string(ctx, root, "autocompleteTrigger", trigger_names[settings->autocomplete_trigger]);
         set_string(ctx, root, "signatureHelp", signature_help_names[settings->signature_help]);
+        JSAtom opacity = JS_NewAtom(ctx, "codeBackgroundOpacity");
+        if (settings->code_background_opacity == SETTINGS_THEME_OPACITY) JS_DeleteProperty(ctx, root, opacity, 0);
+        else JS_SetProperty(ctx, root, opacity, JS_NewInt32(ctx, settings->code_background_opacity));
+        JS_FreeAtom(ctx, opacity);
+        set_string(ctx, root, "codeBackgroundBlend", blend_names[settings->code_background_blend]);
+        set_string(ctx, root, "codeTextBlend", blend_names[settings->code_text_blend]);
         JS_SetPropertyStr(ctx, root, "wordWrap", JS_NewBool(ctx, settings->word_wrap));
         set_string(ctx, root, "galleryServer", settings->gallery_server);
         JSValue json = JS_JSONStringify(ctx, root, JS_UNDEFINED, JS_NewInt32(ctx, JSON_INDENT));

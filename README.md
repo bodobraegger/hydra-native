@@ -73,7 +73,7 @@ the web editor does. Ctrl+Shift+L copies that URL, and Ctrl+Shift+O opens the UR
 PLAN.md compares every feature with the web editor.
 
 The "settings" entry of the toolbar (Ctrl+,) chooses the color theme, the autocomplete style and trigger, the
-signature help, the rendering of whitespace, line wrap, the gallery and patch bay server, the font size and a font from the installed
+signature help, the look of the code boxes and text, the rendering of whitespace, line wrap, the gallery and patch bay server, the font size and a font from the installed
 monospace fonts (fc-list). Each choice applies at once and goes into the settings file. The server is "off" (the
 default; `pb` is undefined then), hydra.ojack.xyz (https://api.hydrasynth.xyz) or a custom URL; a change starts or
 stops the patch bay and the "share" button without a restart. While the patch bay is connected, the panel shows
@@ -88,30 +88,40 @@ the start, and command line options override it for one run. The settings menu w
 temporary file, then rename), and keys that hydra-native does not know stay in it. When the file is no valid
 JSON, the defaults apply, the error bar shows the error with its line, and nothing overwrites the file.
 
-| Key                 | Default          | Option               | Meaning                                  |
-| ------------------- | ---------------- | -------------------- | ---------------------------------------- |
-| font                | DejaVu Sans Mono | --font PATH          | monospace font file                      |
-| fontSize            | 20               | --font-size PIXELS   | font size of the overlay                 |
-| theme               | "hydra"          | --theme NAME         | built-in or custom theme                 |
-| renderWhitespace    | "all"            | settings menu        | none, boundary, selection, trailing, all |
-| autocompleteStyle   | "list"           | settings menu        | list or ghost                            |
-| autocompleteTrigger | "manual"         | settings menu        | manual (Ctrl+Space) or typing            |
-| signatureHelp       | "manual"         | settings menu        | manual (Ctrl+Shift+Space) or paren       |
-| wordWrap            | true             | settings menu, Alt+Z | soft wrap of long lines                  |
-| codeVisible         | true             | --hide-code          | show the code at the start               |
-| fullscreen          | false            | --fullscreen         | start in fullscreen                      |
-| vsync               | true             | --no-vsync           | wait for the display refresh             |
-| watch               | false            | --watch              | reload the sketch on changes             |
-| windowWidth         | 1280             | --size WxH           | window width                             |
-| windowHeight        | 720              | --size WxH           | window height                            |
-| audioSource         | "" (default)     | --audio SOURCE       | audio source for `a`                     |
-| analogAgc           | true             | --no-analog-agc      | analog gain control                      |
-| language            | "" ($LANG)       | --lang CODE          | language of the info panel               |
-| galleryServer       | "" (none)        | --gallery-server URL | gallery and patch bay server             |
-| l10nUrl             | "" (l10n)        | --l10n-url URL       | editor.json of a language                |
-| socket              | "" (runtime dir) | --socket PATH        | the code socket                          |
-| themes              | {}               |                      | custom themes, see below                 |
-| keybindings         | {}               |                      | keys of commands, see below              |
+| Key                   | Default          | Option               | Meaning                                  |
+| --------------------- | ---------------- | -------------------- | ---------------------------------------- |
+| font                  | DejaVu Sans Mono | --font PATH          | monospace font file                      |
+| fontSize              | 20               | --font-size PIXELS   | font size of the overlay                 |
+| theme                 | "hydra"          | --theme NAME         | built-in or custom theme                 |
+| renderWhitespace      | "all"            | settings menu        | none, boundary, selection, trailing, all |
+| autocompleteStyle     | "list"           | settings menu        | list or ghost                            |
+| autocompleteTrigger   | "manual"         | settings menu        | manual (Ctrl+Space) or typing            |
+| signatureHelp         | "manual"         | settings menu        | manual (Ctrl+Shift+Space) or paren       |
+| codeBackgroundOpacity | theme alpha      | settings menu        | 0 to 100 percent for the code line boxes |
+| codeBackgroundBlend   | "normal"         | settings menu        | normal or difference (a white box)       |
+| codeTextBlend         | "normal"         | settings menu        | normal or difference                     |
+| wordWrap              | true             | settings menu, Alt+Z | soft wrap of long lines                  |
+| codeVisible           | true             | --hide-code          | show the code at the start               |
+| fullscreen            | false            | --fullscreen         | start in fullscreen                      |
+| vsync                 | true             | --no-vsync           | wait for the display refresh             |
+| watch                 | false            | --watch              | reload the sketch on changes             |
+| windowWidth           | 1280             | --size WxH           | window width                             |
+| windowHeight          | 720              | --size WxH           | window height                            |
+| audioSource           | "" (default)     | --audio SOURCE       | audio source for `a`                     |
+| analogAgc             | true             | --no-analog-agc      | analog gain control                      |
+| language              | "" ($LANG)       | --lang CODE          | language of the info panel               |
+| galleryServer         | "" (none)        | --gallery-server URL | gallery and patch bay server             |
+| l10nUrl               | "" (l10n)        | --l10n-url URL       | editor.json of a language                |
+| socket                | "" (runtime dir) | --socket PATH        | the code socket                          |
+| themes                | {}               |                      | custom themes, see below                 |
+| keybindings           | {}               |                      | keys of commands, see below              |
+
+The code overlay can blend with the visuals. "codeBackgroundOpacity" sets the opacity of the box behind each code
+line; without it, the theme sets it (72 % in "hydra"). With "codeBackgroundBlend": "difference", the box is white
+and inverts the visuals below it, at that opacity. With "codeTextBlend": "difference", the text shows as the
+difference of its theme color and the visuals, so it stays readable over bright and over dark visuals. The
+selection, the cursor, the flash of an evaluation, the find matches and the bars keep their normal look. Both use
+the blend mode difference of the autocomplete list.
 
 "all" is the default of renderWhitespace because Pulsar showed invisible characters (showInvisibles) in the
 setup that hydra-native follows. --hidden, --screenshot, --bench and --send act on one run and are no settings.

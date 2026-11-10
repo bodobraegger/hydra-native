@@ -51,12 +51,27 @@ bool overlay_set_font(const char *font_path) { return true; }
 float overlay_font_size(void) { return 20; }
 float overlay_char_width(void) { return 10; }
 float overlay_line_height(void) { return 20; }
-void overlay_begin(void) { drawn[0] = '\0'; }
+// The texts of the last frame with their positions, for clicks on panel buttons.
+#define MAX_DRAWN_TEXTS 512
+static struct {
+    char text[64];
+    float x, y;
+} drawn_texts[MAX_DRAWN_TEXTS];
+static size_t drawn_text_count;
+void overlay_begin(void) {
+    drawn[0] = '\0';
+    drawn_text_count = 0;
+}
 void overlay_rect(float x, float y, float width, float height, uint32_t color) {}
 static char bar_text[512]; // the last drawn text that starts with "find: "
 void overlay_text(float x, float y, const char *text, size_t length, size_t first_column, size_t max_columns,
                   const uint32_t *colors, uint32_t color) {
     if (length > 6 && !strncmp(text, "find: ", 6)) snprintf(bar_text, sizeof bar_text, "%.*s", (int)length, text);
+    if (drawn_text_count < MAX_DRAWN_TEXTS) {
+        snprintf(drawn_texts[drawn_text_count].text, sizeof drawn_texts[0].text, "%.*s", (int)length, text);
+        drawn_texts[drawn_text_count].x = x;
+        drawn_texts[drawn_text_count++].y = y;
+    }
     if (length == 4 && !strncmp(text, "copy", 4)) {
         copy_x = x;
         copy_y = y;
@@ -65,8 +80,9 @@ void overlay_text(float x, float y, const char *text, size_t length, size_t firs
     snprintf(drawn + used, sizeof drawn - used, "%.*s\n", (int)length, text);
 }
 void overlay_end(int width, int height) {}
-void overlay_difference_begin(void) {}
-void overlay_difference_end(float x, float y, float width, float height) {}
+void overlay_set_layer(enum overlay_layer layer) {}
+static bool difference_layers[OVERLAY_LAYER_COUNT];
+void overlay_set_difference(enum overlay_layer layer, bool difference) { difference_layers[layer] = difference; }
 int overlay_columns(int codepoint) { return 1; }
 void overlay_image(float x, float y, float width, float height, unsigned texture) {}
 unsigned thumbnail_texture(const char *url) { return 0; }
@@ -156,6 +172,48 @@ static void write_file(const char *path, const char *text) {
     FILE *file = fopen(path, "wb");
     fputs(text, file);
     fclose(file);
+}
+
+// Clicks the `occurrence`-th (from 0) drawn text that equals `text`; false when the last frame has none.
+static bool click_text(const char *text, int occurrence) {
+    for (size_t i = 0; i < drawn_text_count; i++) {
+        if (strcmp(drawn_texts[i].text, text) != 0 || occurrence-- > 0) continue;
+        ui_mouse_button(drawn_texts[i].x + 3, drawn_texts[i].y + 3, true, 1, 0);
+        ui_mouse_button(drawn_texts[i].x + 3, drawn_texts[i].y + 3, false, 1, 0);
+        return true;
+    }
+    fprintf(stderr, "no drawn text \"%s\" (occurrence %d)\n", text, occurrence);
+    return false;
+}
+
+// The overlay settings: the opacity and the blend modes of the code boxes and text, from the file and from the
+// settings menu, applied at once and saved.
+static void test_overlay_settings(const char *settings_file) {
+    struct settings loaded;
+    char error[SETTINGS_TEXT];
+    write_file(settings_file, "{ \"codeBackgroundOpacity\": 40, \"codeBackgroundBlend\": \"difference\" }\n");
+    settings_defaults(&loaded);
+    EXPECT(loaded.code_background_opacity == SETTINGS_THEME_OPACITY && loaded.code_text_blend == CODE_BLEND_NORMAL);
+    EXPECT(settings_load(&loaded, settings_file, error, sizeof error));
+    EXPECT(loaded.code_background_opacity == 40 && loaded.code_background_blend == CODE_BLEND_DIFFERENCE &&
+           loaded.code_text_blend == CODE_BLEND_NORMAL);
+
+    key(SDLK_COMMA, SDL_KMOD_LCTRL);
+    ui_draw(800, 600, 0);
+    EXPECT(!difference_layers[OVERLAY_CODE_TEXT]);
+    EXPECT(click_text("difference", 1)); // the row "code text"
+    EXPECT(click_text("+", 0)); // the opacity of "code box", one step up from the theme value
+    ui_draw(800, 600, 0);
+    EXPECT(difference_layers[OVERLAY_CODE_TEXT] && !difference_layers[OVERLAY_CODE_BACKGROUND]);
+    EXPECT(click_text("difference", 0)); // the row "code box"
+    ui_draw(800, 600, 0);
+    EXPECT(difference_layers[OVERLAY_CODE_BACKGROUND]);
+    key(SDLK_ESCAPE, 0);
+    settings_defaults(&loaded);
+    EXPECT(settings_load(&loaded, settings_file, error, sizeof error));
+    EXPECT(loaded.code_text_blend == CODE_BLEND_DIFFERENCE && loaded.code_background_blend == CODE_BLEND_DIFFERENCE &&
+           loaded.code_background_opacity > 0 && loaded.code_background_opacity <= 100);
+    EXPECT_CONTAINS(read_file(settings_file), "\"codeTextBlend\": \"difference\"");
 }
 
 // The call around the cursor: nested calls, commas in arrays, arrow functions and strings.
@@ -651,6 +709,7 @@ int main(void) {
     key(SDLK_ESCAPE, 0);
 
     test_signatures();
+    test_overlay_settings(settings_file);
 
     unlink(settings_file);
     *strrchr(settings_file, '/') = '\0';
