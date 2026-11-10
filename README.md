@@ -212,8 +212,8 @@ The package is not tested in Pulsar yet.
 
 ## Keys
 
-All keys are in one table in `src/keymap.c`; change a key there and run `make`.
-F1 shows every command with its keys, and Ctrl+Shift+P finds a command by name.
+These are the default keys. Change any of them in the "keybindings" section of settings.json (see Settings);
+F1 shows every command with its name and its current keys, and Ctrl+Shift+P finds a command by name.
 Keys marked "always" also work while the overlay is hidden.
 
 | Key                                            | Action                                                 |
