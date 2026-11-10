@@ -1,7 +1,6 @@
 name: build
 
 # A manual run uploads the archive as a workflow artifact. A tag v* also attaches it to a draft release.
-# The section "CI review" of RELEASE.md checks each part of this file against the documentation.
 on:
   workflow_dispatch:
   push:
@@ -18,8 +17,8 @@ jobs:
         include:
           - os: ubuntu-26.04
             package: true
-          # The ports (PORTING.md). macOS builds the program, Windows the window test and the capture tool. No
-          # archive yet; a failure here does not stop the release of Linux.
+          # The ports (PORTING.md). macOS builds and packs the app, which the release attaches; Windows builds
+          # the window test and the capture tool. A failure here does not stop the release of Linux.
           - os: macos-15
             port: true
           - os: windows-2025
@@ -58,7 +57,7 @@ jobs:
           cmake --build build --target unit-tests
           ctest --test-dir build -L unit --output-on-failure
 
-      # The app in a zip, to try by hand; the release takes only the Linux archive.
+      # The app in a zip, which the release attaches next to the Linux archive.
       - name: Package the macOS app
         if: matrix.port && runner.os == 'macOS'
         id: package_port
@@ -139,8 +138,8 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" dist/*.tar.gz --clobber
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
           else
             gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "hydra-native $GITHUB_REF_NAME" \
-              --notes "Draft. Copy the release notes from RELEASE.md before publishing." dist/*.tar.gz
+              --notes "Draft. Copy the release notes from RELEASE.md before publishing." dist/*
           fi
