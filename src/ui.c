@@ -920,7 +920,7 @@ static void run_command_body(enum command command, bool extend) {
     case COMMAND_SORT_LINES_REVERSE: editor_sort_lines(&editor, true, false); break;
     case COMMAND_SORT_LINES_REVERSE_INSENSITIVE: editor_sort_lines(&editor, true, true); break;
     case COMMAND_CHORD:
-        chord_prefix = SDLK_k;
+        chord_prefix = SDLK_K;
         ui_show_message("Ctrl+K: press the second key", false);
         return;
     case COMMAND_SUBWORD_LEFT: editor_move(&editor, MOTION_SUBWORD_LEFT, extend); break;
@@ -1012,14 +1012,14 @@ static enum key_context key_context(void) {
 bool ui_key(const SDL_KeyboardEvent *event) {
     suppress_text = false;
     bool extend = false;
-    SDL_Keycode key = event->keysym.sym;
+    SDL_Keycode key = event->key;
     if (key == SDLK_LCTRL || key == SDLK_RCTRL || key == SDLK_LSHIFT || key == SDLK_RSHIFT || key == SDLK_LALT ||
         key == SDLK_RALT)
         return false; // a modifier alone keeps a pending two-key command
     SDL_Keycode prefix = chord_prefix;
     chord_prefix = 0;
     const struct key_binding *binding =
-        keymap_lookup(key, (SDL_Keymod)event->keysym.mod, visible ? key_context() : CONTEXT_ANY, prefix, &extend);
+        keymap_lookup(key, (SDL_Keymod)event->mod, visible ? key_context() : CONTEXT_ANY, prefix, &extend);
     if (prefix && !binding) {
         ui_show_message("no command for this key after Ctrl+K", false);
         suppress_text = true;
@@ -1037,7 +1037,7 @@ void ui_text_editing(const char *text) { snprintf(composition, sizeof compositio
 
 void ui_text_input(const char *text) {
     composition[0] = '\0';
-    if (suppress_text || !visible || (SDL_GetModState() & (KMOD_CTRL | KMOD_LALT))) return;
+    if (suppress_text || !visible || (SDL_GetModState() & (SDL_KMOD_CTRL | SDL_KMOD_LALT))) return;
     if (help_visible) return;
     if (prompt.kind != PROMPT_NONE) {
         char *field = prompt_field();
@@ -1100,7 +1100,7 @@ static bool toolbar_click(float x, float y, SDL_Keymod modifiers) {
         float width, left = toolbar_x(i, &width);
         if (x < left || x > left + width) continue;
         const struct toolbar_item *item = &toolbar[i];
-        run_command(modifiers & KMOD_SHIFT ? item->with_shift : modifiers & KMOD_CTRL ? item->with_ctrl : item->command,
+        run_command(modifiers & SDL_KMOD_SHIFT ? item->with_shift : modifiers & SDL_KMOD_CTRL ? item->with_ctrl : item->command,
                     false);
         return true;
     }
@@ -1581,13 +1581,13 @@ void ui_mouse_button(float x, float y, bool down, int clicks, SDL_Keymod modifie
     close_completion();
     size_t offset = offset_at_point(x, y);
     mouse.dragging = true;
-    mouse.column = (modifiers & KMOD_ALT) && (modifiers & KMOD_SHIFT);
+    mouse.column = (modifiers & SDL_KMOD_ALT) && (modifiers & SDL_KMOD_SHIFT);
     if (mouse.column) {
         size_t line, row, column;
         point_to_position(x, y, &line, &row, &column);
         mouse.anchor_line = line;
         mouse.anchor_column = editor_column_of(&editor, offset);
-    } else if (modifiers & KMOD_ALT) {
+    } else if (modifiers & SDL_KMOD_ALT) {
         editor_add_cursor(&editor, offset); // Alt+click adds a cursor, as in VS Code
         mouse.dragging = false;
     } else if (clicks == 2) {
@@ -1598,8 +1598,8 @@ void ui_mouse_button(float x, float y, bool down, int clicks, SDL_Keymod modifie
         editor_set_cursor(&editor, offset, false);
         editor_select_lines(&editor);
     } else {
-        if (!(modifiers & KMOD_SHIFT)) editor_collapse(&editor);
-        editor_set_cursor(&editor, offset, modifiers & KMOD_SHIFT);
+        if (!(modifiers & SDL_KMOD_SHIFT)) editor_collapse(&editor);
+        editor_set_cursor(&editor, offset, modifiers & SDL_KMOD_SHIFT);
     }
     last_activity = now;
 }

@@ -7,7 +7,7 @@
 #include <string.h>
 
 #include <GLES3/gl3.h>
-#include <SDL.h>
+#include <SDL3/SDL.h>
 
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "stb_truetype.h"

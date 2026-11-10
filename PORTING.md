@@ -19,7 +19,7 @@ audio, libremidi, libav in the process, libcurl, quickjs-ng and libdatachannel.
 
 | Part                            | Linux now                           | macOS and Windows                           |
 | ------------------------------- | ----------------------------------- | ------------------------------------------- |
-| window, input, clipboard, IME   | SDL2                                | SDL3 (the same code on all three)           |
+| window, input, clipboard, IME   | SDL3                                | SDL3 (the same code on all three)           |
 | GLES 3 context                  | EGL with Mesa                       | ANGLE (Metal, Direct3D 11)                  |
 | child processes and pipes       | fork, exec, pipe2, memfd            | SDL3 SDL_Process                            |
 | paths of settings and resources | XDG_CONFIG_HOME, /proc/self/exe     | SDL_GetPrefPath, SDL_GetBasePath            |

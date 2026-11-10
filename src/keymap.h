@@ -2,7 +2,7 @@
 
 #include <stdbool.h>
 
-#include <SDL.h>
+#include <SDL3/SDL.h>
 
 // All commands with the name that the help shows. COMMAND_NONE is a key that does nothing on purpose.
 #define COMMANDS(X) \

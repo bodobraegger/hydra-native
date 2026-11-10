@@ -15,7 +15,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#include <SDL.h>
+#include <SDL3/SDL.h>
 
 // stb_image_write.h 1.16 (public domain or MIT, see THIRD_PARTY.md) writes the PNG files.
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -34,6 +34,7 @@
 #include "quickjs.h"
 
 #define BUNDLE_FILE_NAME "hydra-bundle.js"
+#define APP_ID "hydra-native" // the Wayland app id and the X11 class, the name of assets/hydra-native.desktop
 #define WINDOW_ICON_FILE "../assets/icon/hicolor/48x48/apps/hydra-native.png"
 #define SOCKET_FILE_NAME "hydra-native.sock"
 #define WATCH_INTERVAL_MS 250
@@ -356,7 +357,7 @@ static JSValue js_clear(JSContext *ctx, JSValueConst this, int argc, JSValueCons
 // fillRects([x, y, width, height, r, g, b, a, ...]) in window pixels from the top left, for overlays.
 static JSValue js_fill_rects(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
     int drawable_height;
-    SDL_GL_GetDrawableSize(window, NULL, &drawable_height);
+    SDL_GetWindowSizeInPixels(window, NULL, &drawable_height);
     JSValue length_value = JS_GetPropertyStr(ctx, argv[0], "length");
     int64_t length = to_int(ctx, length_value);
     JS_FreeValue(ctx, length_value);
@@ -520,7 +521,7 @@ static JSValue js_patch_bay_send(JSContext *ctx, JSValueConst this, int argc, JS
 // patchBayPublish(on): the output frames go to the helper (at the size of the drawable, even) while `on`.
 static JSValue js_patch_bay_publish(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
     int width, height;
-    SDL_GL_GetDrawableSize(window, &width, &height);
+    SDL_GetWindowSizeInPixels(window, &width, &height);
     return JS_NewBool(ctx, patch_bay_publish(JS_ToBool(ctx, argv[0]), width & ~1, height & ~1));
 }
 
@@ -561,14 +562,16 @@ static void set_window_title(const char *url) { SDL_SetWindowTitle(window, url);
 // Tells the input method where the cursor is, so that its candidate window opens there, as in the browser.
 static void update_text_input_rect(int drawable_width) {
     static SDL_Rect last;
+    static int last_cursor;
     int x, y, width, height, window_width, window_height;
     if (!ui_text_input_rect(&x, &y, &width, &height)) return;
     SDL_GetWindowSize(window, &window_width, &window_height);
     float scale = drawable_width > 0 ? (float)window_width / (float)drawable_width : 1;
     SDL_Rect rect = { (int)((float)x * scale), (int)((float)y * scale), (int)((float)width * scale), (int)((float)height * scale) };
-    if (rect.x == last.x && rect.y == last.y && rect.w == last.w && rect.h == last.h) return;
+    if (rect.x == last.x && rect.y == last.y && rect.w == last.w && rect.h == last.h && last_cursor == rect.w) return;
     last = rect;
-    SDL_SetTextInputRect(&rect);
+    last_cursor = rect.w;
+    SDL_SetTextInputArea(window, &rect, rect.w);
 }
 
 struct png_buffer {
@@ -772,7 +775,7 @@ static JSValue js_read_file(JSContext *ctx, JSValueConst this, int argc, JSValue
 
 static JSValue js_drawable_size(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
     int width, height;
-    SDL_GL_GetDrawableSize(window, &width, &height);
+    SDL_GetWindowSizeInPixels(window, &width, &height);
     JSValue array = JS_NewArray(ctx);
     JS_SetPropertyUint32(ctx, array, 0, JS_NewInt32(ctx, width));
     JS_SetPropertyUint32(ctx, array, 1, JS_NewInt32(ctx, height));
@@ -866,29 +869,29 @@ static const char *dom_key_name(SDL_Keycode key) {
 
 static void dispatch_key(const SDL_KeyboardEvent *event) {
     char key[32];
-    const char *special = dom_key_name(event->keysym.sym);
+    const char *special = dom_key_name(event->key);
     if (special) {
         snprintf(key, sizeof key, "%s", special);
     } else {
-        snprintf(key, sizeof key, "%s", SDL_GetKeyName(event->keysym.sym));
+        snprintf(key, sizeof key, "%s", SDL_GetKeyName(event->key));
         // DOM KeyboardEvent.key uses lower case letters without shift.
-        if (strlen(key) == 1 && !(event->keysym.mod & KMOD_SHIFT)) key[0] = (char)SDL_tolower(key[0]);
+        if (strlen(key) == 1 && !(event->mod & SDL_KMOD_SHIFT)) key[0] = (char)SDL_tolower(key[0]);
     }
     JSValue object = JS_NewObject(js);
     JS_SetPropertyStr(js, object, "key", JS_NewString(js, key));
-    JS_SetPropertyStr(js, object, "code", JS_NewString(js, SDL_GetScancodeName(event->keysym.scancode)));
-    JS_SetPropertyStr(js, object, "ctrlKey", JS_NewBool(js, (event->keysym.mod & KMOD_CTRL) != 0));
-    JS_SetPropertyStr(js, object, "shiftKey", JS_NewBool(js, (event->keysym.mod & KMOD_SHIFT) != 0));
-    JS_SetPropertyStr(js, object, "altKey", JS_NewBool(js, (event->keysym.mod & KMOD_ALT) != 0));
-    JS_SetPropertyStr(js, object, "metaKey", JS_NewBool(js, (event->keysym.mod & KMOD_GUI) != 0));
+    JS_SetPropertyStr(js, object, "code", JS_NewString(js, SDL_GetScancodeName(event->scancode)));
+    JS_SetPropertyStr(js, object, "ctrlKey", JS_NewBool(js, (event->mod & SDL_KMOD_CTRL) != 0));
+    JS_SetPropertyStr(js, object, "shiftKey", JS_NewBool(js, (event->mod & SDL_KMOD_SHIFT) != 0));
+    JS_SetPropertyStr(js, object, "altKey", JS_NewBool(js, (event->mod & SDL_KMOD_ALT) != 0));
+    JS_SetPropertyStr(js, object, "metaKey", JS_NewBool(js, (event->mod & SDL_KMOD_GUI) != 0));
     JS_SetPropertyStr(js, object, "repeat", JS_NewBool(js, event->repeat != 0));
-    JSValue arguments[2] = { JS_NewString(js, event->type == SDL_KEYDOWN ? "keydown" : "keyup"), object };
+    JSValue arguments[2] = { JS_NewString(js, event->type == SDL_EVENT_KEY_DOWN ? "keydown" : "keyup"), object };
     call_global("__dispatchEvent", 2, arguments);
 }
 
 static void dispatch_mouse(const char *type, int x, int y) {
     JSValue object = JS_NewObject(js);
-    Uint32 buttons = SDL_GetMouseState(NULL, NULL);
+    SDL_MouseButtonFlags buttons = SDL_GetMouseState(NULL, NULL);
     // SDL button masks are left 1, middle 2, right 4; DOM buttons are left 1, right 2, middle 4.
     int dom_buttons = (buttons & SDL_BUTTON_LMASK ? 1 : 0) | (buttons & SDL_BUTTON_RMASK ? 2 : 0) |
                       (buttons & SDL_BUTTON_MMASK ? 4 : 0);
@@ -905,7 +908,7 @@ static void dispatch_mouse(const char *type, int x, int y) {
 static float pixel_scale(void) {
     int window_width, drawable_width;
     SDL_GetWindowSize(window, &window_width, NULL);
-    SDL_GL_GetDrawableSize(window, &drawable_width, NULL);
+    SDL_GetWindowSizeInPixels(window, &drawable_width, NULL);
     return window_width > 0 ? (float)drawable_width / (float)window_width : 1.0f;
 }
 
@@ -915,32 +918,32 @@ static void handle_events(void) {
     while (SDL_PollEvent(&event)) {
         float scale = pixel_scale();
         switch (event.type) {
-        case SDL_QUIT: quit_requested = true; break;
-        case SDL_KEYDOWN:
+        case SDL_EVENT_QUIT: quit_requested = true; break;
+        case SDL_EVENT_KEY_DOWN:
             ui_key(&event.key);
             dispatch_key(&event.key);
             break;
-        case SDL_KEYUP: dispatch_key(&event.key); break;
-        case SDL_TEXTINPUT: ui_text_input(event.text.text); break;
-        case SDL_TEXTEDITING: ui_text_editing(event.edit.text); break;
-        case SDL_MOUSEWHEEL: ui_wheel(event.wheel.y); break;
-        case SDL_MOUSEMOTION:
+        case SDL_EVENT_KEY_UP: dispatch_key(&event.key); break;
+        case SDL_EVENT_TEXT_INPUT: ui_text_input(event.text.text); break;
+        case SDL_EVENT_TEXT_EDITING: ui_text_editing(event.edit.text); break;
+        case SDL_EVENT_MOUSE_WHEEL: ui_wheel(event.wheel.integer_y); break;
+        case SDL_EVENT_MOUSE_MOTION:
             ui_mouse_motion(event.motion.x * scale, event.motion.y * scale);
-            dispatch_mouse("mousemove", event.motion.x, event.motion.y);
+            dispatch_mouse("mousemove", (int)event.motion.x, (int)event.motion.y);
             break;
-        case SDL_MOUSEBUTTONDOWN:
-        case SDL_MOUSEBUTTONUP:
+        case SDL_EVENT_MOUSE_BUTTON_DOWN:
+        case SDL_EVENT_MOUSE_BUTTON_UP:
             if (event.button.button == SDL_BUTTON_LEFT)
-                ui_mouse_button(event.button.x * scale, event.button.y * scale, event.type == SDL_MOUSEBUTTONDOWN,
+                ui_mouse_button(event.button.x * scale, event.button.y * scale, event.type == SDL_EVENT_MOUSE_BUTTON_DOWN,
                                 event.button.clicks, SDL_GetModState());
-            dispatch_mouse(event.type == SDL_MOUSEBUTTONDOWN ? "mousedown" : "mouseup", event.button.x, event.button.y);
+            dispatch_mouse(event.type == SDL_EVENT_MOUSE_BUTTON_DOWN ? "mousedown" : "mouseup", (int)event.button.x,
+                           (int)event.button.y);
             break;
-        case SDL_WINDOWEVENT:
-            if (event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
-                JSValue arguments[2] = { JS_NewString(js, "resize"), JS_NewObject(js) };
-                call_global("__dispatchEvent", 2, arguments);
-            }
+        case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED: {
+            JSValue arguments[2] = { JS_NewString(js, "resize"), JS_NewObject(js) };
+            call_global("__dispatchEvent", 2, arguments);
             break;
+        }
         }
     }
 }
@@ -1102,8 +1105,9 @@ static bool parse_options(int argc, char **argv, struct options *options, struct
 }
 
 static bool create_window(const struct options *options) {
-    SDL_SetHint(SDL_HINT_VIDEODRIVER, "wayland,x11");
-    if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+    SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "wayland,x11");
+    SDL_SetAppMetadata("hydra-native", NULL, APP_ID);
+    if (!SDL_Init(SDL_INIT_VIDEO)) {
         fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
         return false;
     }
@@ -1111,20 +1115,18 @@ static bool create_window(const struct options *options) {
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 0);
-    Uint32 flags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI;
+    SDL_WindowFlags flags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
     if (options->hidden) flags |= SDL_WINDOW_HIDDEN;
-    if (active_settings.fullscreen) flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
-    window = SDL_CreateWindow("hydra-native", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, active_settings.window_width,
-                              active_settings.window_height, flags);
+    if (active_settings.fullscreen) flags |= SDL_WINDOW_FULLSCREEN;
+    window = SDL_CreateWindow("hydra-native", active_settings.window_width, active_settings.window_height, flags);
     if (!window || !SDL_GL_CreateContext(window)) {
         fprintf(stderr, "window: %s\n", SDL_GetError());
         return false;
     }
     SDL_GL_SetSwapInterval(active_settings.vsync ? 1 : 0);
-    SDL_DisplayMode mode;
-    if (SDL_GetCurrentDisplayMode(SDL_GetWindowDisplayIndex(window), &mode) == 0 && mode.refresh_rate > 0)
-        frame_period_ms = 1000.0 / mode.refresh_rate;
-    SDL_StartTextInput();
+    const SDL_DisplayMode *mode = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(window));
+    if (mode && mode->refresh_rate > 0) frame_period_ms = 1000.0 / mode->refresh_rate;
+    SDL_StartTextInput(window);
 
     // Every hydra pass draws the same triangle, so its buffer stays bound at attribute 0.
     static const GLfloat triangle[] = { -2, 0, 0, -2, 2, 2 };
@@ -1145,9 +1147,9 @@ static void set_window_icon(const char *directory) {
     int width, height, channels;
     unsigned char *pixels = stbi_load(path, &width, &height, &channels, 4);
     if (!pixels) return;
-    SDL_Surface *icon = SDL_CreateRGBSurfaceWithFormatFrom(pixels, width, height, 32, width * 4, SDL_PIXELFORMAT_RGBA32);
+    SDL_Surface *icon = SDL_CreateSurfaceFrom(width, height, SDL_PIXELFORMAT_RGBA32, pixels, width * 4);
     if (icon) SDL_SetWindowIcon(window, icon);
-    SDL_FreeSurface(icon);
+    SDL_DestroySurface(icon);
     stbi_image_free(pixels);
 }
 
@@ -1208,7 +1210,7 @@ static JSValue js_record_start(JSContext *ctx, JSValueConst this, int argc, JSVa
     download_base(base, sizeof base);
     snprintf(recording_path, sizeof recording_path, "%s.webm", base);
     int width, height;
-    SDL_GL_GetDrawableSize(window, &width, &height);
+    SDL_GetWindowSizeInPixels(window, &width, &height);
     if (!recorder_start(recording_path, width & ~1, height & ~1)) return JS_ThrowInternalError(ctx, "cannot record");
     return JS_UNDEFINED;
 }
@@ -1313,12 +1315,11 @@ static void wait_for_frame(double deadline, int listener) {
     }
 }
 
-static void toggle_fullscreen(void) {
-    bool fullscreen = SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN_DESKTOP;
-    SDL_SetWindowFullscreen(window, fullscreen ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
-}
+static bool is_fullscreen(void) { return (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) != 0; }
 
-static bool is_fullscreen(void) { return (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0; }
+static void toggle_fullscreen(void) { SDL_SetWindowFullscreen(window, !is_fullscreen()); }
+
+
 
 static void request_quit(void) { quit_requested = true; }
 
@@ -1465,7 +1466,7 @@ int main(int argc, char **argv) {
         double after_js = now_ms();
         webgl_release();
         int drawable_width, drawable_height;
-        SDL_GL_GetDrawableSize(window, &drawable_width, &drawable_height);
+        SDL_GetWindowSizeInPixels(window, &drawable_width, &drawable_height);
         recorder_frame(now);
         if (share.waiting_for_frame) continue_share(drawable_width, drawable_height);
         if (screencap_requested) {
@@ -1506,7 +1507,7 @@ int main(int argc, char **argv) {
                 glFinish();
                 elapsed = now_ms() - bench_start;
                 int width, height;
-                SDL_GL_GetDrawableSize(window, &width, &height);
+                SDL_GetWindowSizeInPixels(window, &width, &height);
                 printf("{\"width\":%d,\"height\":%d,\"vsync\":%s,\"fps\":%.1f,\"jsFrameMeanMs\":%.3f,"
                        "\"overlayFrameMeanMs\":%.3f,\"renderer\":\"%s\",\"differenceBlend\":\"%s\"}\n",
                        width, height, settings->vsync ? "true" : "false", (bench_frames - 1) / (elapsed / 1000),

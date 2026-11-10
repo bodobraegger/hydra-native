@@ -22,8 +22,8 @@ EMOJI_FONT_COMMIT := 8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5
 EMOJI_FONT_URL := https://raw.githubusercontent.com/google/fonts/$(EMOJI_FONT_COMMIT)/ofl/notoemoji
 OBJECTS := build/main.o build/canvas2d.o build/svg_filter.o build/webgl.o build/video.o build/audio.o build/audio_processing.o build/analog_agc.o build/fetch.o build/thumbnails.o build/midi.o build/recorder.o build/patch_bay.o build/editor.o build/bidi.o build/ui.o build/settings.o build/overlay.o build/keymap.o
 
-CFLAGS := -O2 -g -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -I$(QUICKJS_DIR) -Ivendor/stb -I$(PLUTOVG_DIR)/include -DPLUTOVG_BUILD_STATIC -I$(HARFBUZZ_DIR)/src -I$(SHEENBIDI_DIR)/Headers $(shell pkg-config --cflags sdl2)
-LDLIBS := $(shell pkg-config --libs sdl2 glesv2 libpulse-simple libpulse alsa) -lm -ldl -lpthread
+CFLAGS := -O2 -g -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -I$(QUICKJS_DIR) -Ivendor/stb -I$(PLUTOVG_DIR)/include -DPLUTOVG_BUILD_STATIC -I$(HARFBUZZ_DIR)/src -I$(SHEENBIDI_DIR)/Headers $(shell pkg-config --cflags sdl3)
+LDLIBS := $(shell pkg-config --libs sdl3 glesv2 libpulse-simple libpulse alsa) -lm -ldl -lpthread
 
 all: build/hydra-native build/hydra-native-capture build/hydra-bundle.js build/p5.min.js vendor/fonts/NotoEmoji.ttf $(if $(WEBRTC_APM_LIBRARY),build/libhydra-webrtc-apm.so)
 
@@ -127,8 +127,8 @@ build/editor-test: test/editor_test.c src/editor.c src/editor.h src/bidi.c src/b
 build/ui-test: test/ui_test.c src/ui.c src/keymap.c src/editor.c src/bidi.c src/settings.c src/*.h build/sheenbidi.o $(QUICKJS_OBJECTS)
 	@mkdir -p build
 	$(CC) -O1 -g -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -fsanitize=address,undefined \
-		$(shell pkg-config --cflags sdl2) -I$(SHEENBIDI_DIR)/Headers -I$(QUICKJS_DIR) -o $@ test/ui_test.c src/ui.c src/keymap.c \
-		src/editor.c src/bidi.c src/settings.c build/sheenbidi.o $(QUICKJS_OBJECTS) $(shell pkg-config --libs sdl2) -lm -ldl -lpthread
+		$(shell pkg-config --cflags sdl3) -I$(SHEENBIDI_DIR)/Headers -I$(QUICKJS_DIR) -o $@ test/ui_test.c src/ui.c src/keymap.c \
+		src/editor.c src/bidi.c src/settings.c build/sheenbidi.o $(QUICKJS_OBJECTS) $(shell pkg-config --libs sdl3) -lm -ldl -lpthread
 
 build/audio-test: test/audio_test.c src/audio_processing.c src/audio_processing.h src/analog_agc.c src/analog_agc.h
 	@mkdir -p build

@@ -31,23 +31,23 @@ static const struct key_binding default_keymap[] = {
     { SDLK_BACKSPACE, 0, COMMAND_PROMPT_BACKSPACE, .context = CONTEXT_PROMPT },
 
     // overlay, evaluation and files (the keys of the user's Pulsar keymap and of hydra.ojack.xyz)
-    { SDLK_h, KEY_CTRL | KEY_SHIFT, COMMAND_TOGGLE_CODE, .global = true },
+    { SDLK_H, KEY_CTRL | KEY_SHIFT, COMMAND_TOGGLE_CODE, .global = true },
     { SDLK_RETURN, KEY_CTRL | KEY_ALT, COMMAND_EVAL_ALL, .global = true },
     { SDLK_RETURN, KEY_CTRL | KEY_SHIFT, COMMAND_EVAL_ALL, .global = true },
     { SDLK_RETURN, KEY_CTRL, COMMAND_EVAL_LINE, .global = true },
     { SDLK_RETURN, KEY_SHIFT, COMMAND_EVAL_LINE, .global = true },
     { SDLK_RETURN, KEY_ALT, COMMAND_EVAL_BLOCK, .global = true },
-    { SDLK_s, KEY_CTRL, COMMAND_SAVE, .global = true },
-    { SDLK_s, KEY_CTRL | KEY_SHIFT, COMMAND_SCREENCAP, .global = true },
-    { SDLK_l, KEY_CTRL | KEY_SHIFT, COMMAND_SAVE_TO_URL, .global = true },
-    { SDLK_o, KEY_CTRL | KEY_SHIFT, COMMAND_OPEN_URL, .global = true },
-    { SDLK_g, KEY_CTRL | KEY_SHIFT, COMMAND_GALLERY_SHARE, .global = true },
+    { SDLK_S, KEY_CTRL, COMMAND_SAVE, .global = true },
+    { SDLK_S, KEY_CTRL | KEY_SHIFT, COMMAND_SCREENCAP, .global = true },
+    { SDLK_L, KEY_CTRL | KEY_SHIFT, COMMAND_SAVE_TO_URL, .global = true },
+    { SDLK_O, KEY_CTRL | KEY_SHIFT, COMMAND_OPEN_URL, .global = true },
+    { SDLK_G, KEY_CTRL | KEY_SHIFT, COMMAND_GALLERY_SHARE, .global = true },
     { SDLK_F11, 0, COMMAND_FULLSCREEN, .global = true },
-    { SDLK_q, KEY_CTRL, COMMAND_QUIT, .global = true },
+    { SDLK_Q, KEY_CTRL, COMMAND_QUIT, .global = true },
     { SDLK_ESCAPE, 0, COMMAND_ESCAPE, .global = true },
     { SDLK_F1, 0, COMMAND_TOGGLE_HELP, .global = true },
     { SDLK_COMMA, KEY_CTRL, COMMAND_TOGGLE_SETTINGS, .global = true }, // the settings key of VS Code
-    { SDLK_i, KEY_CTRL | KEY_ALT, COMMAND_COPY_PATCH_BAY_ID, .global = true },
+    { SDLK_I, KEY_CTRL | KEY_ALT, COMMAND_COPY_PATCH_BAY_ID, .global = true },
 
     // toolbar actions of hydra.ojack.xyz (the web editor has no keys for them)
     { SDLK_DELETE, KEY_CTRL | KEY_SHIFT, COMMAND_CLEAR_ALL, .global = true },
@@ -57,33 +57,33 @@ static const struct key_binding default_keymap[] = {
     { SDLK_F8, KEY_SHIFT, COMMAND_MUTATE_UNDO, .global = true },
 
     // editing
-    { SDLK_z, KEY_CTRL, COMMAND_UNDO },
-    { SDLK_z, KEY_CTRL | KEY_SHIFT, COMMAND_REDO },
-    { SDLK_y, KEY_CTRL, COMMAND_REDO },
-    { SDLK_c, KEY_CTRL, COMMAND_COPY },
-    { SDLK_x, KEY_CTRL, COMMAND_CUT },
-    { SDLK_v, KEY_CTRL, COMMAND_PASTE },
-    { SDLK_a, KEY_CTRL, COMMAND_SELECT_ALL },
+    { SDLK_Z, KEY_CTRL, COMMAND_UNDO },
+    { SDLK_Z, KEY_CTRL | KEY_SHIFT, COMMAND_REDO },
+    { SDLK_Y, KEY_CTRL, COMMAND_REDO },
+    { SDLK_C, KEY_CTRL, COMMAND_COPY },
+    { SDLK_X, KEY_CTRL, COMMAND_CUT },
+    { SDLK_V, KEY_CTRL, COMMAND_PASTE },
+    { SDLK_A, KEY_CTRL, COMMAND_SELECT_ALL },
     { SDLK_SLASH, KEY_CTRL, COMMAND_TOGGLE_COMMENT },
     { SDLK_7, KEY_CTRL | KEY_SHIFT, COMMAND_TOGGLE_COMMENT }, // Ctrl+/ on the Swiss (ch) layout
     { SDLK_UP, KEY_ALT, COMMAND_MOVE_LINE_UP },
     { SDLK_DOWN, KEY_ALT, COMMAND_MOVE_LINE_DOWN },
     { SDLK_DOWN, KEY_ALT | KEY_SHIFT, COMMAND_DUPLICATE_LINE },
-    { SDLK_d, KEY_CTRL | KEY_SHIFT, COMMAND_DUPLICATE_LINE }, // the sublime keymap of the web editor
-    { SDLK_f, KEY_ALT | KEY_SHIFT, COMMAND_FORMAT },
-    { SDLK_f, KEY_CTRL | KEY_SHIFT, COMMAND_FORMAT }, // the key of hydra.ojack.xyz
-    { SDLK_d, KEY_CTRL, COMMAND_SELECT_NEXT_OCCURRENCE },
-    { SDLK_f, KEY_CTRL, COMMAND_FIND },
+    { SDLK_D, KEY_CTRL | KEY_SHIFT, COMMAND_DUPLICATE_LINE }, // the sublime keymap of the web editor
+    { SDLK_F, KEY_ALT | KEY_SHIFT, COMMAND_FORMAT },
+    { SDLK_F, KEY_CTRL | KEY_SHIFT, COMMAND_FORMAT }, // the key of hydra.ojack.xyz
+    { SDLK_D, KEY_CTRL, COMMAND_SELECT_NEXT_OCCURRENCE },
+    { SDLK_F, KEY_CTRL, COMMAND_FIND },
     { SDLK_F3, 0, COMMAND_FIND_NEXT },
     { SDLK_F3, KEY_SHIFT, COMMAND_FIND_PREVIOUS },
-    { SDLK_h, KEY_CTRL, COMMAND_REPLACE },
-    { SDLK_g, KEY_CTRL, COMMAND_GO_TO_LINE },
-    { SDLK_p, KEY_CTRL | KEY_SHIFT, COMMAND_COMMAND_PALETTE, .global = true },
-    { SDLK_z, KEY_ALT, COMMAND_TOGGLE_WRAP },
+    { SDLK_H, KEY_CTRL, COMMAND_REPLACE },
+    { SDLK_G, KEY_CTRL, COMMAND_GO_TO_LINE },
+    { SDLK_P, KEY_CTRL | KEY_SHIFT, COMMAND_COMMAND_PALETTE, .global = true },
+    { SDLK_Z, KEY_ALT, COMMAND_TOGGLE_WRAP },
     { SDLK_SPACE, KEY_CTRL, COMMAND_TRIGGER_COMPLETION },
-    { SDLK_l, KEY_CTRL, COMMAND_SELECT_LINE },
-    { SDLK_k, KEY_CTRL | KEY_SHIFT, COMMAND_DELETE_LINE },
-    { SDLK_j, KEY_CTRL, COMMAND_JOIN_LINES },
+    { SDLK_L, KEY_CTRL, COMMAND_SELECT_LINE },
+    { SDLK_K, KEY_CTRL | KEY_SHIFT, COMMAND_DELETE_LINE },
+    { SDLK_J, KEY_CTRL, COMMAND_JOIN_LINES },
     { SDLK_F9, 0, COMMAND_SORT_LINES },
     { SDLK_F9, KEY_CTRL, COMMAND_SORT_LINES_INSENSITIVE },
     { SDLK_F9, KEY_SHIFT, COMMAND_SORT_LINES_REVERSE },
@@ -97,38 +97,38 @@ static const struct key_binding default_keymap[] = {
     { SDLK_F3, KEY_CTRL | KEY_SHIFT, COMMAND_FIND_UNDER_PREVIOUS },
     { SDLK_F3, KEY_ALT, COMMAND_FIND_ALL_UNDER },
     { SDLK_SPACE, KEY_CTRL | KEY_SHIFT, COMMAND_SELECT_SCOPE },
-    { SDLK_q, KEY_ALT, COMMAND_NONE }, // wrapLines of the sublime keymap needs the hardwrap addon, which the web lacks
+    { SDLK_Q, KEY_ALT, COMMAND_NONE }, // wrapLines of the sublime keymap needs the hardwrap addon, which the web lacks
     { SDLK_LEFTBRACKET, KEY_CTRL | KEY_SHIFT, COMMAND_NONE }, // fold: the web editor loads no fold addon
     { SDLK_RIGHTBRACKET, KEY_CTRL | KEY_SHIFT, COMMAND_NONE },
 
     // two-key commands of the sublime keymap: Ctrl+K, then the second key
-    { SDLK_k, KEY_CTRL, COMMAND_CHORD },
-    { SDLK_u, KEY_CTRL, COMMAND_UPPER_CASE, .prefix = SDLK_k },
-    { SDLK_l, KEY_CTRL, COMMAND_LOWER_CASE, .prefix = SDLK_k },
-    { SDLK_k, KEY_CTRL, COMMAND_DELETE_LINE_RIGHT, .prefix = SDLK_k },
-    { SDLK_BACKSPACE, KEY_CTRL, COMMAND_DELETE_LINE_LEFT, .prefix = SDLK_k },
-    { SDLK_c, KEY_CTRL, COMMAND_SHOW_IN_CENTER, .prefix = SDLK_k },
-    { SDLK_g, KEY_CTRL, COMMAND_CLEAR_BOOKMARKS, .prefix = SDLK_k },
-    { SDLK_SPACE, KEY_CTRL, COMMAND_SET_MARK, .prefix = SDLK_k },
-    { SDLK_a, KEY_CTRL, COMMAND_SELECT_TO_MARK, .prefix = SDLK_k },
-    { SDLK_w, KEY_CTRL, COMMAND_DELETE_TO_MARK, .prefix = SDLK_k },
-    { SDLK_x, KEY_CTRL, COMMAND_SWAP_WITH_MARK, .prefix = SDLK_k },
-    { SDLK_y, KEY_CTRL, COMMAND_YANK, .prefix = SDLK_k },
-    { SDLK_d, KEY_CTRL, COMMAND_SKIP_AND_SELECT_NEXT, .prefix = SDLK_k },
-    { SDLK_0, KEY_CTRL, COMMAND_NONE, .prefix = SDLK_k }, // unfold all, fold all: no fold addon in the web editor
-    { SDLK_1, KEY_CTRL, COMMAND_NONE, .prefix = SDLK_k },
-    { SDLK_j, KEY_CTRL, COMMAND_NONE, .prefix = SDLK_k },
-    { SDLK_t, KEY_CTRL, COMMAND_TRANSPOSE },
+    { SDLK_K, KEY_CTRL, COMMAND_CHORD },
+    { SDLK_U, KEY_CTRL, COMMAND_UPPER_CASE, .prefix = SDLK_K },
+    { SDLK_L, KEY_CTRL, COMMAND_LOWER_CASE, .prefix = SDLK_K },
+    { SDLK_K, KEY_CTRL, COMMAND_DELETE_LINE_RIGHT, .prefix = SDLK_K },
+    { SDLK_BACKSPACE, KEY_CTRL, COMMAND_DELETE_LINE_LEFT, .prefix = SDLK_K },
+    { SDLK_C, KEY_CTRL, COMMAND_SHOW_IN_CENTER, .prefix = SDLK_K },
+    { SDLK_G, KEY_CTRL, COMMAND_CLEAR_BOOKMARKS, .prefix = SDLK_K },
+    { SDLK_SPACE, KEY_CTRL, COMMAND_SET_MARK, .prefix = SDLK_K },
+    { SDLK_A, KEY_CTRL, COMMAND_SELECT_TO_MARK, .prefix = SDLK_K },
+    { SDLK_W, KEY_CTRL, COMMAND_DELETE_TO_MARK, .prefix = SDLK_K },
+    { SDLK_X, KEY_CTRL, COMMAND_SWAP_WITH_MARK, .prefix = SDLK_K },
+    { SDLK_Y, KEY_CTRL, COMMAND_YANK, .prefix = SDLK_K },
+    { SDLK_D, KEY_CTRL, COMMAND_SKIP_AND_SELECT_NEXT, .prefix = SDLK_K },
+    { SDLK_0, KEY_CTRL, COMMAND_NONE, .prefix = SDLK_K }, // unfold all, fold all: no fold addon in the web editor
+    { SDLK_1, KEY_CTRL, COMMAND_NONE, .prefix = SDLK_K },
+    { SDLK_J, KEY_CTRL, COMMAND_NONE, .prefix = SDLK_K },
+    { SDLK_T, KEY_CTRL, COMMAND_TRANSPOSE },
     { SDLK_DELETE, KEY_CTRL, COMMAND_DELETE_WORD_RIGHT },
     { SDLK_RIGHTBRACKET, KEY_CTRL, COMMAND_INDENT_MORE },
     { SDLK_LEFTBRACKET, KEY_CTRL, COMMAND_INDENT_LESS },
-    { SDLK_m, KEY_CTRL, COMMAND_GO_TO_BRACKET },
-    { SDLK_m, KEY_CTRL | KEY_SHIFT, COMMAND_SELECT_BETWEEN_BRACKETS },
+    { SDLK_M, KEY_CTRL, COMMAND_GO_TO_BRACKET },
+    { SDLK_M, KEY_CTRL | KEY_SHIFT, COMMAND_SELECT_BETWEEN_BRACKETS },
     { SDLK_UP, KEY_CTRL | KEY_SHIFT, COMMAND_ADD_CURSOR_ABOVE }, // the user's Pulsar keymap
     { SDLK_DOWN, KEY_CTRL | KEY_SHIFT, COMMAND_ADD_CURSOR_BELOW },
     { SDLK_UP, KEY_CTRL | KEY_ALT, COMMAND_ADD_CURSOR_ABOVE }, // the sublime keymap of the web editor
     { SDLK_DOWN, KEY_CTRL | KEY_ALT, COMMAND_ADD_CURSOR_BELOW },
-    { SDLK_i, KEY_ALT | KEY_SHIFT, COMMAND_SPLIT_SELECTION }, // VS Code; Ctrl+Shift+L saves to URL as in the web
+    { SDLK_I, KEY_ALT | KEY_SHIFT, COMMAND_SPLIT_SELECTION }, // VS Code; Ctrl+Shift+L saves to URL as in the web
     { SDLK_EQUALS, KEY_CTRL, COMMAND_FONT_BIGGER },
     { SDLK_EQUALS, KEY_CTRL | KEY_SHIFT, COMMAND_FONT_BIGGER }, // Ctrl+plus on the us layout
     { SDLK_1, KEY_CTRL | KEY_SHIFT, COMMAND_FONT_BIGGER },      // Ctrl+plus on the Swiss (ch) layout
@@ -165,8 +165,8 @@ static const struct key_binding default_keymap[] = {
 };
 
 static unsigned binding_modifiers(SDL_Keymod modifiers) {
-    return (modifiers & KMOD_CTRL ? KEY_CTRL : 0) | (modifiers & KMOD_SHIFT ? KEY_SHIFT : 0) |
-           (modifiers & KMOD_LALT ? KEY_ALT : 0);
+    return (modifiers & SDL_KMOD_CTRL ? KEY_CTRL : 0) | (modifiers & SDL_KMOD_SHIFT ? KEY_SHIFT : 0) |
+           (modifiers & SDL_KMOD_LALT ? KEY_ALT : 0);
 }
 
 // The table in use: the default table with the "keybindings" of the settings file on top.

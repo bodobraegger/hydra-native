@@ -2,14 +2,14 @@
 
 hydra-native runs Hydra sketches in a native window without a browser.
 It runs the unchanged hydra-synth 1.4.0 code in the QuickJS engine.
-A small regl replacement draws with OpenGL ES through SDL2.
+A small regl replacement draws with OpenGL ES through SDL3.
 A code editor in C draws the sketch over the visuals, like the editor of hydra.ojack.xyz.
 Video comes from child processes (GStreamer, ffmpeg, the Mutter ScreenCast API) and audio comes from PulseAudio or PipeWire.
 See [PLAN.md](PLAN.md) for the measurements, the design and the open work.
 
 ## Build
 
-The build needs gcc, make, pnpm, curl and the development files of SDL2, OpenGL ES 2 and libpulse.
+The build needs gcc, make, pnpm, curl and the development files of SDL3, OpenGL ES 2 and libpulse.
 These are installed on this machine.
 On the first run, `make` downloads QuickJS 2026-06-04 and stb_truetype.h (a pinned commit) into vendor/.
 

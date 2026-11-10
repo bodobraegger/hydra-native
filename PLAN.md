@@ -91,7 +91,7 @@ Native can win in these areas:
 
 ```text
 editor --(Unix socket, code)--> hydra-native (C, one process)
-                                  SDL2 window, OpenGL ES 3.0 context (Wayland)
+                                  SDL3 window, OpenGL ES 3.0 context (Wayland)
                                   QuickJS: build/hydra-bundle.js
                                      hydra-synth 1.4.0, unchanged (npm package)
                                      js/regl-shim.js   regl subset on native GL calls
