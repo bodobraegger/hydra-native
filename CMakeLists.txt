@@ -221,17 +221,13 @@ else()
 endif()
 target_compile_options(hydra-native-capture PRIVATE ${WARNINGS})
 
-# The audio processing of Chrome in build/libhydra-webrtc-apm, which src/audio.c loads at run time. Linux uses the
-# system library of PipeWire (not downloaded; only its headers come from upstream). macOS and Windows build the
-# release sources (cmake/webrtc-audio-processing.cmake); HYDRA_WEBRTC_APM_FROM_SOURCE does the same on Linux.
-# C++17 makes absl::optional the std::optional that the system library uses.
+# The audio processing of Chrome in build/libhydra-webrtc-apm.so, which src/audio.c loads at run time: the system
+# library of PipeWire on Linux (not downloaded; only its headers come from upstream). macOS and Windows have none
+# and use src/audio_processing.c. C++17 makes absl::optional the std::optional that the system library uses.
 if(HYDRA_LINUX)
   find_library(WEBRTC_APM_LIBRARY NAMES libwebrtc-audio-processing-1.so.3)
-  option(HYDRA_WEBRTC_APM_FROM_SOURCE "Build webrtc-audio-processing from source" OFF)
-else()
-  set(HYDRA_WEBRTC_APM_FROM_SOURCE ON)
 endif()
-if(WEBRTC_APM_LIBRARY OR HYDRA_WEBRTC_APM_FROM_SOURCE)
+if(WEBRTC_APM_LIBRARY)
   vendor_archive(webrtc-audio-processing
     https://freedesktop.org/software/pulseaudio/webrtc-audio-processing/webrtc-audio-processing-${WEBRTC_APM_VERSION}.tar.xz
     2365e93e778d7b61b5d6e02d21c47d97222e9c7deff9e1d0838ad6ec2e86f1b9 webrtc/modules/audio_processing/include/audio_processing.h
@@ -241,18 +237,13 @@ if(WEBRTC_APM_LIBRARY OR HYDRA_WEBRTC_APM_FROM_SOURCE)
   vendor_archive(abseil-cpp https://github.com/abseil/abseil-cpp/archive/${ABSEIL_VERSION}.tar.gz
     81311c17599b3712069ded20cca09a62ab0bf2a89dfa16993786c8782b7ed145 absl/types/optional.h)
   add_library(hydra-webrtc-apm SHARED src/webrtc_apm.cc)
-  set_target_properties(hydra-webrtc-apm PROPERTIES CXX_STANDARD 17 PREFIX lib WINDOWS_EXPORT_ALL_SYMBOLS ON)
-  if(HYDRA_WEBRTC_APM_FROM_SOURCE)
-    include(cmake/webrtc-audio-processing.cmake)
-    target_link_libraries(hydra-webrtc-apm PRIVATE webrtc-audio-processing)
-  else()
-    target_compile_definitions(hydra-webrtc-apm PRIVATE WEBRTC_POSIX WEBRTC_LINUX)
-    target_include_directories(hydra-webrtc-apm PRIVATE ${VENDOR}/webrtc-audio-processing/webrtc ${VENDOR}/abseil-cpp)
-    target_link_libraries(hydra-webrtc-apm PRIVATE ${WEBRTC_APM_LIBRARY})
-  endif()
+  set_target_properties(hydra-webrtc-apm PROPERTIES CXX_STANDARD 17)
+  target_compile_definitions(hydra-webrtc-apm PRIVATE WEBRTC_POSIX WEBRTC_LINUX)
+  target_include_directories(hydra-webrtc-apm PRIVATE ${VENDOR}/webrtc-audio-processing/webrtc ${VENDOR}/abseil-cpp)
+  target_link_libraries(hydra-webrtc-apm PRIVATE ${WEBRTC_APM_LIBRARY})
   target_compile_options(hydra-webrtc-apm PRIVATE ${QUIET})
   set(WEBRTC_APM_FILE $<TARGET_FILE:hydra-webrtc-apm>)
-else()
+elseif(HYDRA_LINUX)
   message(STATUS "libwebrtc-audio-processing-1 is not installed: the audio input has no echo and noise filters")
 endif()
 
@@ -298,7 +289,7 @@ else()
 endif()
 target_compile_options(hydra-audio-midi PRIVATE ${WARNINGS})
 target_compile_definitions(hydra-audio-midi PRIVATE $<$<C_COMPILER_ID:MSVC>:_USE_MATH_DEFINES>
-  WEBRTC_APM_LIBRARY_NAME="libhydra-webrtc-apm${CMAKE_SHARED_LIBRARY_SUFFIX}")
+  WEBRTC_APM_LIBRARY_NAME="$<$<BOOL:${HYDRA_LINUX}>:libhydra-webrtc-apm.so>")
 target_link_libraries(hydra-audio-midi PUBLIC SDL3::SDL3 gles)
 if(TARGET hydra-webrtc-apm)
   add_dependencies(hydra-audio-midi hydra-webrtc-apm)

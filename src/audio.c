@@ -20,7 +20,9 @@ static struct {
     bool (*process)(void *apm, float *samples, int sample_rate);
 } webrtc;
 
+// WEBRTC_APM_LIBRARY_NAME is empty on macOS and Windows, which have no such library.
 static void load_webrtc_processing(void) {
+    if (!WEBRTC_APM_LIBRARY_NAME[0]) return;
     char library[1024];
     snprintf(library, sizeof library, "%s" WEBRTC_APM_LIBRARY_NAME, SDL_GetBasePath());
     SDL_SharedObject *handle = SDL_LoadObject(library);

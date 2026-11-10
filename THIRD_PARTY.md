@@ -20,9 +20,9 @@ a distributed hydra-native binary with its bundle falls under the AGPL-3.0.
 - webrtc-audio-processing 1.3 (freedesktop.org, from the WebRTC code of Chrome), BSD-3-Clause license.
   https://gitlab.freedesktop.org/pulseaudio/webrtc-audio-processing
   On Linux, the system library libwebrtc-audio-processing-1.so.3 (installed with PipeWire, not downloaded)
-  processes the microphone, and `make` downloads the release tarball only for its headers. On macOS and Windows,
-  cmake/webrtc-audio-processing.cmake builds the sources of the tarball. src/webrtc_apm.cc links the library into
-  build/libhydra-webrtc-apm, which src/audio.c opens at run time.
+  processes the microphone, and `make` downloads the release tarball only for its headers. src/webrtc_apm.cc
+  links the library into build/libhydra-webrtc-apm.so, which src/audio.c opens at run time. macOS and Windows
+  do not use it.
 - Abseil 20230125.1 (the version of the abseil-cpp.wrap of webrtc-audio-processing 1.3), Apache-2.0 license.
   https://github.com/abseil/abseil-cpp. Headers only, for webrtc-audio-processing.
 - libremidi 5.4.3 by Jean-Michaël Celerier, BSD-2-Clause license (with parts of RtMidi, MIT license).

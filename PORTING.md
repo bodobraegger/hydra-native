@@ -13,7 +13,7 @@ processes (ffmpeg, Node.js) on all three systems; "Media on macOS and Windows" b
   backend (src/process_posix.c) and a Windows backend (src/process_windows.c).
 - The audio input (src/audio_input.h) and MIDI (src/midi.h) have one interface each, with backends for Linux
   and for macOS and Windows. On macOS and Windows, CMake compiles them as the object library hydra-audio-midi,
-  without a program yet, and builds the WebRTC audio processing as build/libhydra-webrtc-apm.
+  without a program yet.
 - Gallery sharing runs in JS (`__shareSketch` with fetch), so it needs no platform code.
 - No Python runs at run time. Python is only for some tests.
 - The build uses CMake (CMakeLists.txt); `make` is a thin wrapper. CMake downloads the vendored libraries with
@@ -62,7 +62,7 @@ d3dcompiler_47.dll comes with ANGLE.
 | downloads (fetch, loadScript)  | curl processes (src/fetch.c)         | libcurl in the process                      |
 | JavaScript                     | QuickJS                              | quickjs-ng (also builds with MSVC)          |
 | audio input and `a`            | PulseAudio (src/audio_input_pulse.c) | SDL3 (src/audio_input_sdl.c)                |
-| WebRTC audio processing        | system libwebrtc-audio-processing-1  | version 1.3, built from source by CMake     |
+| WebRTC audio processing        | system libwebrtc-audio-processing-1  | none; src/audio_processing.c                |
 | MIDI                           | ALSA sequencer (src/midi.c)          | libremidi (src/midi_libremidi.cc)           |
 | media child processes          | posix_spawn, process group           | posix_spawn; CreateProcess, job object      |
 | camera                         | gst-launch-1.0 process               | SDL3 camera API                             |
@@ -95,11 +95,9 @@ The system output (`--audio @DEFAULT_MONITOR@`):
 hydra-native does not change the volume of the capture device, which Chrome does on Linux with the analog gain
 control of the WebRTC audio processing.
 
-WebRTC audio processing: macOS and Windows build the sources of webrtc-audio-processing 1.3 with
-cmake/webrtc-audio-processing.cmake, which follows the meson.build files of the release (meson is not needed).
-Abseil is used only through its headers. On Linux, `cmake -DHYDRA_WEBRTC_APM_FROM_SOURCE=ON` builds the same
-sources, and audio-test gives the same numbers as with the system library. src/audio_processing.c stays the
-fallback when the library is missing.
+WebRTC audio processing: Linux uses the system library of PipeWire. macOS and Windows have no such library, and
+the program does not bundle one; src/audio_processing.c does a similar noise suppression and gain control there,
+as on Linux without the library.
 
 MIDI has one interface, src/midi.h. Linux keeps the ALSA sequencer (src/midi.c), with the arrival time of each
 event in the kernel. macOS and Windows use libremidi 5.4.3 (src/midi_libremidi.cc) with CoreMIDI and WinMM,
