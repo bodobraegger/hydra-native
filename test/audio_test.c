@@ -1,11 +1,12 @@
 // Checks the gain control and noise suppression of src/audio_processing.c with a tone that starts and stops
 // over a quiet noise, like speech. Run with `make test`.
-#include <dlfcn.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include <SDL3/SDL_loadso.h>
 
 #include "../src/analog_agc.h"
 #include "../src/audio_processing.h"
@@ -34,6 +35,22 @@ static float noise_sample(void) {
 
 static long sample_index;
 
+// The WebRTC audio processing of build/libhydra-webrtc-apm (WEBRTC_APM_FILE, empty when it is not built).
+static struct {
+    void *(*create)(int sample_rate, bool analog_gain);
+    bool (*process)(void *apm, float *samples, int sample_rate, int *analog_level);
+    void (*destroy)(void *apm);
+} webrtc;
+
+static void load_webrtc(void) {
+    SDL_SharedObject *library = WEBRTC_APM_FILE[0] ? SDL_LoadObject(WEBRTC_APM_FILE) : NULL;
+    if (!library) return;
+    webrtc.create = (void *(*)(int, bool))SDL_LoadFunction(library, "webrtc_apm_create");
+    webrtc.process = (bool (*)(void *, float *, int, int *))SDL_LoadFunction(library, "webrtc_apm_process");
+    webrtc.destroy = (void (*)(void *))SDL_LoadFunction(library, "webrtc_apm_destroy");
+    if (!webrtc.process || !webrtc.destroy) webrtc.create = NULL;
+}
+
 // Runs `seconds` of bursts of a tone with RMS level `level_dbfs`; returns the mean magnitude of the tone bin
 // in the last burst and the mean magnitude of the bins above the tone in the last pause.
 static void run(struct audio_processor *processor, float seconds, float level_dbfs, float *tone, float *noise) {
@@ -53,16 +70,13 @@ static void run(struct audio_processor *processor, float seconds, float level_db
     }
 }
 
-// The WebRTC audio processing of the system (build/libhydra-webrtc-apm.so): a quiet tone becomes louder.
+// The WebRTC audio processing: a quiet tone becomes louder.
 static void check_webrtc_processing(void) {
-    void *library = dlopen("build/libhydra-webrtc-apm.so", RTLD_NOW);
-    if (!library) {
-        fprintf(stderr, "no build/libhydra-webrtc-apm.so (%s), skipped\n", dlerror());
+    if (!webrtc.create) {
+        fprintf(stderr, "no WebRTC library \"%s\", skipped\n", WEBRTC_APM_FILE);
         return;
     }
-    void *(*create)(int, bool) = (void *(*)(int, bool))dlsym(library, "webrtc_apm_create");
-    bool (*process)(void *, float *, int, int *) = (bool (*)(void *, float *, int, int *))dlsym(library, "webrtc_apm_process");
-    void *apm = create(AUDIO_SAMPLE_RATE, false);
+    void *apm = webrtc.create(AUDIO_SAMPLE_RATE, false);
     const int frame = AUDIO_SAMPLE_RATE / 100;
     float amplitude = sqrtf(2.0f) * powf(10.0f, -46.0f / 20.0f), samples[AUDIO_SAMPLE_RATE / 100];
     double input = 0, output = 0;
@@ -73,16 +87,16 @@ static void check_webrtc_processing(void) {
             samples[i] = noise_sample() + (on ? amplitude * sinf(2.0f * (float)M_PI * 440.0f * (float)index / AUDIO_SAMPLE_RATE) : 0);
         double before = 0;
         for (int i = 0; i < frame; i++) before += samples[i] * samples[i];
-        EXPECT(process(apm, samples, AUDIO_SAMPLE_RATE, NULL), "ProcessStream failed");
+        EXPECT(webrtc.process(apm, samples, AUDIO_SAMPLE_RATE, NULL), "ProcessStream failed");
         if (f >= 1800 && on) {
             input += before;
             for (int i = 0; i < frame; i++) output += samples[i] * samples[i];
         }
     }
-    ((void (*)(void *))dlsym(library, "webrtc_apm_destroy"))(apm);
+    webrtc.destroy(apm);
     double gain_db = 10 * log10(output / input);
     fprintf(stderr, "WebRTC processing: gain %.1f dB on a -46 dBFS tone after 18 s\n", gain_db);
-    EXPECT(gain_db > 6, "the AGC2 of the system library gives %.1f dB", gain_db);
+    EXPECT(gain_db > 6, "the AGC2 of the library gives %.1f dB", gain_db);
 }
 
 // A fake source volume: the test never touches a real microphone.
@@ -158,18 +172,15 @@ static size_t load_speech(float *speech) {
 // The analog gain control of the WebRTC library with a fake source whose volume scales the signal, as the gain
 // of a microphone does: a quiet voice raises the volume, a clipping one lowers it, and the end restores it.
 static void check_analog_gain(void) {
-    void *library = dlopen("build/libhydra-webrtc-apm.so", RTLD_NOW);
     static float speech[MAX_SPEECH_SAMPLES];
     size_t speech_count = load_speech(speech);
-    if (!library || !speech_count) {
+    if (!webrtc.create || !speech_count) {
         fprintf(stderr, "no WebRTC library or no speech samples in " SPEECH_DIRECTORY ", analog gain skipped\n");
         return;
     }
-    void *(*create)(int, bool) = (void *(*)(int, bool))dlsym(library, "webrtc_apm_create");
-    bool (*process)(void *, float *, int, int *) = (bool (*)(void *, float *, int, int *))dlsym(library, "webrtc_apm_process");
-    void *apm = create(AUDIO_SAMPLE_RATE, true);
+    void *apm = webrtc.create(AUDIO_SAMPLE_RATE, true);
     struct fake_source source = { FAKE_START_VOLUME, 0, 0, 0, 0 };
-    struct analog_agc agc = { .lock = PTHREAD_MUTEX_INITIALIZER };
+    struct analog_agc agc = { 0 };
     EXPECT(analog_agc_start(&agc, (struct source_volume){ fake_save, fake_restore, fake_get, fake_set, &source }), "start failed");
     const int frame = AUDIO_SAMPLE_RATE / 100;
     float samples[AUDIO_SAMPLE_RATE / 100];
@@ -183,7 +194,7 @@ static void check_analog_gain(void) {
             samples[i] = value > 1 ? 1 : value < -1 ? -1 : value;
         }
         int level = analog_agc_level(&agc);
-        process(apm, samples, AUDIO_SAMPLE_RATE, &level);
+        webrtc.process(apm, samples, AUDIO_SAMPLE_RATE, &level);
         analog_agc_apply(&agc, level);
         if (getenv("AGC_TRACE") && f % 200 == 0) fprintf(stderr, "frame %d level %d volume %.3f\n", f, level, source.volume);
         if (f == 2999) highest = source.volume;
@@ -199,7 +210,7 @@ static void check_analog_gain(void) {
            source.volume, source.restores);
     analog_agc_apply(&agc, 100);
     EXPECT(source.volume == FAKE_START_VOLUME, "a stopped control changed the volume");
-    ((void (*)(void *))dlsym(library, "webrtc_apm_destroy"))(apm);
+    webrtc.destroy(apm);
 }
 
 int main(void) {
@@ -229,6 +240,7 @@ int main(void) {
                     (sqrtf(2.0f) * powf(10.0f, -10.0f / 20.0f));
     EXPECT(tone <= limited * 1.05f, "tone %.1f, limit %.1f", tone, limited);
 
+    load_webrtc();
     check_webrtc_processing();
     check_analog_gain();
     if (failures) {

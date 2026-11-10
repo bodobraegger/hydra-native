@@ -1,12 +1,14 @@
 // The analog gain control of Chrome on Linux: the WebRTC audio processing recommends a volume for the capture
-// source, and this module reads and sets the source volume through `struct source_volume`, which src/audio.c
-// implements with PulseAudio and test/audio_test.c with a fake. The original volume comes back at the end.
+// source, and this module reads and sets the source volume through `struct source_volume`, which the backends of
+// src/audio_input.h implement for each system and test/audio_test.c with a fake. The original volume comes back at
+// the end.
 #pragma once
 
-#include <pthread.h>
+#include <SDL3/SDL_atomic.h>
 #include <stdbool.h>
 
-// Volumes are fractions of the normal volume of the source (PA_VOLUME_NORM is 1).
+// Volumes are fractions of the normal volume of the source (PA_VOLUME_NORM of PulseAudio, the scalar volume of
+// Core Audio and of IAudioEndpointVolume are 1).
 struct source_volume {
     bool (*save)(void *data);    // remembers the volume of all channels
     bool (*restore)(void *data); // sets the remembered volume again
@@ -15,10 +17,10 @@ struct source_volume {
     void *data;
 };
 
-// Initialize `lock` with PTHREAD_MUTEX_INITIALIZER; the other fields start empty.
+// All fields start zeroed.
 struct analog_agc {
     struct source_volume volume;
-    pthread_mutex_t lock;
+    SDL_SpinLock lock;
     bool active;
     int level;              // the last level that was read or set
     unsigned frames_to_read; // frames until the volume is read again (the user may change it)

@@ -21,7 +21,7 @@ bool video_copy_frame(int handle, unsigned char *pixels);
 void video_close(int handle);
 void video_close_all(void);
 
-// Audio input: Meyda-compatible "loudness" features from a PulseAudio/PipeWire source.
+// Audio input: Meyda-compatible "loudness" features of the audio input (src/audio_input.h).
 bool audio_start(const char *device);
 void audio_set_analog_agc(bool enabled); // before audio_start(); --no-analog-agc turns it off
 void audio_stop(void);                   // restores the source volume that the analog gain control changed

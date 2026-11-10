@@ -253,6 +253,24 @@ else()
   message(STATUS "libwebrtc-audio-processing-1 is not installed: the audio input has no echo and noise filters")
 endif()
 
+# ---------------------------------------------------------------- audio input
+
+# The audio analysis of `a` with the audio input of the system (src/audio_input.h).
+if(HYDRA_LINUX)
+  pkg_check_modules(AUDIO_MIDI REQUIRED IMPORTED_TARGET libpulse-simple libpulse alsa)
+  add_library(hydra-audio OBJECT src/audio.c src/audio_processing.c src/analog_agc.c src/audio_input_pulse.c)
+  target_link_libraries(hydra-audio PUBLIC PkgConfig::AUDIO_MIDI)
+endif()
+if(TARGET hydra-audio)
+  target_compile_options(hydra-audio PRIVATE ${WARNINGS})
+  target_compile_definitions(hydra-audio PRIVATE
+    WEBRTC_APM_LIBRARY_NAME="libhydra-webrtc-apm${CMAKE_SHARED_LIBRARY_SUFFIX}")
+  target_link_libraries(hydra-audio PUBLIC SDL3::SDL3 gles)
+  if(TARGET hydra-webrtc-apm)
+    add_dependencies(hydra-audio hydra-webrtc-apm)
+  endif()
+endif()
+
 if(NOT HYDRA_LINUX)
   # The parts of the program that are ported so far; the others come with the ports of PORTING.md. The editor
   # core and the overlay compile here as a check, without a program yet.
@@ -275,17 +293,16 @@ endif()
 
 # ---------------------------------------------------------------- programs (Linux)
 
-pkg_check_modules(SYSTEM REQUIRED IMPORTED_TARGET glesv2 libpulse-simple libpulse alsa)
+pkg_check_modules(SYSTEM REQUIRED IMPORTED_TARGET glesv2)
 
-add_executable(hydra-native src/main.c src/canvas2d.c src/svg_filter.c src/webgl.c src/video.c src/audio.c
-  src/audio_processing.c src/analog_agc.c src/fetch.c src/thumbnails.c src/midi.c src/recorder.c src/patch_bay.c
-  src/editor.c src/bidi.c src/ui.c src/settings.c src/overlay.c src/keymap.c src/programs.c src/signature.c
-  src/window.c ${PROCESS_SOURCE})
+add_executable(hydra-native src/main.c src/canvas2d.c src/svg_filter.c src/webgl.c src/video.c src/fetch.c
+  src/thumbnails.c src/midi.c src/recorder.c src/patch_bay.c src/editor.c src/bidi.c src/ui.c src/settings.c
+  src/overlay.c src/keymap.c src/programs.c src/signature.c src/window.c ${PROCESS_SOURCE})
 target_compile_options(hydra-native PRIVATE ${WARNINGS})
 target_compile_definitions(hydra-native PRIVATE HYDRA_NATIVE_VERSION="${PROJECT_VERSION}")
 target_include_directories(hydra-native PRIVATE ${VENDOR}/stb)
-target_link_libraries(hydra-native PRIVATE quickjs plutovg harfbuzz sheenbidi SDL3::SDL3 PkgConfig::SYSTEM m dl
-  pthread)
+target_link_libraries(hydra-native PRIVATE quickjs plutovg harfbuzz sheenbidi hydra-audio SDL3::SDL3 PkgConfig::SYSTEM
+  m dl pthread)
 # harfbuzz is C++, so the C++ driver links the program.
 set_target_properties(hydra-native PROPERTIES LINKER_LANGUAGE CXX)
 
@@ -324,8 +341,9 @@ add_executable(midi-test EXCLUDE_FROM_ALL test/midi_test.c src/midi.c)
 add_executable(process-test EXCLUDE_FROM_ALL test/process_test.c ${PROCESS_SOURCE})
 target_link_libraries(editor-test PRIVATE sheenbidi)
 target_link_libraries(ui-test PRIVATE sheenbidi quickjs SDL3::SDL3 m dl pthread)
-target_link_libraries(audio-test PRIVATE m dl pthread)
-target_link_libraries(midi-test PRIVATE PkgConfig::SYSTEM m)
+target_link_libraries(audio-test PRIVATE SDL3::SDL3 m)
+target_compile_definitions(audio-test PRIVATE WEBRTC_APM_FILE="${WEBRTC_APM_FILE}")
+target_link_libraries(midi-test PRIVATE PkgConfig::AUDIO_MIDI m)
 set(UNIT_TESTS editor-test ui-test audio-test midi-test process-test)
 foreach(test ${UNIT_TESTS})
   target_compile_options(${test} PRIVATE -O1 ${WARNINGS} ${SANITIZERS})
