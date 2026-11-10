@@ -77,3 +77,11 @@ onAfterFrame(() => {
 // The formatter of the web editor (js-beautify with its options), called by src/ui.c.
 // The web editor indents with tabs; hydra-native uses two spaces, like the Pulsar setup.
 window.__format = (code) => beautify(code, { indent_size: 2, break_chained_methods: true })
+
+// Names for the autocomplete of src/ui.c: hydra sources, transforms (also those of setFunction and
+// extensions) and the globals of hydra-synth, one per line.
+const HYDRA_GLOBALS = ['hush', 'render', 'speed', 'bpm', 'time', 'mouse', 'update', 'afterUpdate', 'setResolution',
+  'loadScript', 'screencap', 'width', 'height', 'fps', 'setFunction', 'src', 'o0', 'o1', 'o2', 'o3', 's0', 's1', 's2',
+  's3', 'a', 'initCam', 'initScreen', 'initVideo', 'initImage', 'initCanvas', 'initArea', 'initWindow', 'out',
+  'smooth', 'fast', 'ease', 'offset', 'fit', 'setBins', 'setSmooth', 'setScale', 'setCutoff', 'show', 'hide', 'fft']
+window.__completionNames = () => [...new Set([...Object.keys(hydra.generator.glslTransforms), ...HYDRA_GLOBALS])].join('\n')

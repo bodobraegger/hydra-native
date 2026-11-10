@@ -59,7 +59,7 @@ build/hydra-bundle.js: js/*.js package.json node_modules/hydra-synth/package.jso
 
 build/editor-test: test/editor_test.c src/editor.c src/editor.h
 	@mkdir -p build
-	$(CC) -O1 -g -Wall -Wextra -fsanitize=address,undefined -o $@ test/editor_test.c src/editor.c
+	$(CC) -O1 -g -Wall -Wextra -Wno-unused-parameter -fsanitize=address,undefined -o $@ test/editor_test.c src/editor.c
 
 build/ui-test: test/ui_test.c src/ui.c src/keymap.c src/editor.c src/*.h
 	@mkdir -p build

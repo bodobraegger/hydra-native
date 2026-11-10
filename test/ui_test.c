@@ -47,6 +47,7 @@ static char *call(const char *function, const char *argument) {
     if (!strcmp(function, "__randomExample")) return strdup("noise().out()");
     if (!strcmp(function, "__mutate")) return strdup("noise(9).out()");
     if (!strcmp(function, "__mutateUndo")) return strdup("noise().out()");
+    if (!strcmp(function, "__completionNames")) return strdup("noise\nosc\nout");
     char *text = strdup(argument);
     for (char *c = text; *c; c++) *c = (char)toupper((unsigned char)*c);
     return text;
@@ -159,6 +160,47 @@ int main(void) {
     key(SDLK_F8, KMOD_LSHIFT);
     key(SDLK_RETURN, KMOD_LCTRL | KMOD_LALT);
     EXPECT_STRING(evaluated, "noise().out()");
+
+    // Find, replace, go to line, command palette and autocomplete, all through the key table.
+    key(SDLK_a, KMOD_LCTRL);
+    type("osc(1).out()\nosc(2).out()\nnoise().out()");
+    key(SDLK_h, KMOD_LCTRL);
+    type("osc");
+    key(SDLK_TAB, 0);
+    type("shape");
+    key(SDLK_RETURN, KMOD_LCTRL | KMOD_LALT); // in the prompt: replace all
+    key(SDLK_ESCAPE, 0);
+    key(SDLK_RETURN, KMOD_LCTRL | KMOD_LALT);
+    EXPECT_STRING(evaluated, "shape(1).out()\nshape(2).out()\nnoise().out()");
+    key(SDLK_g, KMOD_LCTRL);
+    type("2");
+    key(SDLK_RETURN, 0);
+    key(SDLK_RETURN, KMOD_LCTRL);
+    EXPECT_STRING(evaluated, "shape(2).out()");
+    key(SDLK_f, KMOD_LCTRL);
+    type("noise");
+    key(SDLK_RETURN, 0);
+    key(SDLK_ESCAPE, 0);
+    key(SDLK_RETURN, KMOD_LCTRL); // evaluates the selected match
+    EXPECT_STRING(evaluated, "noise");
+    key(SDLK_p, KMOD_LCTRL | KMOD_LSHIFT);
+    type("evaluate all");
+    key(SDLK_RETURN, 0);
+    EXPECT_STRING(evaluated, "shape(1).out()\nshape(2).out()\nnoise().out()");
+
+    key(SDLK_END, KMOD_LCTRL);
+    type("\nno");
+    key(SDLK_RETURN, 0); // the completion list is open: Enter inserts "noise"
+    key(SDLK_RETURN, KMOD_LCTRL);
+    EXPECT_STRING(evaluated, "noise");
+
+    // Two cursors type into two lines.
+    key(SDLK_HOME, KMOD_LCTRL);
+    key(SDLK_DOWN, KMOD_LCTRL | KMOD_LSHIFT);
+    type("x");
+    key(SDLK_ESCAPE, 0);
+    key(SDLK_RETURN, KMOD_LCTRL | KMOD_LALT);
+    EXPECT_STRING(evaluated, "xshape(1).out()\nxshape(2).out()\nnoise().out()\nnoise");
 
     unlink(path);
     if (failures) {

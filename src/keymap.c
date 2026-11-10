@@ -5,6 +5,22 @@
 #include <stdio.h>
 
 static const struct key_binding keymap[] = {
+    // while the autocomplete list is open
+    { SDLK_DOWN, 0, COMMAND_COMPLETION_NEXT, .context = CONTEXT_COMPLETION },
+    { SDLK_UP, 0, COMMAND_COMPLETION_PREVIOUS, .context = CONTEXT_COMPLETION },
+    { SDLK_RETURN, 0, COMMAND_COMPLETION_ACCEPT, .context = CONTEXT_COMPLETION },
+    { SDLK_TAB, 0, COMMAND_COMPLETION_ACCEPT, .context = CONTEXT_COMPLETION },
+
+    // while find, replace, go to line or the command palette is open
+    { SDLK_RETURN, KEY_CTRL | KEY_ALT, COMMAND_REPLACE_ALL, .context = CONTEXT_PROMPT },
+    { SDLK_RETURN, 0, COMMAND_PROMPT_ACCEPT, .context = CONTEXT_PROMPT },
+    { SDLK_KP_ENTER, 0, COMMAND_PROMPT_ACCEPT, .context = CONTEXT_PROMPT },
+    { SDLK_RETURN, KEY_SHIFT, COMMAND_PROMPT_ACCEPT_BACKWARD, .context = CONTEXT_PROMPT },
+    { SDLK_TAB, 0, COMMAND_PROMPT_NEXT_FIELD, .context = CONTEXT_PROMPT },
+    { SDLK_UP, 0, COMMAND_PROMPT_UP, .context = CONTEXT_PROMPT },
+    { SDLK_DOWN, 0, COMMAND_PROMPT_DOWN, .context = CONTEXT_PROMPT },
+    { SDLK_BACKSPACE, 0, COMMAND_PROMPT_BACKSPACE, .context = CONTEXT_PROMPT },
+
     // overlay, evaluation and files (the keys of the user's Pulsar keymap and of hydra.ojack.xyz)
     { SDLK_h, KEY_CTRL | KEY_SHIFT, COMMAND_TOGGLE_CODE, .global = true },
     { SDLK_RETURN, KEY_CTRL | KEY_ALT, COMMAND_EVAL_ALL, .global = true },
@@ -43,6 +59,28 @@ static const struct key_binding keymap[] = {
     { SDLK_f, KEY_CTRL | KEY_SHIFT, COMMAND_FORMAT }, // the key of hydra.ojack.xyz
     { SDLK_d, KEY_CTRL, COMMAND_SELECT_NEXT_OCCURRENCE },
     { SDLK_f, KEY_CTRL, COMMAND_FIND },
+    { SDLK_F3, 0, COMMAND_FIND_NEXT },
+    { SDLK_F3, KEY_SHIFT, COMMAND_FIND_PREVIOUS },
+    { SDLK_h, KEY_CTRL, COMMAND_REPLACE },
+    { SDLK_g, KEY_CTRL, COMMAND_GO_TO_LINE },
+    { SDLK_p, KEY_CTRL | KEY_SHIFT, COMMAND_COMMAND_PALETTE, .global = true },
+    { SDLK_z, KEY_ALT, COMMAND_TOGGLE_WRAP },
+    { SDLK_SPACE, KEY_CTRL, COMMAND_TRIGGER_COMPLETION },
+    { SDLK_l, KEY_CTRL, COMMAND_SELECT_LINE },
+    { SDLK_k, KEY_CTRL | KEY_SHIFT, COMMAND_DELETE_LINE },
+    { SDLK_j, KEY_CTRL, COMMAND_JOIN_LINES },
+    { SDLK_F9, 0, COMMAND_SORT_LINES },
+    { SDLK_t, KEY_CTRL, COMMAND_TRANSPOSE },
+    { SDLK_DELETE, KEY_CTRL, COMMAND_DELETE_WORD_RIGHT },
+    { SDLK_RIGHTBRACKET, KEY_CTRL, COMMAND_INDENT_MORE },
+    { SDLK_LEFTBRACKET, KEY_CTRL, COMMAND_INDENT_LESS },
+    { SDLK_m, KEY_CTRL, COMMAND_GO_TO_BRACKET },
+    { SDLK_m, KEY_CTRL | KEY_SHIFT, COMMAND_SELECT_BETWEEN_BRACKETS },
+    { SDLK_UP, KEY_CTRL | KEY_SHIFT, COMMAND_ADD_CURSOR_ABOVE }, // the user's Pulsar keymap
+    { SDLK_DOWN, KEY_CTRL | KEY_SHIFT, COMMAND_ADD_CURSOR_BELOW },
+    { SDLK_UP, KEY_CTRL | KEY_ALT, COMMAND_ADD_CURSOR_ABOVE }, // the sublime keymap of the web editor
+    { SDLK_DOWN, KEY_CTRL | KEY_ALT, COMMAND_ADD_CURSOR_BELOW },
+    { SDLK_l, KEY_CTRL | KEY_SHIFT, COMMAND_SPLIT_SELECTION },
     { SDLK_EQUALS, KEY_CTRL, COMMAND_FONT_BIGGER },
     { SDLK_EQUALS, KEY_CTRL | KEY_SHIFT, COMMAND_FONT_BIGGER }, // Ctrl+plus on the us layout
     { SDLK_1, KEY_CTRL | KEY_SHIFT, COMMAND_FONT_BIGGER },      // Ctrl+plus on the Swiss (ch) layout
@@ -81,10 +119,11 @@ static unsigned binding_modifiers(SDL_Keymod modifiers) {
            (modifiers & KMOD_LALT ? KEY_ALT : 0);
 }
 
-const struct key_binding *keymap_lookup(SDL_Keycode key, SDL_Keymod modifiers, bool *extend) {
+const struct key_binding *keymap_lookup(SDL_Keycode key, SDL_Keymod modifiers, enum key_context context, bool *extend) {
     unsigned pressed = binding_modifiers(modifiers);
     for (size_t i = 0; i < sizeof keymap / sizeof keymap[0]; i++) {
         const struct key_binding *binding = &keymap[i];
+        if (binding->context != CONTEXT_ANY && binding->context != context) continue;
         unsigned compared = binding->shift_extends ? pressed & ~KEY_SHIFT : pressed;
         if (binding->key == key && binding->modifiers == compared) {
             *extend = binding->shift_extends && (pressed & KEY_SHIFT);
