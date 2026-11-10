@@ -103,7 +103,8 @@ size_t overlay_text_columns(const char *text, size_t length) { return length; }
 #define SIGNATURES "osc\tsrc\tfrequency:float:60\tsync:float:0.1\toffset:float:0\nnoise\tsrc\tscale:float:10\toffset:float:0.1\n" \
                    "src\tsrc\ttex:sampler2D:\nmodulate\tcombineCoord\ttexture:vec4:\tamount:float:0.1\n"               \
                    "rotate\tcoord\tangle:float:10\tspeed:float:0\n"                                                 \
-                   "initCam\tsource\tindex?:number:\tparams?:object:\n"
+                   "initCam\tsource\tindex?:number:\tparams?:object:\n"                                         \
+                   "render\tsynth\tsource?:HydraSource:\nsetBins\taudio\tnumBins:number:\n"
 static bool set_function_called;
 
 static char *evaluate(const char *code, size_t length, const char *name) {
@@ -120,7 +121,7 @@ static char *call(const char *function, const char *argument) {
     if (!strcmp(function, "__randomExample")) return strdup("noise().out()");
     if (!strcmp(function, "__mutate")) return strdup("noise(9).out()");
     if (!strcmp(function, "__mutateUndo")) return strdup("noise().out()");
-    if (!strcmp(function, "__completionNames")) return strdup("noise\nosc\nout");
+    if (!strcmp(function, "__completionNames")) return strdup("noise\nosc\nout\nmodulate");
     if (!strcmp(function, "__functionSignatures"))
         return strdup(set_function_called ? SIGNATURES "wobble\tcolor\tamount:float:0.5\n" : SIGNATURES);
     if (!strcmp(function, "__numberHelpers")) return strdup("cc[]\ntime");
@@ -571,6 +572,34 @@ static void test_signatures(void) {
     key(SDLK_TAB, 0);
     key(SDLK_RETURN, SDL_KMOD_LCTRL);
     EXPECT_STRING(evaluated, "osc().modulate(o2, () => cc[3])");
+
+    // The types decide: src() takes outputs and sources only, s0. and a. have their own methods, Math. gets no
+    // hydra names, render() takes an output, and a statement does not start with a transform.
+    struct { const char *code; const char *present; const char *absent; } typed[] = {
+        { "src(|)", "o0\no1\no2\no3\ns0\ns1\ns2\ns3\n", "osc\n" },
+        { "s0.|", "initCam\n", "modulate\n" },
+        { "a.|", "setBins\n", "modulate\n" },
+        { "Math.|", NULL, "modulate\n" },
+        { "render(|)", "o0\no1\no2\no3\n", "s0\n" },
+        { "mod|", NULL, "modulate\n" },
+        { "osc().mod|", "modulate\n", NULL },
+    };
+    for (size_t i = 0; i < sizeof typed / sizeof typed[0]; i++) {
+        const char *bar = strchr(typed[i].code, '|');
+        char code[64];
+        snprintf(code, sizeof code, "%.*s%s", (int)(bar - typed[i].code), typed[i].code, bar + 1);
+        ui_set_code(code);
+        key(SDLK_HOME, 0);
+        for (const char *c = typed[i].code; c < bar; c++) key(SDLK_RIGHT, 0);
+        key(SDLK_SPACE, SDL_KMOD_LCTRL);
+        ui_draw(800, 600, 0);
+        if (typed[i].present) EXPECT_CONTAINS(drawn, typed[i].present);
+        if (typed[i].absent && strstr(drawn, typed[i].absent)) {
+            fprintf(stderr, "%s:%d: %s offers %s", __FILE__, __LINE__, typed[i].code, typed[i].absent);
+            failures++;
+        }
+        key(SDLK_ESCAPE, 0);
+    }
 
     // Tab stops: the transform with its defaults, Tab and Shift+Tab between the arguments, the last Tab leaves.
     ui_set_code("osc().");

@@ -660,25 +660,83 @@ static void add_function_completion(const char *name, size_t length) {
     add_completion(name, length, signature && !call_follows ? insert : NULL);
 }
 
-// Completions by the type of the argument at the word that starts at `start`: transforms after a ".", textures
-// for a texture input, values and helpers for a number input. False when the place has no type.
+static bool is_identifier_char(unsigned char c);
+
+static const char *const OUTPUT_NAMES[] = { "o0", "o1", "o2", "o3" };
+static const char *const SOURCE_NAMES[] = { "s0", "s1", "s2", "s3" };
+
+static void add_names(const char *const *names, size_t count, const char *prefix, size_t length) {
+    for (size_t i = 0; i < count; i++)
+        if (starts_with(names[i], prefix, length)) add_completion(names[i], strlen(names[i]), NULL);
+}
+
+static void add_functions_of_kind(const char *kind, const char *prefix, size_t length) {
+    for (size_t i = 0; i < signature_count; i++)
+        if (!strcmp(signatures[i].kind, kind) && starts_with(signatures[i].name, prefix, length))
+            add_function_completion(signatures[i].name, strlen(signatures[i].name));
+}
+
+// What stands before the "." at `dot`: a hydra chain (a call of a source or a transform), a source s0 to s3, the
+// audio object a, or something else, such as Math.
+enum receiver { RECEIVER_OTHER, RECEIVER_CHAIN, RECEIVER_SOURCE, RECEIVER_AUDIO };
+
+static enum receiver receiver_before(size_t dot) {
+    const char *text = editor.text;
+    size_t end = dot;
+    while (end > 0 && isspace((unsigned char)text[end - 1])) end--;
+    if (end > 0 && text[end - 1] == ')') {
+        size_t depth = 0, open = end;
+        while (open > 0) {
+            char c = text[--open];
+            if (c == ')') depth++;
+            else if (c == '(' && --depth == 0) break;
+        }
+        if (depth != 0) return RECEIVER_OTHER;
+        size_t name_end = open;
+        while (name_end > 0 && isspace((unsigned char)text[name_end - 1])) name_end--;
+        size_t name_start = name_end;
+        while (name_start > 0 && is_identifier_char((unsigned char)text[name_start - 1])) name_start--;
+        const struct signature *called = signature_find(signatures, signature_count, text + name_start, name_end - name_start);
+        return called && (signature_is_source(called) || signature_is_chained(called)) ? RECEIVER_CHAIN : RECEIVER_OTHER;
+    }
+    size_t start = end;
+    while (start > 0 && is_identifier_char((unsigned char)text[start - 1])) start--;
+    if (end - start == 2 && text[start] == 's' && text[start + 1] >= '0' && text[start + 1] <= '3') return RECEIVER_SOURCE;
+    if (end - start == 1 && text[start] == 'a') return RECEIVER_AUDIO;
+    return RECEIVER_OTHER;
+}
+
+// Completions by type at the word that starts at `start`: after a ".", the methods of what stands before it; in
+// an argument, what its type allows. False when the place has no type.
 static bool open_typed_completion(const char *prefix, size_t length, size_t start) {
     if (start > 0 && editor.text[start - 1] == '.') {
-        for (size_t i = 0; i < signature_count; i++)
-            if (signature_is_chained(&signatures[i]) && starts_with(signatures[i].name, prefix, length))
-                add_function_completion(signatures[i].name, strlen(signatures[i].name));
-        if (starts_with("out", prefix, length)) add_completion("out", 3, "out(${o0})");
-        return true;
+        switch (receiver_before(start - 1)) {
+        case RECEIVER_CHAIN:
+            for (size_t i = 0; i < signature_count; i++)
+                if (signature_is_chained(&signatures[i]) && starts_with(signatures[i].name, prefix, length))
+                    add_function_completion(signatures[i].name, strlen(signatures[i].name));
+            if (starts_with("out", prefix, length)) add_completion("out", 3, "out(${o0})");
+            return true;
+        case RECEIVER_SOURCE: add_functions_of_kind("source", prefix, length); return true;
+        case RECEIVER_AUDIO: add_functions_of_kind("audio", prefix, length); return true;
+        case RECEIVER_OTHER: return false;
+        }
     }
     struct call_context call;
     const struct signature *signature = call_at(start, &call);
     if (!signature || !call.direct || call.argument >= signature->input_count) return false;
-    if (!signature_is_source(signature) && !signature_is_chained(signature)) return false; // not a glsl function
     const struct signature_input *input = &signature->inputs[call.argument];
-    if (signature_input_is_texture(input)) {
-        static const char *const textures[] = { "o0", "o1", "o2", "o3", "s0", "s1", "s2", "s3" };
-        for (size_t i = 0; i < sizeof textures / sizeof textures[0]; i++)
-            if (starts_with(textures[i], prefix, length)) add_completion(textures[i], strlen(textures[i]), NULL);
+    bool glsl = signature_is_source(signature) || signature_is_chained(signature);
+    if (!glsl) { // the functions of js/api-signatures.js, typed in TypeScript notation
+        if (!strcmp(input->type, "HydraOutput") || !strcmp(input->type, "HydraSource")) {
+            add_names(OUTPUT_NAMES, 4, prefix, length); // out(o1), render(o2)
+            return true;
+        }
+        if (strcmp(input->type, "number") != 0) return true; // a string or an object: nothing to offer
+    } else if (signature_input_is_texture(input)) {
+        add_names(OUTPUT_NAMES, 4, prefix, length);
+        add_names(SOURCE_NAMES, 4, prefix, length);
+        if (!strcmp(input->type, "sampler2D")) return true; // src() takes an output or a source, not a chain
         if (starts_with("src", prefix, length)) add_completion("src", 3, "src(${o0})");
         for (size_t i = 0; i < signature_count; i++)
             if (signature_is_source(&signatures[i]) && starts_with(signatures[i].name, prefix, length))
@@ -720,9 +778,18 @@ static void open_completion(bool forced) {
     completion.limit = MAX_COMPLETIONS;
     if (!open_typed_completion(prefix, length, start)) {
         completion.limit = MAX_NAME_COMPLETIONS;
-        char *names = host.call("__completionNames", "");
-        for (char *name = names ? strtok(names, "\n") : NULL; name && completion.count < completion.limit; name = strtok(NULL, "\n"))
+        // After an unknown object and its "." hydra names do not fit; at the start of a statement the transforms of
+        // a chain do not either, because they need a chain before them.
+        bool after_dot = start > 0 && editor.text[start - 1] == '.';
+        size_t before = start;
+        while (before > 0 && (editor.text[before - 1] == ' ' || editor.text[before - 1] == '\t')) before--;
+        bool statement_start = before == 0 || strchr("\n;{}", editor.text[before - 1]) != NULL;
+        char *names = after_dot ? NULL : host.call("__completionNames", "");
+        for (char *name = names ? strtok(names, "\n") : NULL; name && completion.count < completion.limit; name = strtok(NULL, "\n")) {
+            const struct signature *named = signature_find(signatures, signature_count, name, strlen(name));
+            if (statement_start && named && signature_is_chained(named)) continue;
             if (strlen(name) > length && !strncmp(name, prefix, length)) add_completion(name, strlen(name), NULL);
+        }
         free(names);
         char **words;
         size_t count = editor_words(&editor, prefix, length, &words);
