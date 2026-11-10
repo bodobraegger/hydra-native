@@ -51,8 +51,8 @@
     X(RIGHT, "right") \
     X(UP, "up") \
     X(DOWN, "down") \
-    X(WORD_LEFT, "word left") \
-    X(WORD_RIGHT, "word right") \
+    X(WORD_LEFT, "group left (word, punctuation or line end)") \
+    X(WORD_RIGHT, "group right (word, punctuation or line end)") \
     X(LINE_START, "line start") \
     X(LINE_END, "line end") \
     X(PAGE_UP, "page up") \

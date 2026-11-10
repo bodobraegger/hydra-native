@@ -85,7 +85,7 @@ static const struct key_binding keymap[] = {
     { SDLK_F3, KEY_CTRL | KEY_SHIFT, COMMAND_FIND_UNDER_PREVIOUS },
     { SDLK_F3, KEY_ALT, COMMAND_FIND_ALL_UNDER },
     { SDLK_SPACE, KEY_CTRL | KEY_SHIFT, COMMAND_SELECT_SCOPE },
-    { SDLK_q, KEY_ALT, COMMAND_HARD_WRAP },
+    { SDLK_q, KEY_ALT, COMMAND_NONE }, // wrapLines of the sublime keymap needs the hardwrap addon, which the web lacks
     { SDLK_LEFTBRACKET, KEY_CTRL | KEY_SHIFT, COMMAND_NONE }, // fold: the web editor loads no fold addon
     { SDLK_RIGHTBRACKET, KEY_CTRL | KEY_SHIFT, COMMAND_NONE },
 

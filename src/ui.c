@@ -701,8 +701,8 @@ static void run_command(enum command command, bool extend) {
     case COMMAND_RIGHT: editor_move(&editor, MOTION_RIGHT, extend); break;
     case COMMAND_UP: editor_move(&editor, MOTION_UP, extend); break;
     case COMMAND_DOWN: editor_move(&editor, MOTION_DOWN, extend); break;
-    case COMMAND_WORD_LEFT: editor_move(&editor, MOTION_WORD_LEFT, extend); break;
-    case COMMAND_WORD_RIGHT: editor_move(&editor, MOTION_WORD_RIGHT, extend); break;
+    case COMMAND_WORD_LEFT: editor_move(&editor, MOTION_GROUP_LEFT, extend); break;
+    case COMMAND_WORD_RIGHT: editor_move(&editor, MOTION_GROUP_RIGHT, extend); break;
     case COMMAND_LINE_START: editor_move(&editor, MOTION_LINE_START, extend); break;
     case COMMAND_LINE_END: editor_move(&editor, MOTION_LINE_END, extend); break;
     case COMMAND_DOCUMENT_START: editor_move(&editor, MOTION_DOCUMENT_START, extend); break;

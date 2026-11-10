@@ -554,6 +554,46 @@ static void vertical(struct editor *editor, long rows, bool extend) {
     editor->has_goal_column = true;
 }
 
+// The word characters of CodeMirror 5: \w and letters outside ASCII ("$" is no word character there).
+static bool is_codemirror_word(const struct editor *editor, size_t offset) {
+    unsigned char c = (unsigned char)editor->text[offset];
+    return isalnum(c) || c == '_' || c >= 0x80;
+}
+
+// findPosH(..., "group") of CodeMirror 5, the motion of Ctrl+Left and Ctrl+Right (goGroupLeft, goGroupRight) and of
+// Ctrl+Backspace and Ctrl+Delete: a run of word characters, of punctuation, or one line end; spaces before a run
+// go with it.
+static size_t group_position(const struct editor *editor, size_t offset, int direction) {
+    size_t position = offset;
+    char saw = 0;
+    // Moves one character; across a line end only on the first move.
+    #define MOVE_ONCE(bound_to_line) \
+        (direction < 0 ? (position > 0 && (!(bound_to_line) || editor->text[position - 1] != '\n') \
+                              ? (position = previous_char(editor, position), true) : false) \
+                       : (position < editor->length && (!(bound_to_line) || editor->text[position] != '\n') \
+                              ? (position = next_char(editor, position), true) : false))
+    for (bool first = true;; first = false) {
+        if (direction < 0 && !MOVE_ONCE(!first)) break;
+        char type;
+        if (position >= editor->length || editor->text[position] == '\n') type = 'n';
+        else if (is_codemirror_word(editor, position)) type = 'w';
+        else if (isspace((unsigned char)editor->text[position])) type = 0;
+        else type = 'p';
+        if (!first && !type) type = 's';
+        if (saw && saw != type) {
+            if (direction < 0) {
+                direction = 1;
+                MOVE_ONCE(false);
+            }
+            break;
+        }
+        if (type) saw = type;
+        if (direction > 0 && !MOVE_ONCE(!first)) break;
+    }
+    #undef MOVE_ONCE
+    return position;
+}
+
 static size_t word_left(const struct editor *editor, size_t offset) {
     while (offset > 0 && class_of((unsigned char)editor->text[offset - 1]) == CLASS_SPACE) offset--;
     if (offset == 0) return 0;
@@ -631,6 +671,8 @@ static void move_one(struct editor *editor, void *data) {
     case MOTION_LINE_END: offset = editor_line_end(editor, line); break;
     case MOTION_WORD_LEFT: offset = word_left(editor, offset); break;
     case MOTION_WORD_RIGHT: offset = word_right(editor, offset); break;
+    case MOTION_GROUP_LEFT: offset = group_position(editor, offset, -1); break;
+    case MOTION_GROUP_RIGHT: offset = group_position(editor, offset, 1); break;
     case MOTION_SUBWORD_LEFT: offset = collapse ? start : subword(editor, offset, -1); break;
     case MOTION_SUBWORD_RIGHT: offset = collapse ? end : subword(editor, offset, 1); break;
     case MOTION_DOCUMENT_START: offset = 0; break;
@@ -927,8 +969,7 @@ void editor_delete_forward(struct editor *editor) {
 
 static void delete_word_one(struct editor *editor, void *data) {
     int direction = *(const int *)data;
-    if (!editor_has_selection(editor))
-        editor->anchor = direction < 0 ? word_left(editor, editor->cursor) : word_right(editor, editor->cursor);
+    if (!editor_has_selection(editor)) editor->anchor = group_position(editor, editor->cursor, direction);
     replace_selection(editor, "", 0);
 }
 

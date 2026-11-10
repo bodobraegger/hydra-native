@@ -19,6 +19,8 @@ enum motion {
     MOTION_LINE_END,
     MOTION_WORD_LEFT,
     MOTION_WORD_RIGHT,
+    MOTION_GROUP_LEFT, // goGroupLeft of CodeMirror 5 (Ctrl+Left)
+    MOTION_GROUP_RIGHT,
     MOTION_SUBWORD_LEFT, // camelCase parts, Alt+Left in the sublime keymap
     MOTION_SUBWORD_RIGHT,
     MOTION_DOCUMENT_START,
@@ -124,7 +126,7 @@ void editor_type(struct editor *editor, const char *text, size_t length); // typ
 void editor_insert_newline(struct editor *editor); // keeps the indentation, indents after an opening bracket
 void editor_backspace(struct editor *editor);
 void editor_delete_forward(struct editor *editor);
-void editor_delete_word(struct editor *editor, int direction);
+void editor_delete_word(struct editor *editor, int direction); // delGroupBefore and delGroupAfter of CodeMirror 5
 void editor_delete_selection(struct editor *editor);
 void editor_transpose(struct editor *editor);
 bool editor_undo(struct editor *editor);

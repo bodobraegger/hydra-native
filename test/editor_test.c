@@ -298,7 +298,7 @@ static void test_more_line_commands(void) {
     EXPECT_TEXT(&editor, "x\ny");
     load(&editor, "osc() noise()");
     editor_move(&editor, MOTION_DOCUMENT_END, false);
-    editor_delete_word(&editor, -1); // the brackets are one word of punctuation
+    editor_delete_word(&editor, -1); // the brackets are one group of punctuation
     EXPECT_TEXT(&editor, "osc() noise");
     editor_go_to_line(&editor, 0);
     EXPECT(editor.cursor == 0);
@@ -336,6 +336,31 @@ static void test_wrap(void) {
     editor.wrap_columns = 8;
     rows = editor_wrap_rows(&editor, 0, starts, 8);
     EXPECT(rows == 2 && starts[1] == 8); // breaks after the last space
+    editor_free(&editor);
+}
+
+static void test_group_motion(void) {
+    struct editor editor;
+    editor_init(&editor);
+    load(&editor, "osc(10).out()\nnoise $x");
+    editor_move(&editor, MOTION_GROUP_RIGHT, false);
+    EXPECT(editor.cursor == 3); // "osc"
+    editor_move(&editor, MOTION_GROUP_RIGHT, false);
+    EXPECT(editor.cursor == 4); // "("
+    editor_move(&editor, MOTION_DOCUMENT_START, false);
+    editor_set_cursor(&editor, 13, false); // the line end
+    editor_move(&editor, MOTION_GROUP_RIGHT, false);
+    EXPECT(editor.cursor == 14); // one line end is a group of its own
+    editor_move(&editor, MOTION_GROUP_RIGHT, false);
+    EXPECT(editor.cursor == 19); // "noise"
+    editor_move(&editor, MOTION_GROUP_RIGHT, false);
+    EXPECT(editor.cursor == 21); // " $": "$" is punctuation in CodeMirror
+    editor_move(&editor, MOTION_GROUP_LEFT, false);
+    EXPECT(editor.cursor == 20);
+    editor_move(&editor, MOTION_GROUP_LEFT, false);
+    EXPECT(editor.cursor == 14);
+    editor_move(&editor, MOTION_GROUP_LEFT, false);
+    EXPECT(editor.cursor == 13);
     editor_free(&editor);
 }
 
@@ -416,6 +441,7 @@ int main(void) {
     test_more_line_commands();
     test_wrap();
     test_sublime_commands();
+    test_group_motion();
     if (failures) {
         fprintf(stderr, "editor_test: %d failures\n", failures);
         return 1;
