@@ -28,10 +28,6 @@ a distributed hydra-native binary with its bundle falls under the AGPL-3.0.
 - libremidi 5.4.3 by Jean-Michaël Celerier, BSD-2-Clause license (with parts of RtMidi, MIT license).
   https://github.com/celtera/libremidi. MIDI input and output on macOS (CoreMIDI) and Windows (WinMM) in its
   header-only mode; src/midi_libremidi.cc.
-- miniaudio 0.11.25 by David Reid, public domain or MIT No Attribution (MIT-0), miniaudio.h and miniaudio.c of
-  commit 9634bedb5b5a2ca38c1ee7108a9358a4e233f14d of https://github.com/mackron/miniaudio.
-  The audio input on macOS (Core Audio) and Windows (WASAPI, also the loopback of the output);
-  src/audio_input_miniaudio.c.
 - SheenBidi 2.9.0 by Muhammad Tayyab Akram, Apache-2.0 license. https://github.com/Tehreer/SheenBidi
   The Unicode bidi algorithm (UAX #9) for the text of panels and prompts (src/overlay.c); built from
   Source/SheenBidi.c with SB_CONFIG_UNITY.

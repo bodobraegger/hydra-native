@@ -97,6 +97,7 @@ static int capture(void *argument) {
 
 bool audio_start(const char *device) {
     if (started) return true;
+    if (!audio_input_init()) return false;
     snprintf(device_name, sizeof device_name, "%s", device ? device : "");
     SDL_Thread *thread = SDL_CreateThread(capture, "audio", NULL);
     started = thread != NULL;

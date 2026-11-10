@@ -1,7 +1,7 @@
 # Porting hydra-native to macOS and Windows
 
 hydra-native runs on Linux. This file lists what still ties it to Linux, module by module, and the library that
-replaces each part on macOS and Windows. The libraries are the ones that we agreed on: ANGLE, miniaudio,
+replaces each part on macOS and Windows. The libraries are the ones that we agreed on: ANGLE, SDL3 audio,
 libremidi, libcurl and quickjs-ng. Video files, recording and the webRTC patch bay keep their child
 processes (ffmpeg, Node.js) on all three systems; "Media on macOS and Windows" below gives the reasons.
 
@@ -61,7 +61,7 @@ d3dcompiler_47.dll comes with ANGLE.
 | settings file                  | XDG_CONFIG_HOME/hydra-native         | SDL_GetPrefPath                             |
 | downloads (fetch, loadScript)  | curl processes (src/fetch.c)         | libcurl in the process                      |
 | JavaScript                     | QuickJS                              | quickjs-ng (also builds with MSVC)          |
-| audio input and `a`            | PulseAudio (src/audio_input_pulse.c) | miniaudio (src/audio_input_miniaudio.c)     |
+| audio input and `a`            | PulseAudio (src/audio_input_pulse.c) | SDL3 (src/audio_input_sdl.c)                |
 | WebRTC audio processing        | system libwebrtc-audio-processing-1  | version 1.3, built from source by CMake     |
 | MIDI                           | ALSA sequencer (src/midi.c)          | libremidi (src/midi_libremidi.cc)           |
 | media child processes          | posix_spawn, process group           | posix_spawn; CreateProcess, job object      |
@@ -79,14 +79,13 @@ d3dcompiler_47.dll comes with ANGLE.
 The audio input has one interface, src/audio_input.h: 10 ms frames of mono samples at 48 kHz. Linux keeps the
 simple API of PulseAudio (src/audio_input_pulse.c), because it takes the source names of PulseAudio and PipeWire,
 also @DEFAULT_MONITOR@ for the system output, and it reads 10 ms fragments without a ring buffer between.
-macOS and Windows use miniaudio 0.11.25 (src/audio_input_miniaudio.c). miniaudio is one file in the public
-domain, and it has the WASAPI loopback, which the audio capture of SDL3 does not have. `--audio TEXT` selects the first input whose name contains TEXT; without a
-match, hydra-native lists the inputs.
+macOS and Windows use the audio recording of SDL3 (src/audio_input_sdl.c), which is in the program already.
+`--audio TEXT` selects the first input whose name contains TEXT; without a match, hydra-native lists the inputs.
 
 The system output (`--audio @DEFAULT_MONITOR@`):
 
 - Linux: the monitor source of the default sink in PulseAudio or PipeWire.
-- Windows: the WASAPI loopback of the default output.
+- Windows: not available.
 - macOS has no loopback capture in Core Audio. Install a virtual loopback device such as BlackHole, make it the
   output (or part of a multi-output device in Audio MIDI Setup), and give its name: `--audio BlackHole`. Two
   other ways are not done: the audio of ScreenCaptureKit (macOS 13 and newer) and the process taps of Core Audio
@@ -109,7 +108,7 @@ system when it is plausible, else the time of the callback. midi_poll() converts
 performance.now(), which the caller passes. hydra-native opens every input, also inputs that appear later, and
 opens an output on its first message.
 
-On Linux, `cmake -DHYDRA_MINIAUDIO_LIBREMIDI=ON` builds the miniaudio and libremidi code (with PulseAudio and the
+On Linux, `cmake -DHYDRA_SDL_AUDIO_LIBREMIDI=ON` builds the SDL3 audio and libremidi code (with PulseAudio and the
 ALSA sequencer) to test it: midi-test passes with it. The code for Core Audio, WASAPI,
 CoreMIDI and WinMM is not tried on a Mac or a Windows PC yet.
 

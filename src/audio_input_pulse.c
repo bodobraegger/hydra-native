@@ -8,6 +8,8 @@
 #include "audio_input.h"
 
 static pa_simple *stream;
+bool audio_input_init(void) { return true; }
+
 bool audio_input_open(const char *device) {
     pa_sample_spec spec = { .format = PA_SAMPLE_FLOAT32LE, .rate = AUDIO_SAMPLE_RATE, .channels = 1 };
     pa_buffer_attr attributes = {

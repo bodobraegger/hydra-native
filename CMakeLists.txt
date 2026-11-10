@@ -20,7 +20,6 @@ set(SHEENBIDI_VERSION 2.9.0)
 set(WEBRTC_APM_VERSION 1.3)
 set(ABSEIL_VERSION 20230125.1)
 set(STB_COMMIT 4e9b368bfc071e97206ea5c6adba68dd0cbf8897)
-set(MINIAUDIO_COMMIT 9634bedb5b5a2ca38c1ee7108a9358a4e233f14d) # 0.11.25
 set(LIBREMIDI_VERSION 5.4.3)
 set(EMOJI_FONT_COMMIT 8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5)
 set(GITHUB_RAW https://raw.githubusercontent.com)
@@ -260,37 +259,19 @@ endif()
 # ---------------------------------------------------------------- audio input and MIDI
 
 # The audio analysis of `a` with the audio input of the system (src/audio_input.h), and MIDI (src/midi.h):
-# PulseAudio and the ALSA sequencer on Linux, miniaudio and libremidi on macOS and Windows. On Linux,
-# HYDRA_MINIAUDIO_LIBREMIDI builds the code of macOS and Windows instead, to test it. The MIDI lists of that build
+# PulseAudio and the ALSA sequencer on Linux, SDL3 and libremidi on macOS and Windows. On Linux,
+# HYDRA_SDL_AUDIO_LIBREMIDI builds the code of macOS and Windows instead, to test it. The MIDI lists of that build
 # also show the ALSA ports of libremidi itself, which CoreMIDI and WinMM do not have.
 if(HYDRA_LINUX)
-  option(HYDRA_MINIAUDIO_LIBREMIDI "Use miniaudio and libremidi as on macOS and Windows" OFF)
+  option(HYDRA_SDL_AUDIO_LIBREMIDI "Use SDL3 audio and libremidi as on macOS and Windows" OFF)
   pkg_check_modules(AUDIO_MIDI REQUIRED IMPORTED_TARGET libpulse-simple libpulse alsa)
 endif()
 add_library(hydra-audio-midi OBJECT src/audio.c src/audio_processing.c)
-if(HYDRA_LINUX AND NOT HYDRA_MINIAUDIO_LIBREMIDI)
+if(HYDRA_LINUX AND NOT HYDRA_SDL_AUDIO_LIBREMIDI)
   target_sources(hydra-audio-midi PRIVATE src/audio_input_pulse.c src/midi.c)
   target_link_libraries(hydra-audio-midi PUBLIC PkgConfig::AUDIO_MIDI)
 else()
-  vendor_file(miniaudio/miniaudio.h ${GITHUB_RAW}/mackron/miniaudio/${MINIAUDIO_COMMIT}/miniaudio.h
-    ac7af4de748b7e26b777f37e01cee313a308a7296a3eb080e2906b320cc55c89)
-  vendor_file(miniaudio/miniaudio.c ${GITHUB_RAW}/mackron/miniaudio/${MINIAUDIO_COMMIT}/miniaudio.c
-    ab1984bb9804ffd7b0303813595d0b345a8a86c34da1daffc353a14b34102a65)
-  add_library(miniaudio STATIC ${VENDOR}/miniaudio/miniaudio.c)
-  target_compile_definitions(miniaudio PUBLIC MA_NO_DECODING MA_NO_ENCODING MA_NO_GENERATION MA_NO_RESOURCE_MANAGER
-    MA_NO_NODE_GRAPH MA_NO_ENGINE)
-  target_compile_options(miniaudio PRIVATE ${QUIET})
-  target_include_directories(miniaudio PUBLIC ${VENDOR}/miniaudio)
-  target_sources(hydra-audio-midi PRIVATE src/audio_input_miniaudio.c)
-  target_link_libraries(hydra-audio-midi PUBLIC miniaudio)
-  if(APPLE)
-    target_sources(hydra-audio-midi PRIVATE src/audio_volume_coreaudio.c)
-    target_link_libraries(hydra-audio-midi PUBLIC "-framework CoreFoundation" "-framework CoreAudio"
-      "-framework AudioToolbox")
-  elseif(WIN32)
-    target_sources(hydra-audio-midi PRIVATE src/audio_volume_wasapi.c)
-    target_link_libraries(hydra-audio-midi PUBLIC ole32)
-  endif()
+  target_sources(hydra-audio-midi PRIVATE src/audio_input_sdl.c)
 
   # libremidi in its header-only mode, with only the backend of the system: CoreMIDI, WinMM, or the ALSA
   # sequencer (opened at run time) for the test build of Linux.
@@ -384,9 +365,9 @@ target_compile_definitions(audio-test PRIVATE WEBRTC_APM_FILE="${WEBRTC_APM_FILE
 set(UNIT_TESTS editor-test ui-test audio-test process-test)
 # The MIDI test is for Linux (ALSA).
 if(HYDRA_LINUX)
-# midi-test sends through the ALSA sequencer; with HYDRA_MINIAUDIO_LIBREMIDI it tests src/midi_libremidi.cc.
+# midi-test sends through the ALSA sequencer; with HYDRA_SDL_AUDIO_LIBREMIDI it tests src/midi_libremidi.cc.
 add_executable(midi-test EXCLUDE_FROM_ALL test/midi_test.c)
-if(HYDRA_MINIAUDIO_LIBREMIDI)
+if(HYDRA_SDL_AUDIO_LIBREMIDI)
   target_sources(midi-test PRIVATE src/midi_libremidi.cc)
   target_link_libraries(midi-test PRIVATE libremidi)
   set_target_properties(midi-test PROPERTIES LINKER_LANGUAGE CXX)
