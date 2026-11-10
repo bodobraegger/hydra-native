@@ -1,0 +1,11 @@
+{
+  "name": "hydra-native",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "hydra-synth": "1.4.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}
