@@ -19,6 +19,7 @@ set(SHEENBIDI_VERSION 2.9.0)
 set(WEBRTC_APM_VERSION 1.3)
 set(ABSEIL_VERSION 20230125.1)
 set(STB_COMMIT 4e9b368bfc071e97206ea5c6adba68dd0cbf8897)
+set(MINIAUDIO_COMMIT 9634bedb5b5a2ca38c1ee7108a9358a4e233f14d) # 0.11.25
 set(EMOJI_FONT_COMMIT 8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5)
 set(GITHUB_RAW https://raw.githubusercontent.com)
 
@@ -255,20 +256,44 @@ endif()
 
 # ---------------------------------------------------------------- audio input
 
-# The audio analysis of `a` with the audio input of the system (src/audio_input.h).
+# The audio analysis of `a` with the audio input of the system (src/audio_input.h): PulseAudio on Linux, miniaudio
+# on macOS and Windows. On Linux, HYDRA_MINIAUDIO_LIBREMIDI builds the code of macOS and Windows instead, to test
+# it; that build has no analog gain control.
 if(HYDRA_LINUX)
+  option(HYDRA_MINIAUDIO_LIBREMIDI "Use miniaudio and libremidi as on macOS and Windows" OFF)
   pkg_check_modules(AUDIO_MIDI REQUIRED IMPORTED_TARGET libpulse-simple libpulse alsa)
-  add_library(hydra-audio OBJECT src/audio.c src/audio_processing.c src/analog_agc.c src/audio_input_pulse.c)
-  target_link_libraries(hydra-audio PUBLIC PkgConfig::AUDIO_MIDI)
 endif()
-if(TARGET hydra-audio)
-  target_compile_options(hydra-audio PRIVATE ${WARNINGS})
-  target_compile_definitions(hydra-audio PRIVATE
-    WEBRTC_APM_LIBRARY_NAME="libhydra-webrtc-apm${CMAKE_SHARED_LIBRARY_SUFFIX}")
-  target_link_libraries(hydra-audio PUBLIC SDL3::SDL3 gles)
-  if(TARGET hydra-webrtc-apm)
-    add_dependencies(hydra-audio hydra-webrtc-apm)
+add_library(hydra-audio OBJECT src/audio.c src/audio_processing.c src/analog_agc.c)
+if(HYDRA_LINUX AND NOT HYDRA_MINIAUDIO_LIBREMIDI)
+  target_sources(hydra-audio PRIVATE src/audio_input_pulse.c)
+  target_link_libraries(hydra-audio PUBLIC PkgConfig::AUDIO_MIDI)
+else()
+  vendor_file(miniaudio/miniaudio.h ${GITHUB_RAW}/mackron/miniaudio/${MINIAUDIO_COMMIT}/miniaudio.h
+    ac7af4de748b7e26b777f37e01cee313a308a7296a3eb080e2906b320cc55c89)
+  vendor_file(miniaudio/miniaudio.c ${GITHUB_RAW}/mackron/miniaudio/${MINIAUDIO_COMMIT}/miniaudio.c
+    ab1984bb9804ffd7b0303813595d0b345a8a86c34da1daffc353a14b34102a65)
+  add_library(miniaudio STATIC ${VENDOR}/miniaudio/miniaudio.c)
+  target_compile_definitions(miniaudio PUBLIC MA_NO_DECODING MA_NO_ENCODING MA_NO_GENERATION MA_NO_RESOURCE_MANAGER
+    MA_NO_NODE_GRAPH MA_NO_ENGINE)
+  target_compile_options(miniaudio PRIVATE ${QUIET})
+  target_include_directories(miniaudio PUBLIC ${VENDOR}/miniaudio)
+  target_sources(hydra-audio PRIVATE src/audio_input_miniaudio.c)
+  target_link_libraries(hydra-audio PUBLIC miniaudio)
+  if(APPLE)
+    target_sources(hydra-audio PRIVATE src/audio_volume_coreaudio.c)
+    target_link_libraries(hydra-audio PUBLIC "-framework CoreFoundation" "-framework CoreAudio"
+      "-framework AudioToolbox")
+  elseif(WIN32)
+    target_sources(hydra-audio PRIVATE src/audio_volume_wasapi.c)
+    target_link_libraries(hydra-audio PUBLIC ole32)
   endif()
+endif()
+target_compile_options(hydra-audio PRIVATE ${WARNINGS})
+target_compile_definitions(hydra-audio PRIVATE $<$<C_COMPILER_ID:MSVC>:_USE_MATH_DEFINES>
+  WEBRTC_APM_LIBRARY_NAME="libhydra-webrtc-apm${CMAKE_SHARED_LIBRARY_SUFFIX}")
+target_link_libraries(hydra-audio PUBLIC SDL3::SDL3 gles)
+if(TARGET hydra-webrtc-apm)
+  add_dependencies(hydra-audio hydra-webrtc-apm)
 endif()
 
 if(NOT HYDRA_LINUX)
@@ -302,7 +327,7 @@ target_compile_options(hydra-native PRIVATE ${WARNINGS})
 target_compile_definitions(hydra-native PRIVATE HYDRA_NATIVE_VERSION="${PROJECT_VERSION}")
 target_include_directories(hydra-native PRIVATE ${VENDOR}/stb)
 target_link_libraries(hydra-native PRIVATE quickjs plutovg harfbuzz sheenbidi hydra-audio SDL3::SDL3 PkgConfig::SYSTEM
-  m dl pthread)
+  PkgConfig::AUDIO_MIDI m dl pthread)
 # harfbuzz is C++, so the C++ driver links the program.
 set_target_properties(hydra-native PROPERTIES LINKER_LANGUAGE CXX)
 

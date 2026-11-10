@@ -25,6 +25,10 @@ a distributed hydra-native binary with its bundle falls under the AGPL-3.0.
   build/libhydra-webrtc-apm, which src/audio.c opens at run time.
 - Abseil 20230125.1 (the version of the abseil-cpp.wrap of webrtc-audio-processing 1.3), Apache-2.0 license.
   https://github.com/abseil/abseil-cpp. Headers only, for webrtc-audio-processing.
+- miniaudio 0.11.25 by David Reid, public domain or MIT No Attribution (MIT-0), miniaudio.h and miniaudio.c of
+  commit 9634bedb5b5a2ca38c1ee7108a9358a4e233f14d of https://github.com/mackron/miniaudio.
+  The audio input on macOS (Core Audio) and Windows (WASAPI, also the loopback of the output);
+  src/audio_input_miniaudio.c.
 - SheenBidi 2.9.0 by Muhammad Tayyab Akram, Apache-2.0 license. https://github.com/Tehreer/SheenBidi
   The Unicode bidi algorithm (UAX #9) for the text of panels and prompts (src/overlay.c); built from
   Source/SheenBidi.c with SB_CONFIG_UNITY.
