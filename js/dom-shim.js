@@ -1,4 +1,4 @@
-import { CanvasElement, Path2D } from './canvas.js'
+import { CanvasElement, CanvasGradient, CanvasPattern, ImageData, ImageElement, Path2D } from './canvas.js'
 import { Element } from './element.js'
 
 // The browser globals that hydra-synth, its lib/audio.js and the user's sketches use,
@@ -157,7 +157,10 @@ window.document = {
   documentElement,
   body: documentElement.appendChild(new Element('body')),
   head: documentElement.appendChild(new Element('head')),
-  createElement: (tagName) => String(tagName).toLowerCase() === 'canvas' ? new CanvasElement() : new Element(tagName),
+  createElement: (tagName) => {
+    const name = String(tagName).toLowerCase()
+    return name === 'canvas' ? new CanvasElement() : name === 'img' ? new ImageElement() : new Element(tagName)
+  },
   createElementNS: (namespace, tagName) => window.document.createElement(tagName),
   createTextNode: (text) => ({ nodeType: 3, textContent: String(text) }),
   getElementById: (id) => documentElement.getElementById(id),
@@ -191,6 +194,10 @@ window.navigator = {
 }
 
 window.Path2D = Path2D
+window.Image = ImageElement
+window.ImageData = ImageData
+window.CanvasGradient = CanvasGradient
+window.CanvasPattern = CanvasPattern
 
 window.AudioContext = class AudioContext {
   createMediaStreamSource () { return {} }

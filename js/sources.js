@@ -41,6 +41,7 @@ export function installSources (sourcePrototype) {
       width,
       height,
       command,
+      videoHandle: handle,
       upload: (texture) => native.videoUpload(handle, texture.id),
       close: () => native.videoClose(handle),
       get running () { return native.videoRunning(handle) }

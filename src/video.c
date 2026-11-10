@@ -112,6 +112,24 @@ bool video_upload(int handle, GLuint texture) {
     return fresh;
 }
 
+// Copies the newest frame (RGBA) into `pixels`, which holds width * height * 4 bytes of video_size().
+bool video_copy_frame(int handle, unsigned char *pixels) {
+    struct video_source *source = find_source(handle);
+    if (!source) return false;
+    pthread_mutex_lock(&source->lock);
+    memcpy(pixels, source->front, source->frame_size);
+    pthread_mutex_unlock(&source->lock);
+    return true;
+}
+
+bool video_size(int handle, int *width, int *height) {
+    struct video_source *source = find_source(handle);
+    if (!source) return false;
+    *width = source->width;
+    *height = source->height;
+    return true;
+}
+
 bool video_is_running(int handle) {
     struct video_source *source = find_source(handle);
     return source && source->running;

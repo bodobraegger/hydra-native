@@ -10,6 +10,8 @@
 int video_open(const char *command, int width, int height);
 bool video_upload(int handle, GLuint texture);
 bool video_is_running(int handle);
+bool video_size(int handle, int *width, int *height);
+bool video_copy_frame(int handle, unsigned char *pixels);
 void video_close(int handle);
 void video_close_all(void);
 

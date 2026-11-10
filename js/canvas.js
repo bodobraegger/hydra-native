@@ -3,8 +3,10 @@ import { Element } from './element.js'
 // A <canvas> element with a CanvasRenderingContext2D, drawn by src/canvas2d.c (plutovg).
 // It covers what hydra-text, hydra-canvas and s0.initCanvas() sketches use: rectangles, paths, arcs, text,
 // transforms, clipping, globalAlpha, composite operations and drawImage of other canvases.
-// Not covered: gradients, patterns, shadows, filters, line dashes, getImageData and putImageData;
-// roundRect draws a plain rectangle.
+// Gradients (also conic), patterns, shadows, line dashes, image data, images, all composite and blend
+// operations, and drawImage of canvases, images and video sources work. Shadows and the blend modes that
+// plutovg lacks draw into a layer that src/canvas2d.c composites; such a layer ignores the clip.
+// Not covered: filter, and roundRect draws a plain rectangle.
 
 const PATH_MOVE = 0
 const PATH_LINE = 1
@@ -137,7 +139,56 @@ export class Path2D {
 }
 
 const STATE_KEYS = ['fillStyle', 'strokeStyle', 'lineWidth', 'lineCap', 'lineJoin', 'miterLimit', 'globalAlpha',
-  'globalCompositeOperation', 'font', 'textAlign', 'textBaseline', 'matrix']
+  'globalCompositeOperation', 'font', 'textAlign', 'textBaseline', 'matrix', 'shadowColor', 'shadowBlur', 'shadowOffsetX',
+  'shadowOffsetY', 'lineDash', 'lineDashOffset', 'imageSmoothingEnabled']
+
+// The blend modes of src/canvas2d.c (enum blend_mode); they draw through a layer.
+const BLEND_MODES = {
+  'source-over': 0, lighter: 1, multiply: 2, screen: 3, overlay: 4, darken: 5, lighten: 6, 'color-dodge': 7,
+  'color-burn': 8, 'hard-light': 9, 'soft-light': 10, difference: 11, exclusion: 12, hue: 13, saturation: 14,
+  color: 15, luminosity: 16
+}
+const GRADIENT_LINEAR = 0
+const GRADIENT_RADIAL = 1
+
+export class CanvasGradient {
+  constructor (kind, coordinates) {
+    this.kind = kind
+    this.coordinates = coordinates
+    this.stops = []
+  }
+
+  addColorStop (offset, color) {
+    const parsed = parseColor(color)
+    if (!parsed) throw new SyntaxError(`addColorStop: ${color} is no color`)
+    this.stops.push([Number(offset), ...parsed])
+    this.stops.sort((a, b) => a[0] - b[0])
+  }
+}
+
+export class CanvasPattern {
+  constructor (source, repetition) {
+    this.source = source
+    this.repeat = repetition !== 'no-repeat'
+  }
+
+  setTransform () {}
+}
+
+export class ImageData {
+  constructor (dataOrWidth, width, height) {
+    if (typeof dataOrWidth === 'number') {
+      this.width = dataOrWidth
+      this.height = width
+      this.data = new Uint8ClampedArray(this.width * this.height * 4)
+    } else {
+      this.data = dataOrWidth
+      this.width = width
+      this.height = height ?? dataOrWidth.length / 4 / width
+    }
+    this.colorSpace = 'srgb'
+  }
+}
 
 class CanvasRenderingContext2D {
   constructor (canvas) {
@@ -161,7 +212,17 @@ class CanvasRenderingContext2D {
       globalCompositeOperation: 'source-over',
       textAlign: 'start',
       textBaseline: 'alphabetic',
-      matrix: [1, 0, 0, 1, 0, 0]
+      matrix: [1, 0, 0, 1, 0, 0],
+      shadowColor: 'rgba(0, 0, 0, 0)',
+      shadowBlur: 0,
+      shadowOffsetX: 0,
+      shadowOffsetY: 0,
+      lineDash: [],
+      lineDashOffset: 0,
+      imageSmoothingEnabled: true,
+      imageSmoothingQuality: 'low',
+      filter: 'none',
+      direction: 'inherit'
     })
     this._font = DEFAULT_FONT
     this.fontApplied = null
@@ -201,9 +262,70 @@ class CanvasRenderingContext2D {
   rotate (angle) { this.transform(Math.cos(angle), Math.sin(angle), -Math.sin(angle), Math.cos(angle), 0, 0) }
 
   paint (style) {
-    const [r, g, b, a] = parseColor(typeof style === 'string' ? style : '#000') || [0, 0, 0, 1]
+    const [r, g, b, a] = (typeof style === 'string' && parseColor(style)) || [0, 0, 0, 1]
+    // In a layer the operation applies when the layer is composited, so the drawing itself is source-over.
+    const operator = this.layered ? OPERATORS['source-over'] : OPERATORS[this.globalCompositeOperation] ?? OPERATORS['source-over']
     native.canvasPaint(this.id, r, g, b, a, this.lineWidth, LINE_CAPS[this.lineCap] ?? 0, LINE_JOINS[this.lineJoin] ?? 0,
-      this.miterLimit, this.globalAlpha, OPERATORS[this.globalCompositeOperation] ?? OPERATORS['source-over'])
+      this.miterLimit, this.globalAlpha, operator)
+    native.canvasDash(this.id, this.lineDashOffset, this.lineDash)
+    if (style instanceof CanvasGradient) {
+      const stops = style.stops.flat()
+      if (style.kind === 'conic') native.canvasConic(this.id, ...style.coordinates, stops)
+      else native.canvasGradient(this.id, style.kind, ...style.coordinates, stops)
+    } else if (style instanceof CanvasPattern) {
+      const handle = sourceHandle(style.source)
+      if (handle >= 0) native.canvasPattern(this.id, handle, style.repeat)
+    }
+    this.canvas.changed()
+  }
+
+  // Runs `draw` directly, or in a layer for a shadow or a blend mode that plutovg lacks.
+  draw (callback) {
+    const [, , , shadowAlpha] = parseColor(this.shadowColor) || [0, 0, 0, 0]
+    const shadow = shadowAlpha > 0 && (this.shadowBlur > 0 || this.shadowOffsetX !== 0 || this.shadowOffsetY !== 0)
+    const blend = BLEND_MODES[this.globalCompositeOperation]
+    const native2d = OPERATORS[this.globalCompositeOperation] !== undefined && this.globalCompositeOperation !== 'lighter'
+    if (!shadow && (native2d || blend === undefined)) return callback()
+    native.canvasLayerBegin(this.id)
+    this.layered = true
+    this.fontApplied = null
+    try {
+      callback()
+    } finally {
+      this.layered = false
+      this.fontApplied = null
+      const [r, g, b, a] = shadow ? parseColor(this.shadowColor) : [0, 0, 0, 0]
+      native.canvasLayerEnd(this.id, blend ?? 0, this.globalAlpha, this.shadowBlur, this.shadowOffsetX, this.shadowOffsetY,
+        r, g, b, a)
+      this.canvas.changed()
+    }
+  }
+
+  setLineDash (segments) {
+    const values = Array.from(segments, Number)
+    if (values.some((value) => !Number.isFinite(value) || value < 0)) return
+    this.lineDash = values.length % 2 ? [...values, ...values] : values
+  }
+
+  getLineDash () { return this.lineDash.slice() }
+
+  createLinearGradient (x0, y0, x1, y1) { return new CanvasGradient(GRADIENT_LINEAR, [x0, y0, 0, x1, y1, 0]) }
+  createRadialGradient (x0, y0, r0, x1, y1, r1) { return new CanvasGradient(GRADIENT_RADIAL, [x0, y0, r0, x1, y1, r1]) }
+  createConicGradient (angle, x, y) { return new CanvasGradient('conic', [angle, x, y]) }
+  createPattern (image, repetition) { return sourceHandle(image) >= 0 ? new CanvasPattern(image, repetition) : null }
+
+  createImageData (widthOrData, height) {
+    return widthOrData instanceof ImageData ? new ImageData(widthOrData.width, widthOrData.height) : new ImageData(widthOrData, height)
+  }
+
+  getImageData (x, y, width, height) {
+    return new ImageData(new Uint8ClampedArray(native.canvasGetImageData(this.id, x, y, width, height)), width, height)
+  }
+
+  putImageData (image, dx, dy, dirtyX = 0, dirtyY = 0, dirtyWidth = image.width, dirtyHeight = image.height) {
+    const data = image.data
+    const buffer = data.byteOffset === 0 && data.byteLength === data.buffer.byteLength ? data.buffer : data.slice().buffer
+    native.canvasPutImageData(this.id, buffer, image.width, image.height, dx, dy, dirtyX, dirtyY, dirtyWidth, dirtyHeight)
     this.canvas.changed()
   }
 
@@ -226,15 +348,19 @@ class CanvasRenderingContext2D {
   }
 
   fill (pathOrRule, rule) {
-    const evenOdd = this.pathAndRule(pathOrRule, rule)
-    this.paint(this.fillStyle)
-    native.canvasFill(this.id, evenOdd)
+    this.draw(() => {
+      const evenOdd = this.pathAndRule(pathOrRule, rule)
+      this.paint(this.fillStyle)
+      native.canvasFill(this.id, evenOdd)
+    })
   }
 
   stroke (path) {
-    native.canvasPath(this.id, (path instanceof Path2D ? path : this.path).ops)
-    this.paint(this.strokeStyle)
-    native.canvasStroke(this.id)
+    this.draw(() => {
+      native.canvasPath(this.id, (path instanceof Path2D ? path : this.path).ops)
+      this.paint(this.strokeStyle)
+      native.canvasStroke(this.id)
+    })
   }
 
   clip (pathOrRule, rule) {
@@ -242,13 +368,17 @@ class CanvasRenderingContext2D {
   }
 
   fillRect (x, y, width, height) {
-    this.paint(this.fillStyle)
-    native.canvasRect(this.id, RECT_FILL, x, y, width, height)
+    this.draw(() => {
+      this.paint(this.fillStyle)
+      native.canvasRect(this.id, RECT_FILL, x, y, width, height)
+    })
   }
 
   strokeRect (x, y, width, height) {
-    this.paint(this.strokeStyle)
-    native.canvasRect(this.id, RECT_STROKE, x, y, width, height)
+    this.draw(() => {
+      this.paint(this.strokeStyle)
+      native.canvasRect(this.id, RECT_STROKE, x, y, width, height)
+    })
   }
 
   clearRect (x, y, width, height) {
@@ -297,28 +427,38 @@ class CanvasRenderingContext2D {
     if (squeeze !== 1) native.canvasSetTransform(this.id, ...this.matrix)
   }
 
-  fillText (text, x, y, maxWidth) { this.drawText(text, x, y, maxWidth, false) }
-  strokeText (text, x, y, maxWidth) { this.drawText(text, x, y, maxWidth, true) }
+  fillText (text, x, y, maxWidth) { this.draw(() => this.drawText(text, x, y, maxWidth, false)) }
+  strokeText (text, x, y, maxWidth) { this.draw(() => this.drawText(text, x, y, maxWidth, true)) }
 
+  // Canvases, images (new Image(), createElement('img')) and video sources of hydra (s0.src after initCam etc.).
   drawImage (image, ...args) {
-    if (!image || !image.nativeId) return console.warn('drawImage: only canvases can be drawn')
+    const handle = sourceHandle(image)
+    if (handle < 0) return
+    const width = image.videoWidth || image.width, height = image.videoHeight || image.height
     const [sx, sy, sw, sh, dx, dy, dw, dh] = args.length === 8
       ? args
-      : [0, 0, image.width, image.height, args[0], args[1], args[2] ?? image.width, args[3] ?? image.height]
-    this.paint(this.fillStyle)
-    native.canvasDrawCanvas(this.id, image.nativeId(), sx, sy, sw, sh, dx, dy, dw, dh)
+      : [0, 0, width, height, args[0], args[1], args[2] ?? width, args[3] ?? height]
+    this.draw(() => {
+      this.paint(this.fillStyle)
+      native.canvasDrawCanvas(this.id, handle, sx, sy, sw, sh, dx, dy, dw, dh)
+    })
   }
-
-  setLineDash () {}
-  getLineDash () { return [] }
-  createLinearGradient () { return unsupportedGradient() }
-  createRadialGradient () { return unsupportedGradient() }
-  createPattern () { return null }
 }
 
-function unsupportedGradient () {
-  console.warn('canvas gradients are not supported in hydra-native')
-  return { addColorStop () {} }
+// A canvas holds the newest frame of each video source, for drawImage and createPattern.
+const videoFrames = new Map()
+
+// The native canvas handle of an image source, or -1.
+function sourceHandle (source) {
+  if (!source) return -1
+  if (source.nativeId) return source.nativeId()
+  if (source.videoHandle !== undefined) {
+    if (!videoFrames.has(source.videoHandle)) videoFrames.set(source.videoHandle, native.canvasCreate(1, 1))
+    const handle = videoFrames.get(source.videoHandle)
+    return native.canvasVideoFrame(handle, source.videoHandle) ? handle : -1
+  }
+  if (source.canvas && source.canvas.nativeId) return source.canvas.nativeId() // a 2D context
+  return -1
 }
 
 // Frees the native surface when the canvas object is garbage.
@@ -380,4 +520,63 @@ export class CanvasElement extends Element {
   }
 
   toDataURL () { return '' }
+}
+
+// <img> and new Image(): src/canvas2d.c decodes the file or the download (stb_image) into a native canvas.
+const images = new Map()
+const imageSurfaces = new FinalizationRegistry((id) => native.canvasDestroy(id))
+
+export class ImageElement extends Element {
+  constructor (width, height) {
+    super('img')
+    this.handle = -1
+    this.width = width || 0
+    this.height = height || 0
+    this.naturalWidth = this.naturalHeight = 0
+    this.complete = false
+    this.crossOrigin = null
+    this.onload = this.onerror = null
+    this._src = ''
+  }
+
+  get src () { return this._src }
+  set src (value) {
+    this._src = String(value)
+    this.complete = false
+    this.handle = native.canvasImageLoad(this._src)
+    imageSurfaces.register(this, this.handle)
+    images.set(this.handle, new WeakRef(this))
+    const [state, width, height] = native.canvasImageState(this.handle)
+    if (state !== 0) setTimeout(() => this.finish(state === 1, width, height), 0) // load events are asynchronous
+  }
+
+  nativeId () { return this.complete ? this.handle : -1 }
+
+  finish (ok, width, height) {
+    this.complete = true
+    if (ok) {
+      this.naturalWidth = width
+      this.naturalHeight = height
+      if (!this.width) this.width = width
+      if (!this.height) this.height = height
+    }
+    const event = { type: ok ? 'load' : 'error', target: this }
+    const handler = ok ? this.onload : this.onerror
+    if (handler) handler.call(this, event)
+    this.dispatchEvent(event)
+  }
+
+  decode () {
+    return new Promise((resolve, reject) => {
+      if (this.complete) return resolve()
+      this.addEventListener('load', () => resolve())
+      this.addEventListener('error', () => reject(new Error('cannot decode the image')))
+    })
+  }
+}
+
+// src/canvas2d.c calls this when the download of an image ends.
+globalThis.__imageDone = (handle, ok, width, height) => {
+  const element = images.get(handle)?.deref()
+  if (element) element.finish(ok, width, height)
 }

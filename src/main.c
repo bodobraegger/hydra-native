@@ -482,7 +482,7 @@ static void continue_share(int width, int height) {
 }
 
 static void fetch_done(int id, bool ok, const char *data, size_t length) {
-    if (thumbnails_fetch_done(id, ok, data, length)) return;
+    if (thumbnails_fetch_done(id, ok, data, length) || canvas2d_fetch_done(id, ok, data, length)) return;
     if (id == share.process) {
         share.process = -1;
         ui_share_done(ok, data);
