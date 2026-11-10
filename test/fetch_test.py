@@ -3,6 +3,7 @@
 request bodies and the CORS checks of a page at https://hydra.ojack.xyz. Nothing leaves 127.0.0.1. Run with `make check` (it needs build/hydra-native)."""
 import http.server
 import json
+import os
 import pathlib
 import subprocess
 import sys
@@ -10,6 +11,7 @@ import tempfile
 import threading
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
+BUILD = pathlib.Path(os.environ.get("HYDRA_NATIVE_BUILD", ROOT / "build"))
 
 
 class MockServer(http.server.BaseHTTPRequestHandler):
@@ -89,7 +91,7 @@ threading.Thread(target=server.serve_forever, daemon=True).start()
 with tempfile.TemporaryDirectory() as directory:
     sketch = pathlib.Path(directory, "fetch.js")
     sketch.write_text(SCRIPT % f"http://127.0.0.1:{server.server_address[1]}", encoding="utf-8")
-    run = subprocess.run([str(ROOT / "build" / "hydra-native"), "--hidden", "--no-vsync", "--no-analog-agc", str(sketch)],
+    run = subprocess.run([str(BUILD / "hydra-native"), "--hidden", "--no-vsync", "--no-analog-agc", str(sketch)],
                          capture_output=True, text=True, timeout=60)
 server.shutdown()
 

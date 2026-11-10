@@ -10,10 +10,9 @@ audio, libremidi, libav in the process, libcurl, quickjs-ng and libdatachannel.
   backend implements `capture_run` with ScreenCaptureKit, a Windows backend with Windows.Graphics.Capture.
 - Gallery sharing runs in JS (`__shareSketch` with fetch), so it needs no platform code.
 - No Python runs at run time. Python is only for some tests.
-- Not done yet: SDL3 and a CMake build. The system has no SDL3 development files, and SDL3 builds only with
-  CMake. CMake is not installed, and the permission system refused to run a CMake that a package manager
-  downloads (`uvx cmake`). With CMake available, the plan is: SDL3 3.2 from pinned source in vendor/, a
-  CMakeLists.txt that fetches the vendored libraries as the Makefile does now, and `make` as a thin wrapper.
+- The build uses CMake (CMakeLists.txt) with SDL3 from the system; `make` is a thin wrapper. CMake downloads
+  the vendored libraries with pinned SHA-256 hashes. On macOS and Windows, SDL3 can come from a pinned
+  source download in the same way, because those systems have no SDL3 package.
 
 ## By module
 

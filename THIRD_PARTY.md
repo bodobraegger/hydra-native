@@ -1,7 +1,7 @@
 # Third-party code
 
 hydra-native contains or downloads the code below.
-The Makefile downloads the C libraries into `vendor/`; pnpm installs the JavaScript packages into `node_modules/`.
+CMakeLists.txt downloads the C libraries into `vendor/` and checks their SHA-256 hashes; pnpm installs the JavaScript packages into `node_modules/`.
 esbuild bundles the JavaScript packages into `build/hydra-bundle.js`.
 
 Because hydra-native bundles hydra-synth and code of the hydra web editor (AGPL-3.0),

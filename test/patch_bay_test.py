@@ -3,14 +3,16 @@
 (test/signalling_server.cjs on 127.0.0.1): instance A draws red and publishes it, instance B joins the same room,
 receives A with s0.initStream and reads the color back. The public signalling server is never used.
 Run with `make check` (it needs build/hydra-native and node_modules)."""
+import os
 import pathlib
 import subprocess
 import sys
 import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
+BUILD = pathlib.Path(os.environ.get("HYDRA_NATIVE_BUILD", ROOT / "build"))
 TIMEOUT_SECONDS = 60
-HYDRA = [str(ROOT / "build" / "hydra-native"), "--hidden", "--no-vsync", "--no-analog-agc", "--size", "320x240"]
+HYDRA = [str(BUILD / "hydra-native"), "--hidden", "--no-vsync", "--no-analog-agc", "--size", "320x240"]
 
 PUBLISHER = """
 solid(1, 0, 0).out()

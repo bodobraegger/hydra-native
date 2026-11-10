@@ -4,6 +4,7 @@ gallery server; nothing goes to the real server. Run with `make check` (it needs
 import base64
 import json
 import http.server
+import os
 import pathlib
 import subprocess
 import sys
@@ -12,6 +13,7 @@ import threading
 import urllib.parse
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
+BUILD = pathlib.Path(os.environ.get("HYDRA_NATIVE_BUILD", ROOT / "build"))
 # The sketch shares a fake PNG and prints the answer that src/main.c would show.
 SKETCH = """
 native.shareDone = (ok, text) => { console.log('RESULT ' + JSON.stringify([ok, text])); native.exit(0) }
@@ -42,7 +44,7 @@ code = "osc(10, 0.1, 1.2).out() // ä"
 with tempfile.TemporaryDirectory() as directory:
     sketch = pathlib.Path(directory, "share.js")
     sketch.write_text(SKETCH % f"http://127.0.0.1:{server.server_address[1]}", encoding="utf-8")
-    run = subprocess.run([str(ROOT / "build" / "hydra-native"), "--hidden", "--no-vsync", "--no-analog-agc", str(sketch)],
+    run = subprocess.run([str(BUILD / "hydra-native"), "--hidden", "--no-vsync", "--no-analog-agc", str(sketch)],
                          capture_output=True, text=True, timeout=60)
 results = [line for line in (run.stdout + run.stderr).splitlines() if line.startswith("RESULT ")]
 ok, url = json.loads(results[0][len("RESULT "):]) if results else (False, run.stdout + run.stderr)

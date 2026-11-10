@@ -9,19 +9,27 @@ See [PLAN.md](PLAN.md) for the measurements, the design and the open work.
 
 ## Build
 
-The build needs gcc, make, pnpm, curl and the development files of SDL3, OpenGL ES 2 and libpulse.
-These are installed on this machine.
-On the first run, `make` downloads QuickJS 2026-06-04 and stb_truetype.h (a pinned commit) into vendor/.
+The build needs gcc, g++, CMake 3.25 or newer, Ninja, make, pnpm and the development files of SDL3, OpenGL ES 2,
+libpulse, ALSA and GIO. On Ubuntu 26.04:
+
+```sh
+sudo apt install build-essential cmake ninja-build libsdl3-dev libgles-dev libpulse-dev libasound2-dev \
+  libgio-2.0-dev libwebrtc-audio-processing-1-3
+```
+
+libwebrtc-audio-processing-1-3 (the library, no development files) is optional: without it, the audio input
+has no echo and noise filters. At the first configuration, CMake downloads QuickJS, HarfBuzz, SheenBidi, PlutoVG,
+stb and the Noto Emoji font into vendor/ and checks the SHA-256 hash of each download. `make` is a thin wrapper
+around CMake and Ninja; `BUILD=dir` selects another build directory, which must be a direct child of this folder.
 
 ```sh
 cd hydra/hydra-native
-pnpm install     # hydra-synth 1.4.0 and esbuild
-make             # build/hydra-native and build/hydra-bundle.js
-make test        # checks of the editing core and of the key table (no window)
-make check       # make test, then renders two outputs in a hidden window and reads pixels back
+make             # pnpm install, then build/hydra-native and build/hydra-bundle.js
+make test        # unit tests (ctest label "unit"): editing core, key table, audio, MIDI, portal calls
+make check       # make test, then the checks in hidden windows (ctest label "check")
 ```
 
-`make check` prints `editor_test: ok`, `ui_test: ok` and `{"check":"ok",...}`, and exits with status 0.
+`make check` exits with status 0 when all tests pass. `ctest --test-dir build -V` shows the output of each test.
 
 ## Run
 
