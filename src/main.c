@@ -16,6 +16,9 @@
 
 #include <SDL.h>
 
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
+
 #include "native.h"
 #include "ui.h"
 #include "quickjs-libc.h"
@@ -477,6 +480,8 @@ static JSValue js_exit(JSContext *ctx, JSValueConst this, int argc, JSValueConst
     return JS_UNDEFINED;
 }
 
+static JSValue js_screencap(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv);
+
 static const JSCFunctionListEntry native_functions[] = {
     JS_CFUNC_DEF("createProgram", 2, js_create_program),
     JS_CFUNC_DEF("uniformLocation", 2, js_uniform_location),
@@ -500,6 +505,7 @@ static const JSCFunctionListEntry native_functions[] = {
     JS_CFUNC_DEF("audioFeatures", 0, js_audio_features),
     JS_CFUNC_DEF("fetchStart", 1, js_fetch_start),
     JS_CFUNC_DEF("now", 0, js_now),
+    JS_CFUNC_DEF("screencap", 0, js_screencap),
     JS_CFUNC_DEF("readFile", 1, js_read_file),
     JS_CFUNC_DEF("drawableSize", 0, js_drawable_size),
     JS_CFUNC_DEF("consoleMessage", 1, js_console_message),
@@ -713,7 +719,7 @@ static void usage(void) {
             "  --no-vsync         do not wait for the display refresh\n"
             "  --hidden           do not show the window (checks)\n"
             "  --bench SECONDS    measure frame rate after a warm-up, print JSON and exit\n"
-            "  --screenshot FILE  write the window content as PPM after %d ms and exit\n",
+            "  --screenshot FILE  write the window content with the code as PNG after %d ms and exit\n",
             DEFAULT_FONT_PATH, DEFAULT_FONT_SIZE, DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT, SOCKET_FILE_NAME,
             SCREENSHOT_DELAY_MS);
 }
@@ -800,19 +806,51 @@ static bool load_bundle(const char *directory) {
     return true;
 }
 
-static bool write_screenshot(const char *path, int width, int height) {
+// Writes the default framebuffer as PNG (rows flipped, because GL starts at the bottom).
+static bool write_png(const char *path, int width, int height) {
     unsigned char *pixels = malloc((size_t)width * (size_t)height * 4);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
-    FILE *file = fopen(path, "wb");
-    if (file) {
-        fprintf(file, "P6\n%d %d\n255\n", width, height);
-        for (int y = height - 1; y >= 0; y--)
-            for (int x = 0; x < width; x++) fwrite(pixels + ((size_t)y * (size_t)width + (size_t)x) * 4, 1, 3, file);
-        fclose(file);
-    }
+    for (size_t i = 3; i < (size_t)width * (size_t)height * 4; i += 4) pixels[i] = 255;
+    stbi_flip_vertically_on_write(1);
+    bool ok = stbi_write_png(path, width, height, 4, pixels, width * 4) != 0;
     free(pixels);
-    return file != NULL;
+    return ok;
+}
+
+static bool screencap_requested;
+
+static void request_screencap(void) { screencap_requested = true; }
+
+static JSValue js_screencap(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    request_screencap();
+    return JS_UNDEFINED;
+}
+
+// Like screencap() of the web editor: the visuals without the code as PNG, and the code as .js,
+// named hydra-Y-M-D-H.M.S, in ~/Downloads (or the current directory).
+static void save_screencap(int width, int height) {
+    time_t seconds = time(NULL);
+    struct tm *local = localtime(&seconds);
+    const char *home = getenv("HOME");
+    char directory[PATH_MAX], base[PATH_MAX + 64];
+    snprintf(directory, sizeof directory, "%s/Downloads", home ? home : ".");
+    if (access(directory, W_OK) != 0) snprintf(directory, sizeof directory, ".");
+    snprintf(base, sizeof base, "%s/hydra-%d-%d-%d-%d.%d.%d", directory, local->tm_year + 1900, local->tm_mon + 1,
+             local->tm_mday, local->tm_hour, local->tm_min, local->tm_sec);
+    char image_path[PATH_MAX + 80], code_path[PATH_MAX + 80], message[PATH_MAX + 128];
+    snprintf(image_path, sizeof image_path, "%s.png", base);
+    snprintf(code_path, sizeof code_path, "%s.js", base);
+    bool ok = write_png(image_path, width, height);
+    FILE *file = ok ? fopen(code_path, "wb") : NULL;
+    if (file) {
+        fputs(ui_code(), file);
+        ok = fclose(file) == 0;
+    } else {
+        ok = false;
+    }
+    snprintf(message, sizeof message, ok ? "saved %s.png and .js" : "cannot save %s.png", base);
+    ui_show_message(message, !ok);
 }
 
 static char *call_text_function(const char *function, const char *argument) {
@@ -891,6 +929,7 @@ int main(int argc, char **argv) {
         .is_fullscreen = is_fullscreen,
         .quit = request_quit,
         .call = call_text_function,
+        .screencap = request_screencap,
     };
     if (!ui_init(options.font_path, options.font_size, sketch, &host)) return 1;
     if (options.hide_code) ui_set_visible(false);
@@ -926,10 +965,14 @@ int main(int argc, char **argv) {
         double after_js = now_ms();
         int drawable_width, drawable_height;
         SDL_GL_GetDrawableSize(window, &drawable_width, &drawable_height);
+        if (screencap_requested) {
+            screencap_requested = false;
+            save_screencap(drawable_width, drawable_height);
+        }
         ui_draw(drawable_width, drawable_height, now);
         double after_overlay = now_ms();
         if (options.screenshot_path && now - start >= SCREENSHOT_DELAY_MS) {
-            if (!write_screenshot(options.screenshot_path, drawable_width, drawable_height)) exit_code = 1;
+            if (!write_png(options.screenshot_path, drawable_width, drawable_height)) exit_code = 1;
             quit_requested = true;
         }
         // A hidden window does not swap, so nothing limits the queue of GPU commands. Waiting for the GPU

@@ -92,7 +92,7 @@ int main(void) {
     int fd = mkstemp(path);
     close(fd);
     write_file(path, "osc(10)\n  .out()\n\nnoise().out()");
-    static const struct ui_host host = { evaluate, nothing, never, nothing, uppercase };
+    static const struct ui_host host = { evaluate, nothing, never, nothing, uppercase, nothing };
     ui_init("unused.ttf", 20, path, &host);
     ui_draw(800, 600, 0);
 

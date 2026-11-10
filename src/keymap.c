@@ -11,6 +11,7 @@ static const struct key_binding keymap[] = {
     { SDLK_RETURN, KEY_SHIFT, COMMAND_EVAL_LINE, .global = true },
     { SDLK_RETURN, KEY_ALT, COMMAND_EVAL_BLOCK, .global = true },
     { SDLK_s, KEY_CTRL, COMMAND_SAVE, .global = true },
+    { SDLK_s, KEY_CTRL | KEY_SHIFT, COMMAND_SCREENCAP, .global = true },
     { SDLK_F11, 0, COMMAND_FULLSCREEN, .global = true },
     { SDLK_q, KEY_CTRL, COMMAND_QUIT, .global = true },
     { SDLK_ESCAPE, 0, COMMAND_ESCAPE, .global = true },

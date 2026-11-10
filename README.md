@@ -31,7 +31,7 @@ build/hydra-native --fullscreen setup.js sketch.js
 build/hydra-native --watch sketch.js            # load and evaluate sketch.js again when another program saves it
 build/hydra-native --audio @DEFAULT_MONITOR@ sketch.js   # FFT of the system output instead of the microphone
 build/hydra-native --font /usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf --font-size 24 sketch.js
-build/hydra-native --screenshot shot.ppm sketch.js       # write the window content after 1.5 s and exit
+build/hydra-native --screenshot shot.png sketch.js       # write the window with the code as PNG after 1.5 s and exit
 ```
 
 The program evaluates the files in the given order, in the global scope, like the browser console.

@@ -12,6 +12,8 @@ const hydra = new Hydra({ canvas, enableStreamCapture: false })
 // hydra-editor exposes the renderer as hydraSynth; the hydra-extensions look for it there.
 window.hydraSynth = hydra
 installSources(hydra.s[0].constructor.prototype)
+// screencap() of hydra-synth saves through a DOM link; src/main.c writes PNG and code files instead.
+hydra.synth.screencap = window.screencap = () => native.screencap()
 
 const URL_PATTERN = /^https?:\/\//
 const pendingFetches = new Map()

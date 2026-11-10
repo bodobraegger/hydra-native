@@ -14,6 +14,7 @@ struct ui_host {
     void (*quit)(void);
     // Calls a global JS function with one string; returns its string result (malloc'd) or NULL after an error.
     char *(*call)(const char *function, const char *argument);
+    void (*screencap)(void); // saves the next frame (without the code) and the code
 };
 
 // `file_path` may be NULL (no file) or a path that does not exist yet (Ctrl+S creates it).
@@ -27,6 +28,7 @@ void ui_draw(int width, int height, double now_ms);
 void ui_set_visible(bool visible);
 void ui_show_message(const char *text, bool error);
 void ui_console_message(const char *text); // console.warn and console.error output
+const char *ui_code(void); // the text of the overlay
 void ui_file_changed(void); // the file changed on disk (--watch)
 // Code from the socket: it does not enter the editor buffer; errors show in the error bar.
 char *ui_evaluate_socket(const char *code, size_t length); // returns NULL or a malloc'd error

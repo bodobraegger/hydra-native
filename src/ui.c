@@ -284,6 +284,7 @@ static void run_command(enum command command, bool extend) {
     case COMMAND_MOVE_LINE_DOWN: editor_move_lines(&editor, 1); break;
     case COMMAND_DUPLICATE_LINE: editor_duplicate_lines(&editor); break;
     case COMMAND_FORMAT: format_code(); break;
+    case COMMAND_SCREENCAP: host.screencap(); break;
     case COMMAND_SELECT_NEXT_OCCURRENCE: editor_select_next_occurrence(&editor); break;
     case COMMAND_FIND:
         if (searching && query[0]) editor_find_next(&editor, query, strlen(query));
@@ -562,6 +563,8 @@ void ui_draw(int width, int height, double now_ms) {
 // ---------------------------------------------------------------- setup
 
 void ui_set_visible(bool show) { visible = show; }
+
+const char *ui_code(void) { return editor.text; }
 
 
 bool ui_init(const char *font_path, float font_size, const char *path, const struct ui_host *ui_host) {

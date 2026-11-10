@@ -16,9 +16,9 @@ $(QUICKJS_DIR)/quickjs.c:
 
 STB_COMMIT := 4e9b368bfc071e97206ea5c6adba68dd0cbf8897
 
-vendor/stb/stb_truetype.h:
+vendor/stb/%.h:
 	mkdir -p vendor/stb
-	curl -fsSL https://raw.githubusercontent.com/nothings/stb/$(STB_COMMIT)/stb_truetype.h -o $@
+	curl -fsSL https://raw.githubusercontent.com/nothings/stb/$(STB_COMMIT)/$*.h -o $@
 
 $(filter-out $(QUICKJS_DIR)/quickjs.c,$(QUICKJS_SOURCES)): $(QUICKJS_DIR)/quickjs.c
 
@@ -26,7 +26,7 @@ build/quickjs/%.o: $(QUICKJS_DIR)/%.c
 	@mkdir -p build/quickjs
 	$(CC) -O2 -w -D_GNU_SOURCE -DCONFIG_VERSION=\"$(QUICKJS_VERSION)\" -c $< -o $@
 
-build/%.o: src/%.c src/*.h $(QUICKJS_DIR)/quickjs.c vendor/stb/stb_truetype.h
+build/%.o: src/%.c src/*.h $(QUICKJS_DIR)/quickjs.c vendor/stb/stb_truetype.h vendor/stb/stb_image_write.h
 	@mkdir -p build
 	$(CC) $(CFLAGS) -c $< -o $@
 
