@@ -1061,6 +1061,10 @@ static int send_code(const char *path) {
     return status;
 }
 
+#if defined(__APPLE__)
+#define st_mtim st_mtimespec // the name of the same field on macOS
+#endif
+
 static long long modification_time(const char *path) {
     struct stat info;
     return stat(path, &info) == 0 ? info.st_mtim.tv_sec * 1000000000LL + info.st_mtim.tv_nsec : 0;
