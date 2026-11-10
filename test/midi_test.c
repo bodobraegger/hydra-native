@@ -92,7 +92,7 @@ int main(void) {
         struct timespec wait = { 0, POLL_INTERVAL_MS * 1000000L };
         nanosleep(&wait, NULL);
         poll_time = monotonic_ms();
-        midi_poll(receive);
+        midi_poll(poll_time, receive);
     }
     snd_seq_close(sender);
     if (received < CLOCKS) {

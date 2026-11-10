@@ -1,7 +1,9 @@
+// MIDI input and output for navigator.requestMIDIAccess() (js/midi.js): the ALSA sequencer on Linux (src/midi.c).
 #pragma once
 
 #include <stdbool.h>
 
+// `client` and `port` identify a port for midi_send() and midi_poll().
 struct midi_port {
     int client;
     int port;
@@ -14,6 +16,6 @@ int midi_inputs(struct midi_port *inputs, int capacity);
 int midi_outputs(struct midi_port *outputs, int capacity);
 bool midi_send(int client, int port, const unsigned char *bytes, int length);
 bool midi_inputs_changed(void); // ports appeared or went away // since the last midi_inputs() call
-// Calls `message` for each MIDI message that arrived since the last call, with its arrival time in
-// CLOCK_MONOTONIC milliseconds (the time of performance.now()); returns their count.
-int midi_poll(void (*message)(int client, int port, double time, const unsigned char *bytes, int length));
+// Calls `message` for each MIDI message that arrived since the last call, with its arrival time in the clock of
+// `now` (milliseconds, the time of performance.now() in the program); returns their count.
+int midi_poll(double now, void (*message)(int client, int port, double time, const unsigned char *bytes, int length));

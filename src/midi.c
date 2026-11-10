@@ -6,7 +6,6 @@
 #include <alsa/asoundlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <time.h>
 
 #include "midi.h"
 
@@ -134,30 +133,21 @@ bool midi_send(int client, int port, const unsigned char *bytes, int length) {
 
 bool midi_inputs_changed(void) { return inputs_changed; }
 
-static double monotonic_ms(void) {
-    struct timespec now;
-    clock_gettime(CLOCK_MONOTONIC, &now);
-    return now.tv_sec * 1e3 + now.tv_nsec / 1e6;
-}
-
 static double real_time_ms(const snd_seq_real_time_t *time) { return time->tv_sec * 1e3 + time->tv_nsec / 1e6; }
 
-// The difference between CLOCK_MONOTONIC and the queue time, read again for each poll so that a drift
+// The difference between the clock of `now` and the queue time, read again for each poll so that a drift
 // of the queue timer does not add up.
-static double queue_offset_ms(void) {
+static double queue_offset_ms(double now) {
     snd_seq_queue_status_t *status;
     snd_seq_queue_status_alloca(&status);
-    double before = monotonic_ms();
-    if (snd_seq_get_queue_status(sequencer, queue, status) < 0) return before;
-    double after = monotonic_ms();
-    return (before + after) / 2 - real_time_ms(snd_seq_queue_status_get_real_time(status));
+    if (snd_seq_get_queue_status(sequencer, queue, status) < 0) return now;
+    return now - real_time_ms(snd_seq_queue_status_get_real_time(status));
 }
 
-int midi_poll(void (*message)(int client, int port, double time, const unsigned char *bytes, int length)) {
+int midi_poll(double now, void (*message)(int client, int port, double time, const unsigned char *bytes, int length)) {
     if (!sequencer) return 0;
     int count = 0;
-    double offset = queue_offset_ms();
-    double now = monotonic_ms();
+    double offset = queue_offset_ms(now);
     snd_seq_event_t *event;
     while (snd_seq_event_input(sequencer, &event) >= 0 && event) {
         if (event->type == SND_SEQ_EVENT_PORT_START) {

@@ -700,7 +700,7 @@ static void add_midi_message(int client, int port, double time, const unsigned c
 // midiPoll() returns { changed, messages: [[id, time, byte, ...], ...] } since the last call.
 static JSValue js_midi_poll(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
     midi_messages = JS_NewArray(ctx);
-    midi_poll(add_midi_message);
+    midi_poll(now_ms(), add_midi_message);
     JSValue result = JS_NewObject(ctx);
     JS_SetPropertyStr(ctx, result, "changed", JS_NewBool(ctx, midi_inputs_changed()));
     JS_SetPropertyStr(ctx, result, "messages", midi_messages);
