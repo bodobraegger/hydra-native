@@ -210,12 +210,15 @@ int process_wait(struct process *process, int timeout_ms) {
     return process->status;
 }
 
+int process_stop(struct process *process) {
+    if (process_wait(process, 0) != PROCESS_RUNNING) return process->status;
+    process_kill(process); // TerminateJobObject ends the group at once
+    return process_wait(process, PROCESS_WAIT_FOREVER);
+}
+
 void process_free(struct process *process) {
     if (!process) return;
-    if (process_wait(process, 0) == PROCESS_RUNNING) {
-        process_kill(process);
-        process_wait(process, PROCESS_WAIT_FOREVER);
-    }
+    process_stop(process);
     CloseHandle(process->process);
     CloseHandle(process->job); // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE ends the descendants that still run
     free(process);

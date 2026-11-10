@@ -19,6 +19,7 @@
 
 #define SIGNAL_STATUS_BASE 128
 #define WAIT_STEP_NS 10000000L // 10 ms between two checks of process_wait with a timeout
+#define STOP_GRACE_MS 300
 
 extern char **environ;
 
@@ -129,12 +130,19 @@ int process_wait(struct process *process, int timeout_ms) {
     return process->status;
 }
 
-void process_free(struct process *process) {
-    if (!process) return;
-    if (process->status == PROCESS_RUNNING && process_wait(process, 0) == PROCESS_RUNNING) {
-        process_kill(process);
+int process_stop(struct process *process) {
+    if (process_wait(process, 0) != PROCESS_RUNNING) return process->status;
+    process_kill(process);
+    if (process_wait(process, STOP_GRACE_MS) == PROCESS_RUNNING) {
+        kill(-process->pid, SIGKILL);
         process_wait(process, PROCESS_WAIT_FOREVER);
     }
+    return process->status;
+}
+
+void process_free(struct process *process) {
+    if (!process) return;
+    process_stop(process);
     free(process);
 }
 

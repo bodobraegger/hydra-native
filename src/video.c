@@ -201,7 +201,8 @@ void video_close(int handle) {
     if (source->camera) {
         SDL_CloseCamera(source->camera);
     } else if (source->process) {
-        process_kill(source->process);
+        // Not only SIGTERM: this runs on the main thread, which must not wait for a child that does not end.
+        process_stop(source->process);
     } else {
         SDL_SetAtomicInt(&source->running, 0);
         stream_shutdown(source->stream);

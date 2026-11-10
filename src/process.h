@@ -26,7 +26,11 @@ void process_kill(struct process *process);
 // Waits up to `timeout_ms` milliseconds (PROCESS_WAIT_FOREVER: no limit) for the end of the child. Returns its
 // exit status, 128 + the signal number after a signal on POSIX, or PROCESS_RUNNING.
 int process_wait(struct process *process, int timeout_ms);
-// Kills the group if the child still runs, waits for the child and frees `process`.
+// Ends the group if the child still runs and waits for the child: SIGTERM, then SIGKILL after a short grace time on
+// POSIX, so that a child that ignores SIGTERM cannot block the caller; TerminateJobObject on Windows. Returns the
+// exit status.
+int process_stop(struct process *process);
+// process_stop, then frees `process`.
 void process_free(struct process *process);
 // Whether `name` is a program in PATH (on Windows also with the extension .exe).
 bool process_find_program(const char *name);
