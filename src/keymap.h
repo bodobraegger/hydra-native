@@ -22,7 +22,7 @@
     X(MOVE_LINE_UP, "move lines up") \
     X(MOVE_LINE_DOWN, "move lines down") \
     X(DUPLICATE_LINE, "duplicate lines") \
-    X(FORMAT, "format code (js-beautify)") \
+    X(FORMAT, "format code: indent by brackets and chains") \
     X(SCREENCAP, "save a screenshot and the code") \
     X(SAVE_TO_URL, "copy the hydra.ojack.xyz URL of the code") \
     X(GALLERY_SHARE, "share the sketch with the gallery") \

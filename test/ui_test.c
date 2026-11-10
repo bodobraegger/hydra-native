@@ -85,7 +85,7 @@ static char *evaluate(const char *code, size_t length, const char *name) {
     return error;
 }
 
-// Stands in for js/main.js and js/editor-actions.js: __format makes upper case, the others return fixed code.
+// Stands in for js/main.js and js/editor-actions.js: fixed code, or the argument in upper case.
 static char *call(const char *function, const char *argument) {
     if (!strcmp(function, "__randomExample")) return strdup("noise().out()");
     if (!strcmp(function, "__mutate")) return strdup("noise(9).out()");
@@ -369,10 +369,12 @@ int main(void) {
     key(SDLK_RETURN, SDL_KMOD_LCTRL);
     EXPECT_STRING(evaluated, "solid().out()");
 
-    // Shift+Ctrl+F and Shift+Alt+F format through the JS host (js-beautify); here a stub makes upper case.
+    // Shift+Ctrl+F formats with editor_format: the spaces at the line start go.
+    key(SDLK_HOME, 0);
+    type("   ");
     key(SDLK_F, SDL_KMOD_LCTRL | SDL_KMOD_LSHIFT);
     key(SDLK_RETURN, SDL_KMOD_LCTRL | SDL_KMOD_LALT);
-    EXPECT_STRING(evaluated, "SOLID().OUT()");
+    EXPECT_STRING(evaluated, "solid().out()");
 
     // The toolbar actions: clear all evaluates hush, an example replaces the code and runs it, the mutator replaces it.
     key(SDLK_DELETE, SDL_KMOD_LCTRL | SDL_KMOD_LSHIFT);

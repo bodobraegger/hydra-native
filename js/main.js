@@ -5,7 +5,6 @@ import { apiSignatureLines } from './api-signatures.js'
 import { PatchBay } from './patch-bay.js'
 import Hydra from 'hydra-synth'
 import { installSources } from './sources.js'
-import beautify from 'js-beautify'
 import './editor-actions.js'
 import './midi.js'
 import './p5.js'
@@ -118,10 +117,6 @@ onAfterFrame(() => {
   const top = windowHeight - audio.canvas.height
   native.fillRects(audio.ctx.rects.flatMap(([x, y, width, height, ...color]) => [left + x, top + y, width, height, ...color]))
 })
-
-// formatCode() of the web editor (src/views/editor/editor.js, the CodeMirror 5 editor that it runs), called by
-// src/ui.c: js-beautify with the same options, so the indentation is tabs.
-window.__format = (code) => beautify(code, { indent_size: 2, break_chained_methods: true, indent_with_tabs: true })
 
 // Names for the autocomplete of src/ui.c: hydra sources, transforms (also those of setFunction and
 // extensions) and the globals of hydra-synth, one per line.

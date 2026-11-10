@@ -151,6 +151,39 @@ static void test_line_operations(void) {
     editor_free(&editor);
 }
 
+// editor_format: tabs by bracket depth, one more level for a chain, no trailing spaces, comments and template
+// strings kept, every cursor on its text, one undo step.
+static void test_format(void) {
+    struct editor editor;
+    editor_init(&editor);
+    load(&editor, "osc(10,\n0.1)\n.rotate()   \n    .out()\nshape(4)");
+    editor_format(&editor);
+    EXPECT_TEXT(&editor, "osc(10,\n\t0.1)\n\t.rotate()\n\t.out()\nshape(4)");
+    editor_undo(&editor);
+    EXPECT_TEXT(&editor, "osc(10,\n0.1)\n.rotate()   \n    .out()\nshape(4)");
+
+    load(&editor, "src(o0)\n  .modulate(\n  noise([1, 2,\n3]),\n  () => 0.1\n)\n  .out()\n   \n");
+    editor_format(&editor);
+    EXPECT_TEXT(&editor, "src(o0)\n\t.modulate(\n\t\tnoise([1, 2,\n\t\t\t3]),\n\t\t() => 0.1\n\t)\n\t.out()\n\n");
+
+    load(&editor, "/* (\n   kept */\nosc(`(\n  kept`,\n 1) // (\n  .out()");
+    editor_format(&editor);
+    EXPECT_TEXT(&editor, "/* (\n   kept */\nosc(`(\n  kept`,\n\t1) // (\n\t.out()");
+
+    // Two cursors, each after the "1" of its line, stay there.
+    load(&editor, "a(\n    1)\nb(\n 1)");
+    editor_set_cursor(&editor, editor_offset_at(&editor, 1, 5), false);
+    editor_add_cursor(&editor, editor_offset_at(&editor, 3, 2));
+    editor_format(&editor);
+    EXPECT_TEXT(&editor, "a(\n\t1)\nb(\n\t1)");
+    struct selection *selections;
+    size_t count = editor_selections(&editor, &selections);
+    EXPECT(count == 2 && selections[0].cursor == editor_line_start(&editor, 1) + 2 &&
+           selections[1].cursor == editor_line_start(&editor, 3) + 2); // byte offsets; a tab is wider in the grid
+    free(selections);
+    editor_free(&editor);
+}
+
 static void test_search_and_brackets(void) {
     struct editor editor;
     editor_init(&editor);
@@ -583,6 +616,7 @@ int main(void) {
     test_utf8_and_motion();
     test_ranges();
     test_line_operations();
+    test_format();
     test_search_and_brackets();
     test_multiple_cursors();
     test_typing_rules();

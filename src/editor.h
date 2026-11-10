@@ -151,6 +151,10 @@ bool editor_redo(struct editor *editor);
 
 // Line commands on the lines that the selections touch.
 void editor_toggle_comment(struct editor *editor);
+// Re-indents every line with tabs by bracket depth, plus one level for hydra chains that start with ".", and
+// removes trailing spaces, like formatCode() of the web editor, but without new line breaks. Lines inside block
+// comments and template strings stay as they are.
+void editor_format(struct editor *editor);
 void editor_indent(struct editor *editor, bool outdent); // Tab without selection inserts spaces
 void editor_indent_lines(struct editor *editor, bool outdent); // Ctrl+] and Ctrl+[
 void editor_move_lines(struct editor *editor, int direction); // -1 up, +1 down

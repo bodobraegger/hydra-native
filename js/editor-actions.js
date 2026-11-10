@@ -39,7 +39,7 @@ function mutate (code, changeTransform) {
   if (!mutator) mutator = new Mutator(mutatorEditor)
   mutatorText = code
   mutator.mutate({ reroll: false, changeTransform })
-  return window.__format(mutatorText)
+  return mutatorText
 }
 
 window.__mutate = (code) => mutate(code, false)

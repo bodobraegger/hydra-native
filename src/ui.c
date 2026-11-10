@@ -894,15 +894,6 @@ static void set_font(const char *path) {
     save_settings();
 }
 
-// Formats with js-beautify, like the web editor (see __format in js/main.js).
-static void format_code(void) {
-    char *formatted = host.call("__format", editor.text);
-    if (!formatted) return ui_show_message("format: the code has an error", true);
-    editor_replace_text(&editor, formatted, strlen(formatted));
-    editor_set_cursor(&editor, 0, false); // cm.setValue() puts the cursor at the start
-    free(formatted);
-}
-
 // Replaces the code with the result of a JS function of js/editor-actions.js (examples, mutator).
 static bool replace_with(const char *function, const char *failure) {
     char *code = host.call(function, editor.text);
@@ -912,6 +903,13 @@ static bool replace_with(const char *function, const char *failure) {
     }
     editor_replace_text(&editor, code, strlen(code));
     free(code);
+    return true;
+}
+
+// The web editor formats the code after the mutator (editor-store.js); astring gives it unindented.
+static bool mutate(const char *function) {
+    if (!replace_with(function, "mutator: the code does not parse")) return false;
+    editor_format(&editor);
     return true;
 }
 
@@ -1017,7 +1015,7 @@ static void run_command_body(enum command command, bool extend) {
     case COMMAND_MOVE_LINE_UP: editor_move_lines(&editor, -1); break;
     case COMMAND_MOVE_LINE_DOWN: editor_move_lines(&editor, 1); break;
     case COMMAND_DUPLICATE_LINE: editor_duplicate_lines(&editor); break;
-    case COMMAND_FORMAT: format_code(); break;
+    case COMMAND_FORMAT: editor_format(&editor); break;
     case COMMAND_SCREENCAP: host.screencap(); break;
     case COMMAND_SAVE_TO_URL: save_to_url(); break;
     case COMMAND_OPEN_URL: open_url_from_clipboard(); break;
@@ -1039,10 +1037,10 @@ static void run_command_body(enum command command, bool extend) {
         break;
     // The mutator evaluates the code itself and retries on errors, like in the web editor.
     case COMMAND_MUTATE:
-        if (replace_with("__mutate", "mutator: the code does not parse")) update_url();
+        if (mutate("__mutate")) update_url();
         break;
     case COMMAND_MUTATE_TRANSFORM:
-        if (replace_with("__mutateTransform", "mutator: the code does not parse")) update_url();
+        if (mutate("__mutateTransform")) update_url();
         break;
     case COMMAND_MUTATE_UNDO: replace_with("__mutateUndo", "mutator: nothing to undo"); break;
     case COMMAND_TOGGLE_HELP: help_visible = !help_visible; return;

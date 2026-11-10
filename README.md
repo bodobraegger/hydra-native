@@ -193,7 +193,7 @@ Keys marked "always" also work while the overlay is hidden.
 | Ctrl+Shift+L; Ctrl+Shift+O; Ctrl+Shift+G       | copy the URL; open a URL; share with the gallery       |
 | F7; F8, Shift+F8, Ctrl+F8; Ctrl+Shift+Delete   | example; mutate, undo, change a function; clear all    |
 | F11; Ctrl+Q                                    | fullscreen; quit (always)                              |
-| Ctrl+Shift+F, Shift+Alt+F                      | format with js-beautify                                |
+| Ctrl+Shift+F, Shift+Alt+F                      | format: indent by brackets and chains, with tabs       |
 | Ctrl+/ (Ctrl+Shift+7 on the ch layout)         | toggle comment                                         |
 | Alt+Up, Alt+Down; Shift+Alt+Down, Ctrl+Shift+D | move lines; duplicate lines                            |
 | Ctrl+L; Ctrl+Shift+K; Ctrl+J                   | select line; delete line; join lines                   |

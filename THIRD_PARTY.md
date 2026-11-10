@@ -37,7 +37,6 @@ a distributed hydra-native binary with its bundle falls under the AGPL-3.0.
   fixes #201, #202, #203 and #205), AGPL-3.0. https://github.com/hydra-synth/hydra-synth
   The renderer and the API; it runs unchanged. js/regl-shim.js, js/raf-loop-shim.js and js/meyda-shim.js
   replace its dependencies regl, raf-loop and meyda.
-- js-beautify 1.15.4, MIT license. The formatter of the web editor (Shift+Ctrl+F).
 - acorn 8.19.0, astring 1.9.0 and astravel 0.5.0, MIT license. The parser and code generator of the mutator.
 - p5.js 1.6.0 (the version of public/p5.min.js in the web editor), LGPL-2.1. `make` copies lib/p5.min.js of
   the npm package to build/p5.min.js; js/p5.js loads it on the first use of P5.

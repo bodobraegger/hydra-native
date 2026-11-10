@@ -11,7 +11,6 @@
     "events": "3.3.0",
     "hydra-synth": "github:hydra-synth/hydra-synth#9d29a9f4fd8f9081b9759943f38db36f05b9a88f",
     "inherits": "2.0.4",
-    "js-beautify": "^1.15.4",
     "p5": "1.6.0",
     "shortid": "2.2.17",
     "simple-peer": "9.11.1",

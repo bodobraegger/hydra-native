@@ -1331,12 +1331,14 @@ static bool *touched_lines(const struct editor *editor, size_t *first, size_t *l
     return touched;
 }
 
-// One change inside a line: `removed` bytes at byte column `at` become `insert`.
+// One change inside a line: `removed` bytes at byte column `at` become `insert`; `trim_end` also removes the
+// spaces and tabs at the end of the line.
 struct line_change {
     size_t at;
     size_t removed;
     const char *insert;
     size_t inserted;
+    bool trim_end;
 };
 
 static size_t map_column(size_t column, const struct line_change *change) {
@@ -1355,11 +1357,13 @@ static void change_lines(struct editor *editor, size_t first, size_t last, const
     size_t capacity = region_end - region_start + 1;
     for (size_t i = 0; i < count; i++) capacity += changes[i].inserted;
     char *text = malloc(capacity);
-    size_t *new_starts = malloc(count * sizeof *new_starts);
+    size_t *new_starts = malloc(count * sizeof *new_starts), *new_lengths = malloc(count * sizeof *new_lengths);
     size_t used = 0;
     for (size_t i = 0; i < count; i++) {
         size_t start = editor_line_start(editor, first + i), end = editor_line_end(editor, first + i);
         const struct line_change *change = &changes[i];
+        if (change->trim_end)
+            while (end > start + change->at + change->removed && (editor->text[end - 1] == ' ' || editor->text[end - 1] == '\t')) end--;
         new_starts[i] = region_start + used;
         memcpy(text + used, editor->text + start, change->at);
         used += change->at;
@@ -1368,11 +1372,13 @@ static void change_lines(struct editor *editor, size_t first, size_t last, const
         size_t rest = change->at + change->removed;
         memcpy(text + used, editor->text + start + rest, end - start - rest);
         used += end - start - rest;
+        new_lengths[i] = region_start + used - new_starts[i];
         if (i + 1 < count) text[used++] = '\n';
     }
     if (used == region_end - region_start && memcmp(text, editor->text + region_start, used) == 0) {
         free(text);
         free(new_starts);
+        free(new_lengths);
         return;
     }
     long delta = (long)used - (long)(region_end - region_start);
@@ -1383,9 +1389,10 @@ static void change_lines(struct editor *editor, size_t first, size_t last, const
         for (int k = 0; k < 2; k++) {
             size_t line = editor_line_of(editor, *offsets[k]);
             if (line > last) *offsets[k] = (size_t)((long)*offsets[k] + delta);
-            else if (line >= first)
-                *offsets[k] = new_starts[line - first] +
-                              map_column(*offsets[k] - editor_line_start(editor, line), &changes[line - first]);
+            else if (line >= first) {
+                size_t column = map_column(*offsets[k] - editor_line_start(editor, line), &changes[line - first]);
+                *offsets[k] = new_starts[line - first] + (column < new_lengths[line - first] ? column : new_lengths[line - first]);
+            }
         }
     }
     begin_edit(editor, EDIT_OTHER);
@@ -1394,6 +1401,80 @@ static void change_lines(struct editor *editor, size_t first, size_t last, const
     free(list);
     free(text);
     free(new_starts);
+    free(new_lengths);
+}
+
+// ---------------------------------------------------------------- format
+
+#define MAX_FORMAT_DEPTH 256
+
+struct scan_state {
+    size_t depth;
+    size_t levels[MAX_FORMAT_DEPTH]; // the indent level of the line of each open bracket
+    char string_quote; // 0, '\'', '"' or '`'
+    bool block_comment;
+};
+
+// Updates the open brackets over one line at indent `level`, outside of strings and comments.
+static void scan_line(struct scan_state *state, const char *text, size_t length, size_t level) {
+    for (size_t i = 0; i < length; i++) {
+        char c = text[i], next = i + 1 < length ? text[i + 1] : '\0';
+        if (state->block_comment) {
+            if (c == '*' && next == '/') {
+                state->block_comment = false;
+                i++;
+            }
+        } else if (state->string_quote) {
+            if (c == '\\') i++;
+            else if (c == state->string_quote) state->string_quote = 0;
+        } else if (c == '/' && next == '/') {
+            return;
+        } else if (c == '/' && next == '*') {
+            state->block_comment = true;
+            i++;
+        } else if (c == '\'' || c == '"' || c == '`') {
+            state->string_quote = c;
+        } else if (c == '(' || c == '[' || c == '{') {
+            if (state->depth < MAX_FORMAT_DEPTH) state->levels[state->depth] = level;
+            state->depth++;
+        } else if ((c == ')' || c == ']' || c == '}') && state->depth > 0) {
+            state->depth--;
+        }
+    }
+    if (state->string_quote != '`') state->string_quote = 0; // only template strings span lines
+}
+
+static size_t opener_level(const struct scan_state *state, size_t index) {
+    return state->levels[index < MAX_FORMAT_DEPTH ? index : MAX_FORMAT_DEPTH - 1];
+}
+
+void editor_format(struct editor *editor) {
+    static const char tabs[] = "\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t\t";
+    size_t count = editor->line_count;
+    struct line_change *changes = calloc(count, sizeof *changes);
+    struct scan_state *state = calloc(1, sizeof *state);
+    for (size_t line = 0; line < count; line++) {
+        size_t length;
+        const char *text = line_text(editor, line, &length);
+        size_t indent = leading_whitespace(text, length), level = 0;
+        if (!state->string_quote && !state->block_comment) {
+            // A line inside brackets goes one level deeper than the line of the innermost open bracket; a line that
+            // starts with closing brackets goes to the level of the line that opened the outermost of them.
+            size_t closers = 0;
+            for (size_t i = indent; i < length && strchr(")]}", text[i]) && closers < state->depth; i++) closers++;
+            if (closers) level = opener_level(state, state->depth - closers);
+            else if (state->depth) level = opener_level(state, state->depth - 1) + 1;
+            if (indent < length && text[indent] == '.') level++;
+            changes[line] = (struct line_change){ .removed = indent, .insert = tabs, .trim_end = true };
+            if (indent < length) changes[line].inserted = level < sizeof tabs - 1 ? level : sizeof tabs - 1;
+        } else if (state->depth) {
+            level = opener_level(state, state->depth - 1) + 1; // the text stays; brackets after the string count from here
+        }
+        scan_line(state, text, length, level);
+    }
+    free(state);
+    change_lines(editor, 0, count - 1, changes);
+    free(changes);
 }
 
 void editor_toggle_comment(struct editor *editor) {
