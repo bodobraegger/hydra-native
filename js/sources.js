@@ -15,7 +15,8 @@ const WINDOWS = native.platform === 'Windows'
 const quote = WINDOWS ? (text) => `"${String(text)}"` : (text) => `'${String(text).replace(/'/g, "'\\''")}'`
 const rawVideoCaps = (width, height) => `video/x-raw,format=RGBA,width=${width},height=${height}`
 const ffmpegOutput = (width, height) => `-vf scale=${width}:${height} -pix_fmt rgba -f rawvideo -`
-const screencast = (...args) => `${quote(native.directory + '/hydra-native-capture')} ${args.join(' ')}`
+const CAPTURE_PROGRAM = WINDOWS ? '\\hydra-native-capture.exe' : '/hydra-native-capture'
+const screencast = (...args) => `${quote(native.directory + CAPTURE_PROGRAM)} ${args.join(' ')}`
 
 // Whether `program` is in PATH; otherwise a warning in the error bar names the call that needs it.
 function requireProgram (program, call) {
@@ -82,14 +83,15 @@ export function installSources (sourcePrototype) {
       `${rawVideoCaps(width, height)} ! fdsink fd=1 sync=false`, { width, height, ...params })
   }
 
-  // initScreen() opens the picker of xdg-desktop-portal, like getDisplayMedia() in the browser:
-  // the user selects a window or a monitor. The index of hydra-synth's initScreen(index) is not used.
+  // initScreen() opens the picker of the system (xdg-desktop-portal, SCContentSharingPicker on macOS,
+  // GraphicsCapturePicker on Windows), like getDisplayMedia() in the browser: the user selects a window or a monitor. The index of hydra-synth's initScreen(index) is not used.
   sourcePrototype.initScreen = function (index = 0, { width = DEFAULT_WIDTH, height = DEFAULT_HEIGHT, ...params } = {}) {
     return this.initCommand(screencast('picker', width, height),
       { width, height, ...params })
   }
 
-  // initMonitor(index) records monitor `index` of org.gnome.Mutter.DisplayConfig without a dialog.
+  // initMonitor(index) records monitor `index` without a dialog (in the order of org.gnome.Mutter.DisplayConfig,
+  // SCShareableContent or EnumDisplayMonitors).
   sourcePrototype.initMonitor = function (index = 0, { width = DEFAULT_WIDTH, height = DEFAULT_HEIGHT, ...params } = {}) {
     return this.initCommand(screencast('monitor', index, width, height), { width, height, ...params })
   }

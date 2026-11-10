@@ -1,8 +1,8 @@
 // Screen capture for initScreen, initMonitor, initArea and initWindow behind one interface: a backend negotiates
 // with the system and writes RGBA frames of width x height to a file descriptor until the capture ends, which
-// src/video.c reads like any other video source. The Linux backend (src/capture_linux.c) uses xdg-desktop-portal
-// and the ScreenCast API of GNOME Mutter over D-Bus, and PipeWire through GStreamer. Backends for macOS
-// (ScreenCaptureKit) and Windows (Windows.Graphics.Capture) can implement capture_run later; see PORTING.md.
+// src/video.c reads like any other video source. Backends: src/capture_linux.c (xdg-desktop-portal and the
+// ScreenCast API of GNOME Mutter over D-Bus, PipeWire through GStreamer), src/capture_macos.m (ScreenCaptureKit)
+// and src/capture_windows.cpp (Windows.Graphics.Capture); see PORTING.md.
 #pragma once
 
 #include <stdbool.h>

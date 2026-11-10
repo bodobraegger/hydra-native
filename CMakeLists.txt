@@ -134,13 +134,18 @@ target_link_libraries(hydra-native PRIVATE quickjs plutovg harfbuzz sheenbidi SD
 set_target_properties(hydra-native PROPERTIES LINKER_LANGUAGE CXX)
 
 # The screen capture of initScreen, initMonitor, initArea and initWindow (src/capture.h), a video source command.
-# Backends: ScreenCaptureKit on macOS, the portal and Mutter over GDBus on Linux.
+# Backends: ScreenCaptureKit on macOS, Windows.Graphics.Capture (C++/WinRT of the Windows SDK) on Windows, the
+# portal and Mutter over GDBus on Linux.
 if(APPLE)
   enable_language(OBJC)
   add_executable(hydra-native-capture src/capture_main.c src/capture_macos.m ${PROCESS_SOURCE})
   target_compile_options(hydra-native-capture PRIVATE $<$<COMPILE_LANGUAGE:OBJC>:-fobjc-arc>)
   target_link_libraries(hydra-native-capture PRIVATE "-framework ScreenCaptureKit" "-framework CoreMedia"
     "-framework CoreVideo" "-framework CoreGraphics" "-framework Accelerate" "-framework AppKit")
+elseif(WIN32)
+  add_executable(hydra-native-capture src/capture_main.c src/capture_windows.cpp ${PROCESS_SOURCE})
+  set_target_properties(hydra-native-capture PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+  target_link_libraries(hydra-native-capture PRIVATE d3d11 dxgi windowsapp)
 else()
   add_executable(hydra-native-capture src/capture_main.c src/capture_linux.c ${PROCESS_SOURCE})
   target_link_libraries(hydra-native-capture PRIVATE PkgConfig::GIO)
