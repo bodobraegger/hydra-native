@@ -50,3 +50,45 @@ window.__mutateUndo = (code) => {
   mutator.doUndo()
   return mutatorText
 }
+
+const WEB_EDITOR_URL = 'https://hydra.ojack.xyz/'
+const GALLERY_LICENSE = '// licensed with CC BY-NC-SA 4.0 https://creativecommons.org/licenses/by-nc-sa/4.0/'
+
+// QuickJS has no btoa(); the input is ASCII (the output of encodeURIComponent).
+function encodeBase64 (text) {
+  let output = ''
+  for (let i = 0; i < text.length; i += 3) {
+    const bytes = [text.charCodeAt(i), text.charCodeAt(i + 1), text.charCodeAt(i + 2)]
+    const value = (bytes[0] << 16) | ((bytes[1] || 0) << 8) | (bytes[2] || 0)
+    output += BASE64_ALPHABET[(value >> 18) & 63] + BASE64_ALPHABET[(value >> 12) & 63]
+    output += i + 1 < text.length ? BASE64_ALPHABET[(value >> 6) & 63] : '='
+    output += i + 2 < text.length ? BASE64_ALPHABET[value & 63] : '='
+  }
+  return output
+}
+
+// The URL of "save to URL" in the web editor: gallery.js encodes btoa(encodeURIComponent(code)), and
+// URLSearchParams escapes the base64 characters + / and =.
+window.__urlForCode = (code) => `${WEB_EDITOR_URL}?code=${encodeURIComponent(encodeBase64(encodeURIComponent(code)))}`
+
+function queryParameter (query, name) {
+  for (const pair of query.split('&')) {
+    const [key, ...rest] = pair.split('=')
+    if (decodeURIComponent(key) === name) return decodeURIComponent(rest.join('=').replace(/\+/g, ' '))
+  }
+  return null
+}
+
+// Opens a URL of the web editor (or only its "?..." part): ?code=<base64>, or ?sketch_id= of an example.
+// Returns the code; the line "// show-code: false" first when the URL asks to hide the code. Throws without code.
+window.__codeFromUrl = (url) => {
+  const query = url.includes('?') ? url.slice(url.indexOf('?') + 1).split('#')[0] : url
+  const sketchId = queryParameter(query, 'sketch_id')
+  const example = sketchId && examples.find((sketch) => sketch.sketch_id === sketchId)
+  const base64 = example ? example.code : queryParameter(query, 'code')
+  if (!base64) throw new Error(`no code in ${url} (sketches of the gallery server need sketch_id and the server)`)
+  let code = decodeURIComponent(decodeBase64(base64))
+  if (example && !code.includes(GALLERY_LICENSE)) code = `${GALLERY_LICENSE}\n${code}\n`
+  const showCode = queryParameter(query, 'showCode') || queryParameter(query, 'show-code')
+  return showCode === 'false' ? `// show-code: false\n${code}` : code
+}

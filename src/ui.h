@@ -26,6 +26,7 @@ void ui_mouse_motion(float x, float y);
 void ui_wheel(int lines);
 void ui_draw(int width, int height, double now_ms);
 void ui_set_visible(bool visible);
+void ui_set_code(const char *code); // shows code that has no file (a sketch URL)
 void ui_show_message(const char *text, bool error);
 void ui_console_message(const char *text); // console.warn and console.error output
 const char *ui_code(void); // the text of the overlay

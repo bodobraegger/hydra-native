@@ -30,6 +30,7 @@ static const struct key_binding keymap[] = {
     { SDLK_RETURN, KEY_ALT, COMMAND_EVAL_BLOCK, .global = true },
     { SDLK_s, KEY_CTRL, COMMAND_SAVE, .global = true },
     { SDLK_s, KEY_CTRL | KEY_SHIFT, COMMAND_SCREENCAP, .global = true },
+    { SDLK_l, KEY_CTRL | KEY_SHIFT, COMMAND_SAVE_TO_URL, .global = true },
     { SDLK_F11, 0, COMMAND_FULLSCREEN, .global = true },
     { SDLK_q, KEY_CTRL, COMMAND_QUIT, .global = true },
     { SDLK_ESCAPE, 0, COMMAND_ESCAPE, .global = true },
@@ -81,7 +82,7 @@ static const struct key_binding keymap[] = {
     { SDLK_DOWN, KEY_CTRL | KEY_SHIFT, COMMAND_ADD_CURSOR_BELOW },
     { SDLK_UP, KEY_CTRL | KEY_ALT, COMMAND_ADD_CURSOR_ABOVE }, // the sublime keymap of the web editor
     { SDLK_DOWN, KEY_CTRL | KEY_ALT, COMMAND_ADD_CURSOR_BELOW },
-    { SDLK_l, KEY_CTRL | KEY_SHIFT, COMMAND_SPLIT_SELECTION },
+    { SDLK_i, KEY_ALT | KEY_SHIFT, COMMAND_SPLIT_SELECTION }, // VS Code; Ctrl+Shift+L saves to URL as in the web
     { SDLK_EQUALS, KEY_CTRL, COMMAND_FONT_BIGGER },
     { SDLK_EQUALS, KEY_CTRL | KEY_SHIFT, COMMAND_FONT_BIGGER }, // Ctrl+plus on the us layout
     { SDLK_1, KEY_CTRL | KEY_SHIFT, COMMAND_FONT_BIGGER },      // Ctrl+plus on the Swiss (ch) layout

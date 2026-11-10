@@ -481,6 +481,15 @@ static void clear_all(void) {
     editor_replace_text(&editor, CLEARED_CODE, strlen(CLEARED_CODE));
 }
 
+// Like "save to URL" of the web editor; without an address bar, the URL goes to the clipboard.
+static void save_to_url(void) {
+    char *url = host.call("__urlForCode", editor.text);
+    if (!url) return;
+    SDL_SetClipboardText(url);
+    ui_show_message("copied the hydra.ojack.xyz URL of the code to the clipboard", false);
+    free(url);
+}
+
 static void escape(void) {
     if (completion.open) close_completion();
     else if (prompt.kind != PROMPT_NONE) prompt.kind = PROMPT_NONE;
@@ -527,6 +536,7 @@ static void run_command(enum command command, bool extend) {
     case COMMAND_DUPLICATE_LINE: editor_duplicate_lines(&editor); break;
     case COMMAND_FORMAT: format_code(); break;
     case COMMAND_SCREENCAP: host.screencap(); break;
+    case COMMAND_SAVE_TO_URL: save_to_url(); break;
     case COMMAND_CLEAR_ALL: clear_all(); break;
     case COMMAND_SHOW_EXAMPLE:
         clear_all();
@@ -1036,6 +1046,8 @@ void ui_draw(int width, int height, double now_ms) {
 // ---------------------------------------------------------------- setup
 
 void ui_set_visible(bool show) { visible = show; }
+
+void ui_set_code(const char *code) { editor_set_text(&editor, code, strlen(code)); }
 
 const char *ui_code(void) { return editor.text; }
 

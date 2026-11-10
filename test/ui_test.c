@@ -48,6 +48,7 @@ static char *call(const char *function, const char *argument) {
     if (!strcmp(function, "__mutate")) return strdup("noise(9).out()");
     if (!strcmp(function, "__mutateUndo")) return strdup("noise().out()");
     if (!strcmp(function, "__completionNames")) return strdup("noise\nosc\nout");
+    if (!strcmp(function, "__urlForCode")) return strdup("https://hydra.ojack.xyz/?code=x");
     char *text = strdup(argument);
     for (char *c = text; *c; c++) *c = (char)toupper((unsigned char)*c);
     return text;

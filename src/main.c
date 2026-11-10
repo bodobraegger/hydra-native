@@ -759,7 +759,7 @@ static long long modification_time(const char *path) {
 
 static void usage(void) {
     fprintf(stderr,
-            "usage: hydra-native [options] [file.js ...]\n"
+            "usage: hydra-native [options] [file.js | https://hydra.ojack.xyz/?code=... ...]\n"
             "       hydra-native --send < code.js\n"
             "  The last file opens in the code overlay; Ctrl+S saves it. See src/keymap.c for all keys.\n"
             "  --watch            load and evaluate the last file again when it changes on disk\n"
@@ -928,6 +928,13 @@ static char *call_text_function(const char *function, const char *argument) {
     return text;
 }
 
+#define SHOW_CODE_FALSE "// show-code: false"
+
+static bool is_sketch_url(const char *argument) {
+    bool url = !strncmp(argument, "http://", 7) || !strncmp(argument, "https://", 8) || argument[0] == '?';
+    return url && (strstr(argument, "code=") || strstr(argument, "sketch_id="));
+}
+
 static void toggle_fullscreen(void) {
     bool fullscreen = SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN_DESKTOP;
     SDL_SetWindowFullscreen(window, fullscreen ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
@@ -971,13 +978,28 @@ int main(int argc, char **argv) {
     if (!load_bundle(directory)) return 1;
 
     // The last file is the sketch of the overlay. It may not exist yet; Ctrl+S creates it.
+    // A URL of the web editor (https://hydra.ojack.xyz/?code=...) or its "?code=..." part works in place of a file.
     const char *sketch = options.file_count ? options.files[options.file_count - 1] : NULL;
+    char *url_code = NULL;
     for (int i = 0; i < options.file_count; i++) {
-        if (options.files[i] == sketch && access(sketch, F_OK) != 0) continue;
-        char *error = evaluate_file(options.files[i]);
+        const char *argument = options.files[i];
+        char *error = NULL;
+        if (is_sketch_url(argument)) {
+            char *code = call_text_function("__codeFromUrl", argument);
+            if (!code) {
+                fprintf(stderr, "cannot open %s\n", argument);
+                continue;
+            }
+            error = evaluate(code, strlen(code), argument);
+            if (argument == sketch) url_code = code;
+            else free(code);
+        } else if (argument != sketch || access(sketch, F_OK) == 0) {
+            error = evaluate_file(argument);
+        }
         if (error) fprintf(stderr, "%s\n", error);
         free(error);
     }
+    if (url_code) sketch = NULL;
     static const struct ui_host host = {
         .evaluate = evaluate,
         .toggle_fullscreen = toggle_fullscreen,
@@ -987,6 +1009,11 @@ int main(int argc, char **argv) {
         .screencap = request_screencap,
     };
     if (!ui_init(options.font_path, options.font_size, sketch, &host)) return 1;
+    if (url_code) {
+        ui_set_code(url_code);
+        if (!strncmp(url_code, SHOW_CODE_FALSE, strlen(SHOW_CODE_FALSE))) ui_set_visible(false);
+        free(url_code);
+    }
     if (options.hide_code) ui_set_visible(false);
     const char *watched = options.watch ? sketch : NULL;
     long long watched_time = watched ? modification_time(watched) : 0;
