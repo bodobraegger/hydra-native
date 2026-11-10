@@ -150,16 +150,16 @@ gallery and signalling server (hydra-synth/hydra-server) and from the CodeMirror
 
 ### Keys of the CodeMirror 5 sublime keymap
 
-| Feature                                 | hydra-native                     | Identical                              |
-| --------------------------------------- | -------------------------------- | -------------------------------------- |
-| occurrences, lines, brackets, scope     | the same keys                    | yes                                    |
-| split selection by line                 | Shift+Alt+I                      | yes (Ctrl+Shift+L saves to URL)        |
-| bookmarks, find under, Ctrl+K chords    | the same keys                    | yes                                    |
-| sort, smart backspace, Escape, subwords | the same keys                    | yes                                    |
-| fold keys                               | nothing                          | yes (the web loads no fold addon)      |
-| wrap lines (Alt+Q)                      | nothing, wrap in the palette     | yes (the web lacks the hardwrap addon) |
-| find (Ctrl+F, F3), replace (Ctrl+H)     | find bar of the browser, replace | yes; ß=ss and kana are not folded      |
-| Ctrl+Left/Right, Ctrl+Backspace         | CodeMirror groups                | yes                                    |
+| Feature                                 | hydra-native                 | Identical                              |
+| --------------------------------------- | ---------------------------- | -------------------------------------- |
+| occurrences, lines, brackets, scope     | the same keys                | yes                                    |
+| split selection by line                 | Shift+Alt+I                  | yes (Ctrl+Shift+L saves to URL)        |
+| bookmarks, find under, Ctrl+K chords    | the same keys                | yes                                    |
+| sort, smart backspace, Escape, subwords | the same keys                | yes                                    |
+| fold keys                               | nothing                      | yes (the web loads no fold addon)      |
+| wrap lines (Alt+Q)                      | nothing, wrap in the palette | yes (the web lacks the hardwrap addon) |
+| find (Ctrl+F, F3), replace (Ctrl+H)     | Chrome find bar, all lines   | yes; Chrome finds rendered lines only  |
+| Ctrl+Left/Right, Ctrl+Backspace         | CodeMirror groups            | yes                                    |
 
 ### Hydra API and inputs
 

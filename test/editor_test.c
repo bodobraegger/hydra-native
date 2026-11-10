@@ -203,6 +203,18 @@ static void test_search_and_brackets(void) {
     EXPECT(editor_find(&editor, "osc", 3, true, -1) && editor.anchor == 14); // around the start
     EXPECT(editor_replace_all(&editor, "\xC3\xA9T\xC3\x89", 5, "x", 1, true) == 1);
     EXPECT_TEXT(&editor, "Osc x e\xCC\x81 OSC aaa");
+    load(&editor, "Stra\xC3\x9F" "e \xE3\x81\x8C \xEF\xBD\x8F\xEF\xBD\x93\xEF\xBD\x83"); // "Straße が ｏｓｃ"
+    count = editor_find_all(&editor, "strasse", 7, true, &matches); // ß is ss
+    EXPECT(count == 1 && matches[0].start == 0 && matches[0].end == 7);
+    free(matches);
+    EXPECT(editor_find_all(&editor, "stras", 5, true, &matches) == 0); // no match ends inside ß
+    free(matches);
+    count = editor_find_all(&editor, "\xE3\x82\xAB", 3, true, &matches); // katakana KA finds hiragana GA
+    EXPECT(count == 1 && matches[0].start == 8 && matches[0].end == 11);
+    free(matches);
+    count = editor_find_all(&editor, "OSC", 3, true, &matches); // full width
+    EXPECT(count == 1 && matches[0].start == 12);
+    free(matches);
 
     load(&editor, "osc(shape(4), 0.5)");
     editor_set_cursor(&editor, 11, false);

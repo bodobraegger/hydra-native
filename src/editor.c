@@ -2,6 +2,7 @@
 #include "unicode.h"
 
 #include <ctype.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
@@ -1340,41 +1341,108 @@ static const char latin_base_letters[] =
     "aaaaaa ceeeeiiii nooooo ouuuuy  aaaaaa ceeeeiiii nooooo ouuuuy yaaaaaaccccccccddddeeeeeeeeeegggggggghhhhiiiiii"
     "iiii  jjkk llllllllllnnnnnn   oooooo  rrrrrrssssssssttttttuuuuuuuuuuuuwwyyyzzzzzz ";
 
-// Folds a code point as the find bar of the browser compares it: without case, and without the accents of
-// Latin letters ("e" finds "É").
-static int fold(int codepoint) {
-    if (codepoint < 0x80) return tolower(codepoint);
-    if (codepoint >= 0xC0 && codepoint < 0x180) {
-        char base = latin_base_letters[codepoint - 0xC0];
-        if (base != ' ') return base;
-        if (codepoint < 0xDF && codepoint != 0xD7) return codepoint + 0x20; // Æ, Ð, Þ
-        if (codepoint == 0x132 || codepoint == 0x14A || codepoint == 0x152) return codepoint + 1; // Ĳ, Ŋ, Œ
+// U+3041 to U+30FF
+static const uint16_t kana_base[] = {
+    0x3042, 0x3042, 0x3044, 0x3044, 0x3046, 0x3046, 0x3048, 0x3048, 0x304A, 0x304A, 0x304B, 0x304B,
+    0x304D, 0x304D, 0x304F, 0x304F, 0x3051, 0x3051, 0x3053, 0x3053, 0x3055, 0x3055, 0x3057, 0x3057,
+    0x3059, 0x3059, 0x305B, 0x305B, 0x305D, 0x305D, 0x305F, 0x305F, 0x3061, 0x3061, 0x3064, 0x3064,
+    0x3064, 0x3066, 0x3066, 0x3068, 0x3068, 0x306A, 0x306B, 0x306C, 0x306D, 0x306E, 0x306F, 0x306F,
+    0x306F, 0x3072, 0x3072, 0x3072, 0x3075, 0x3075, 0x3075, 0x3078, 0x3078, 0x3078, 0x307B, 0x307B,
+    0x307B, 0x307E, 0x307F, 0x3080, 0x3081, 0x3082, 0x3084, 0x3084, 0x3086, 0x3086, 0x3088, 0x3088,
+    0x3089, 0x308A, 0x308B, 0x308C, 0x308D, 0x308F, 0x308F, 0x3090, 0x3091, 0x3092, 0x3093, 0x3046,
+    0x304B, 0x3051, 0x3097, 0x3098, 0x3099, 0x309A, 0x0020, 0x0020, 0x309D, 0x309D, 0x309F, 0x30A0,
+    0x3042, 0x3042, 0x3044, 0x3044, 0x3046, 0x3046, 0x3048, 0x3048, 0x304A, 0x304A, 0x304B, 0x304B,
+    0x304D, 0x304D, 0x304F, 0x304F, 0x3051, 0x3051, 0x3053, 0x3053, 0x3055, 0x3055, 0x3057, 0x3057,
+    0x3059, 0x3059, 0x305B, 0x305B, 0x305D, 0x305D, 0x305F, 0x305F, 0x3061, 0x3061, 0x3064, 0x3064,
+    0x3064, 0x3066, 0x3066, 0x3068, 0x3068, 0x306A, 0x306B, 0x306C, 0x306D, 0x306E, 0x306F, 0x306F,
+    0x306F, 0x3072, 0x3072, 0x3072, 0x3075, 0x3075, 0x3075, 0x3078, 0x3078, 0x3078, 0x307B, 0x307B,
+    0x307B, 0x307E, 0x307F, 0x3080, 0x3081, 0x3082, 0x3084, 0x3084, 0x3086, 0x3086, 0x3088, 0x3088,
+    0x3089, 0x308A, 0x308B, 0x308C, 0x308D, 0x308F, 0x308F, 0x3090, 0x3091, 0x3092, 0x3093, 0x3046,
+    0x304B, 0x3051, 0x308F, 0x3090, 0x3091, 0x3092, 0x30FB, 0x30FC, 0x30FD, 0x30FD, 0x30FF,
+};
+// U+FF66 to U+FF9F
+static const uint16_t halfwidth_kana_base[] = {
+    0x3092, 0x3042, 0x3044, 0x3046, 0x3048, 0x304A, 0x3084, 0x3086, 0x3088, 0x3064, 0x30FC, 0x3042,
+    0x3044, 0x3046, 0x3048, 0x304A, 0x304B, 0x304D, 0x304F, 0x3051, 0x3053, 0x3055, 0x3057, 0x3059,
+    0x305B, 0x305D, 0x305F, 0x3061, 0x3064, 0x3066, 0x3068, 0x306A, 0x306B, 0x306C, 0x306D, 0x306E,
+    0x306F, 0x3072, 0x3075, 0x3078, 0x307B, 0x307E, 0x307F, 0x3080, 0x3081, 0x3082, 0x3084, 0x3086,
+    0x3088, 0x3089, 0x308A, 0x308B, 0x308C, 0x308D, 0x308F, 0x3093, 0xFF9E, 0xFF9F,
+};
+
+// Folds a code point as the find bar of Chrome compares it (ICU collation at primary strength): without case,
+// accents, the size and voicing of kana, hiragana against katakana and full width. Some letters fold to two or
+// three (ß to ss, æ to ae, ﬃ to ffi). Returns the count of folded code points in `out`.
+static int fold(int codepoint, int out[3]) {
+    static const struct { int codepoint; const char *folded; } expansions[] = {
+        { 0xDF, "ss" }, { 0x1E9E, "ss" }, { 0xC6, "ae" }, { 0xE6, "ae" }, { 0x152, "oe" }, { 0x153, "oe" },
+        { 0x132, "ij" }, { 0x133, "ij" }, { 0xFB00, "ff" }, { 0xFB01, "fi" }, { 0xFB02, "fl" }, { 0xFB03, "ffi" },
+        { 0xFB04, "ffl" }, { 0xFB05, "st" }, { 0xFB06, "st" },
+    };
+    for (size_t i = 0; i < sizeof expansions / sizeof expansions[0]; i++) {
+        if (expansions[i].codepoint != codepoint) continue;
+        int count = 0;
+        for (const char *c = expansions[i].folded; *c; c++) out[count++] = *c;
+        return count;
     }
-    if ((codepoint >= 0x391 && codepoint <= 0x3AB) || (codepoint >= 0x410 && codepoint <= 0x42F)) return codepoint + 0x20;
-    if (codepoint >= 0x400 && codepoint <= 0x40F) return codepoint + 0x50;
-    return codepoint;
+    int folded = codepoint;
+    if (codepoint >= 0xFF01 && codepoint <= 0xFF5E) folded = codepoint - 0xFEE0; // full-width ASCII
+    else if (codepoint >= 0x3041 && codepoint <= 0x30FF) folded = kana_base[codepoint - 0x3041];
+    else if (codepoint >= 0xFF66 && codepoint <= 0xFF9F) folded = halfwidth_kana_base[codepoint - 0xFF66];
+    if (folded < 0x80) folded = tolower(folded);
+    else if (folded >= 0xC0 && folded < 0x180) {
+        char base = latin_base_letters[folded - 0xC0];
+        if (base != ' ') folded = base;
+        else if (folded < 0xDF && folded != 0xD7) folded += 0x20; // Ð, Þ
+        else if (folded == 0x14A) folded = 0x14B; // Ŋ
+    } else if ((folded >= 0x391 && folded <= 0x3AB) || (folded >= 0x410 && folded <= 0x42F)) {
+        folded += 0x20;
+    } else if (folded >= 0x400 && folded <= 0x40F) {
+        folded += 0x50;
+    }
+    out[0] = folded;
+    return 1;
 }
 
-static bool is_combining_mark(int codepoint) { return codepoint >= 0x300 && codepoint <= 0x36F; }
+// Combining accents and the voicing marks of kana, which primary strength ignores.
+static bool is_combining_mark(int codepoint) {
+    return (codepoint >= 0x300 && codepoint <= 0x36F) || codepoint == 0x3099 || codepoint == 0x309A || codepoint == 0xFF9E ||
+           codepoint == 0xFF9F;
+}
 
-// The length in bytes of the match of `needle` at `at`, or 0. Without case, combining accents after a letter
-// belong to the match.
+// The folded code points of the code point at `*position` (none for a mark); advances `*position`.
+static int fold_at(const unsigned char *text, size_t length, size_t *position, int out[3]) {
+    size_t size;
+    int codepoint = unicode_decode(text + *position, length - *position, &size);
+    *position += size;
+    return is_combining_mark(codepoint) ? 0 : fold(codepoint, out);
+}
+
+// The length in bytes of the match of `needle` at `at`, or 0. Without case, marks after a letter belong to the
+// match, and a match does not end inside a letter that folds to more than one (ß against "s").
 static size_t match_at(const struct editor *editor, size_t at, const char *needle, size_t length, bool ignore_case) {
     if (!ignore_case) return at + length <= editor->length && memcmp(editor->text + at, needle, length) == 0 ? length : 0;
     const unsigned char *text = (const unsigned char *)editor->text;
-    size_t position = at, size;
+    size_t position = at, index = 0, size;
     if ((text[at] & 0xC0) == 0x80 || is_combining_mark(unicode_decode(text + at, editor->length - at, &size))) return 0;
-    for (size_t index = 0; index < length;) {
-        int wanted = unicode_decode((const unsigned char *)needle + index, length - index, &size);
-        index += size;
-        if (is_combining_mark(wanted)) continue;
-        if (position >= editor->length) return 0;
-        int found = unicode_decode(text + position, editor->length - position, &size);
-        if (fold(found) != fold(wanted)) return 0;
-        position += size;
-        while (position < editor->length && is_combining_mark(unicode_decode(text + position, editor->length - position, &size)))
-            position += size;
+    int wanted[3], found[3], wanted_count = 0, found_count = 0, wanted_index = 0, found_index = 0;
+    for (;;) {
+        if (wanted_index == wanted_count) {
+            if (index >= length) break;
+            wanted_count = fold_at((const unsigned char *)needle, length, &index, wanted);
+            wanted_index = 0;
+            continue;
+        }
+        if (found_index == found_count) {
+            if (position >= editor->length) return 0;
+            found_count = fold_at(text, editor->length, &position, found);
+            found_index = 0;
+            continue;
+        }
+        if (wanted[wanted_index++] != found[found_index++]) return 0;
     }
+    if (found_index != found_count || position == at) return 0;
+    while (position < editor->length && is_combining_mark(unicode_decode(text + position, editor->length - position, &size)))
+        position += size;
     return position - at;
 }
 
