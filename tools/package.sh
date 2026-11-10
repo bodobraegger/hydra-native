@@ -43,10 +43,14 @@ linux-x86_64)
 	cp -r "$root/assets/icon" "$root/assets/hydra-native.desktop" "$contents/assets/"
 	;;
 macos-arm64)
-	# ANGLE (its dylibs have @rpath install names) and SDL3 next to the program, which has @executable_path as
-	# rpath. The app has only the ad-hoc signature of the linker, so Gatekeeper asks on the first start.
-	cp "$build/hydra-native" "$build/hydra-native-capture" "$build/libEGL.dylib" "$build/libGLESv2.dylib" \
-		"$build"/libSDL3*.dylib "$bin/"
+	# ANGLE (its dylibs have @rpath install names) and the SDL3 of Homebrew next to the program, which has
+	# @executable_path as rpath. The changed files get a new ad-hoc signature; Gatekeeper asks on the first start.
+	cp "$build/hydra-native" "$build/hydra-native-capture" "$build/libEGL.dylib" "$build/libGLESv2.dylib" "$bin/"
+	sdl=$(otool -L "$bin/hydra-native" | awk '/libSDL3/ { print $1 }')
+	cp "$sdl" "$bin/"
+	install_name_tool -id "@rpath/$(basename "$sdl")" "$bin/$(basename "$sdl")"
+	install_name_tool -change "$sdl" "@rpath/$(basename "$sdl")" "$bin/hydra-native"
+	codesign --force --sign - "$bin"/*.dylib "$bin/hydra-native" "$bin/hydra-native-capture"
 	mkdir -p "$contents/Resources"
 	cp "$root/assets/icon/hydra-native.icns" "$contents/Resources/"
 	cat > "$contents/Info.plist" <<PLIST
