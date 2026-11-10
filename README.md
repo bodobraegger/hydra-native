@@ -58,7 +58,9 @@ The toolbar at the top right has the buttons of the web editor: run, clear, exte
 (Shift: undo, Ctrl: change a function), share (with `--gallery-server`) and info. The info panel has the
 languages of the web editor (from hydra-synth/l10n, cached in ~/.cache/hydra-native/l10n).
 The extensions panel lists the catalog of hydra-synth/hydra-extensions; "+" adds the load code to the top.
-Ctrl+Shift+L copies the hydra.ojack.xyz URL of the code. PLAN.md compares every feature with the web editor.
+The window title shows the hydra.ojack.xyz URL of the code after each run of all code, as the address bar of
+the web editor does. Ctrl+Shift+L copies that URL, and Ctrl+Shift+O opens the URL in the clipboard.
+PLAN.md compares every feature with the web editor.
 
 The editor has multiple cursors, find and replace, go to line, a command palette and autocomplete of hydra
 names and of the words of the file. Typing an opening bracket or quote adds the closing one. Find works like
@@ -97,7 +99,7 @@ Keys marked "always" also work while the overlay is hidden.
 | Ctrl+Shift+H                                   | hide or show the code (always)                         |
 | Ctrl+S; Ctrl+Shift+S                           | save; save a screenshot and the code (always)          |
 | F1; Ctrl+Shift+P                               | help; command palette (always)                         |
-| Ctrl+Shift+L; Ctrl+Shift+G                     | copy the sketch URL; share with the gallery (always)   |
+| Ctrl+Shift+L; Ctrl+Shift+O; Ctrl+Shift+G       | copy the URL; open a URL; share with the gallery       |
 | F7; F8, Shift+F8, Ctrl+F8; Ctrl+Shift+Delete   | example; mutate, undo, change a function; clear all    |
 | F11; Ctrl+Q                                    | fullscreen; quit (always)                              |
 | Ctrl+Shift+F, Shift+Alt+F                      | format with js-beautify                                |

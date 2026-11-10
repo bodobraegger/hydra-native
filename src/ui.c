@@ -275,16 +275,32 @@ static void show_result(const char *prefix, char *error) {
     }
 }
 
-static void evaluate_range(size_t start, size_t end) {
+// true when the code ran without an error
+static bool evaluate_range(size_t start, size_t end) {
     flash_start = start;
     flash_end = end;
     flash_until = now + FLASH_MS;
-    if (start == end) return;
+    if (start == end) return true;
     char *code = strndup(editor.text + start, end - start);
     char *error = evaluate_code(code, end - start, "<editor>");
     show_result("", error);
+    bool ok = !error;
     free(error);
     free(code);
+    return ok;
+}
+
+// Like 'gallery: save to URL' of the web editor, which puts the code into the address bar; here the window title
+// shows the URL.
+static void update_url(void) {
+    char *url = host.call("__urlForCode", editor.text);
+    if (url) host.set_title(url);
+    free(url);
+}
+
+// Evaluates all code and updates the URL after a run without errors, as the web editor does.
+static void evaluate_all(void) {
+    if (evaluate_range(0, editor.length)) update_url();
 }
 
 char *ui_evaluate_socket(const char *code, size_t length) {
@@ -556,15 +572,35 @@ static bool replace_with(const char *function, const char *failure) {
 static void clear_all(void) {
     free(evaluate_code("hush(); speed = 1", strlen("hush(); speed = 1"), "<clear>"));
     editor_replace_text(&editor, CLEARED_CODE, strlen(CLEARED_CODE));
+    char *url = host.call("__webEditorUrl", ""); // 'gallery: clear' removes the code from the URL
+    if (url) host.set_title(url);
+    free(url);
 }
 
-// Like "save to URL" of the web editor; without an address bar, the URL goes to the clipboard.
+// Like "save to URL" of the web editor; without an address bar, the URL goes to the window title and the clipboard.
 static void save_to_url(void) {
     char *url = host.call("__urlForCode", editor.text);
     if (!url) return;
+    host.set_title(url);
     SDL_SetClipboardText(url);
     ui_show_message("copied the hydra.ojack.xyz URL of the code to the clipboard", false);
     free(url);
+}
+
+// Like pasting a sketch URL into the address bar: loads the code of the URL in the clipboard and runs it.
+static void open_url_from_clipboard(void) {
+    char *url = SDL_GetClipboardText();
+    char *code = url && (strstr(url, "code=") || strstr(url, "sketch_id=")) ? host.call("__codeFromUrl", url) : NULL;
+    if (!code) {
+        ui_show_message("the clipboard has no hydra.ojack.xyz URL with code= or sketch_id=", true);
+    } else {
+        editor_replace_text(&editor, code, strlen(code));
+        editor_set_cursor(&editor, 0, false);
+        evaluate_range(0, editor.length);
+        host.set_title(url);
+    }
+    free(code);
+    SDL_free(url);
 }
 
 static void escape(void) {
@@ -600,7 +636,7 @@ static void run_command(enum command command, bool extend) {
     case COMMAND_TOGGLE_CODE: visible = !visible; return;
     case COMMAND_EVAL_LINE: editor_line_range(&editor, &start, &end); evaluate_range(start, end); break;
     case COMMAND_EVAL_BLOCK: editor_block_range(&editor, &start, &end); evaluate_range(start, end); break;
-    case COMMAND_EVAL_ALL: evaluate_range(0, editor.length); break;
+    case COMMAND_EVAL_ALL: evaluate_all(); break;
     case COMMAND_SAVE: save(); break;
     case COMMAND_FULLSCREEN: host.toggle_fullscreen(); break;
     case COMMAND_QUIT: host.quit(); break;
@@ -618,6 +654,7 @@ static void run_command(enum command command, bool extend) {
     case COMMAND_FORMAT: format_code(); break;
     case COMMAND_SCREENCAP: host.screencap(); break;
     case COMMAND_SAVE_TO_URL: save_to_url(); break;
+    case COMMAND_OPEN_URL: open_url_from_clipboard(); break;
     case COMMAND_GALLERY_SHARE: {
         // Like 'gallery:shareSketch': evaluate first, and ask only when the code runs.
         char *error = evaluate_code(editor.text, editor.length, "<editor>");
@@ -629,11 +666,18 @@ static void run_command(enum command command, bool extend) {
     case COMMAND_CLEAR_ALL: clear_all(); break;
     case COMMAND_SHOW_EXAMPLE:
         clear_all();
-        if (replace_with("__randomExample", "no example")) evaluate_range(0, editor.length);
+        if (replace_with("__randomExample", "no example")) {
+            evaluate_range(0, editor.length);
+            update_url();
+        }
         break;
     // The mutator evaluates the code itself and retries on errors, like in the web editor.
-    case COMMAND_MUTATE: replace_with("__mutate", "mutator: the code does not parse"); break;
-    case COMMAND_MUTATE_TRANSFORM: replace_with("__mutateTransform", "mutator: the code does not parse"); break;
+    case COMMAND_MUTATE:
+        if (replace_with("__mutate", "mutator: the code does not parse")) update_url();
+        break;
+    case COMMAND_MUTATE_TRANSFORM:
+        if (replace_with("__mutateTransform", "mutator: the code does not parse")) update_url();
+        break;
     case COMMAND_MUTATE_UNDO: replace_with("__mutateUndo", "mutator: nothing to undo"); break;
     case COMMAND_TOGGLE_HELP: help_visible = !help_visible; return;
     case COMMAND_TOGGLE_EXTENSIONS:

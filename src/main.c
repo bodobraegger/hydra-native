@@ -516,6 +516,8 @@ static bool start_share(const char *code, const char *name) {
 
 static bool write_png(const char *path, int width, int height);
 
+static void set_window_title(const char *url) { SDL_SetWindowTitle(window, url); }
+
 // Tells the input method where the cursor is, so that its candidate window opens there, as in the browser.
 static void update_text_input_rect(int drawable_width) {
     static SDL_Rect last;
@@ -1288,7 +1290,10 @@ int main(int argc, char **argv) {
         if (error) fprintf(stderr, "%s\n", error);
         free(error);
     }
-    if (url_code) sketch = NULL;
+    if (url_code) {
+        sketch = NULL;
+        set_window_title(options.files[options.file_count - 1]);
+    }
     static const struct ui_host host = {
         .evaluate = evaluate,
         .toggle_fullscreen = toggle_fullscreen,
@@ -1297,6 +1302,7 @@ int main(int argc, char **argv) {
         .call = call_text_function,
         .screencap = request_screencap,
         .share = start_share,
+        .set_title = set_window_title,
     };
     char emoji_font[PATH_MAX + 64];
     snprintf(emoji_font, sizeof emoji_font, "%s/../vendor/fonts/NotoEmoji.ttf", directory);

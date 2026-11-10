@@ -69,6 +69,7 @@ function encodeBase64 (text) {
 
 // The URL of "save to URL" in the web editor: gallery.js encodes btoa(encodeURIComponent(code)), and
 // URLSearchParams escapes the base64 characters + / and =.
+window.__webEditorUrl = () => WEB_EDITOR_URL
 window.__urlForCode = (code) => `${WEB_EDITOR_URL}?code=${encodeURIComponent(encodeBase64(encodeURIComponent(code)))}`
 
 // The gallery server for reading sketches: --gallery-server, else the server of the deployed web editor.

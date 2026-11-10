@@ -36,6 +36,7 @@
     X(TOGGLE_EXTENSIONS, "extensions and libraries") \
     X(SELECT_NEXT_OCCURRENCE, "select the word, then add the next occurrence") \
     X(FIND, "find") \
+    X(OPEN_URL, "open the hydra.ojack.xyz URL in the clipboard, like pasting it into the address bar") \
     X(FONT_BIGGER, "bigger font") \
     X(FONT_SMALLER, "smaller font") \
     X(FULLSCREEN, "fullscreen") \

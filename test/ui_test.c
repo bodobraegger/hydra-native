@@ -77,6 +77,8 @@ static bool share(const char *code, const char *name) {
     return true;
 }
 
+static char title[4096];
+static void set_title(const char *url) { snprintf(title, sizeof title, "%s", url); }
 static void nothing(void) {}
 static bool never(void) { return false; }
 
@@ -121,7 +123,7 @@ int main(void) {
     int fd = mkstemp(path);
     close(fd);
     write_file(path, "osc(10)\n  .out()\n\nnoise().out()");
-    static const struct ui_host host = { evaluate, nothing, never, nothing, call, nothing, share };
+    static const struct ui_host host = { evaluate, nothing, never, nothing, call, nothing, share, set_title };
     ui_init("unused.ttf", NULL, 20, path, &host);
     ui_draw(800, 600, 0);
 
@@ -196,6 +198,7 @@ int main(void) {
     key(SDLK_ESCAPE, 0);
     key(SDLK_RETURN, KMOD_LCTRL | KMOD_LALT);
     EXPECT_STRING(evaluated, "shape(1).out()\nshape(2).out()\nnoise().out()");
+    EXPECT_STRING(title, "https://hydra.ojack.xyz/?code=x"); // evaluate all puts the URL into the title
     key(SDLK_g, KMOD_LCTRL);
     type("2");
     key(SDLK_RETURN, 0);

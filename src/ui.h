@@ -18,6 +18,8 @@ struct ui_host {
     // Shares the code with the gallery server under `name`, after a screenshot of the next frame; false
     // when no gallery server is set. The result arrives in ui_share_done().
     bool (*share)(const char *code, const char *name);
+    // Shows the URL of the sketch, which the browser shows in the address bar, in the window title.
+    void (*set_title)(const char *url);
 };
 
 // `file_path` may be NULL (no file) or a path that does not exist yet (Ctrl+S creates it).

@@ -142,7 +142,7 @@ gallery and signalling server (hydra-synth/hydra-server) and from the CodeMirror
 | right-to-left text in code       | logical order in the grid            | no: CodeMirror reorders such lines      |
 | emoji                            | color, Noto Color Emoji              | no: the code grid splits ZWJ sequences  |
 | extensions panel                 | categories, thumbnails, +, examples  | yes                                     |
-| save to URL                      | Ctrl+Shift+L, URL to the clipboard   | no address bar, so the clipboard        |
+| save to URL, open a URL          | window title, Ctrl+Shift+L/O         | yes: the title is the address bar       |
 | open a sketch URL, sketch_id     | argument; /sketchById of the server  | yes                                     |
 | share to the gallery             | prompt, /sketch, /image              | yes (with --gallery-server)             |
 | line wrapping, selections, tabs  | wrap, multiple cursors, tab width 4  | yes                                     |

@@ -31,6 +31,7 @@ static const struct key_binding keymap[] = {
     { SDLK_s, KEY_CTRL, COMMAND_SAVE, .global = true },
     { SDLK_s, KEY_CTRL | KEY_SHIFT, COMMAND_SCREENCAP, .global = true },
     { SDLK_l, KEY_CTRL | KEY_SHIFT, COMMAND_SAVE_TO_URL, .global = true },
+    { SDLK_o, KEY_CTRL | KEY_SHIFT, COMMAND_OPEN_URL, .global = true },
     { SDLK_g, KEY_CTRL | KEY_SHIFT, COMMAND_GALLERY_SHARE, .global = true },
     { SDLK_F11, 0, COMMAND_FULLSCREEN, .global = true },
     { SDLK_q, KEY_CTRL, COMMAND_QUIT, .global = true },
