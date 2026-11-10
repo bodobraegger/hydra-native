@@ -1,7 +1,7 @@
 // Replaces the DOM media inputs of HydraSource (s0..s3) with native video sources:
 // a child process writes raw RGBA frames to a pipe, src/video.c uploads the newest frame.
-// The commands use gst-launch-1.0, ffmpeg, tools/portal_screencast.py (the portal picker of initScreen) and
-// tools/screencast.py (Mutter ScreenCast without a dialog: initMonitor, initArea, initWindow).
+// The commands use gst-launch-1.0, ffmpeg and build/hydra-native-capture (src/capture.h: the portal picker of
+// initScreen, and Mutter ScreenCast without a dialog for initMonitor, initArea and initWindow).
 
 const DEFAULT_WIDTH = 1280
 const DEFAULT_HEIGHT = 720
@@ -12,7 +12,7 @@ const YOUTUBE_PATTERN = /^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\//
 const quote = (text) => `'${String(text).replace(/'/g, "'\\''")}'`
 const rawVideoCaps = (width, height) => `video/x-raw,format=RGBA,width=${width},height=${height}`
 const ffmpegOutput = (width, height) => `-vf scale=${width}:${height} -pix_fmt rgba -f rawvideo -`
-const screencast = (...args) => `python3 ${quote(native.directory + '/../tools/screencast.py')} ${args.join(' ')}`
+const screencast = (...args) => `${quote(native.directory + '/hydra-native-capture')} ${args.join(' ')}`
 
 // Capture devices in the order of their /dev/video number. Metadata nodes (index 1) are skipped.
 function cameraDevices () {
@@ -66,7 +66,7 @@ export function installSources (sourcePrototype) {
   // initScreen() opens the picker of xdg-desktop-portal, like getDisplayMedia() in the browser:
   // the user selects a window or a monitor. The index of hydra-synth's initScreen(index) is not used.
   sourcePrototype.initScreen = function (index = 0, { width = DEFAULT_WIDTH, height = DEFAULT_HEIGHT, ...params } = {}) {
-    return this.initCommand(`python3 ${quote(native.directory + '/../tools/portal_screencast.py')} ${width} ${height}`,
+    return this.initCommand(screencast('picker', width, height),
       { width, height, ...params })
   }
 

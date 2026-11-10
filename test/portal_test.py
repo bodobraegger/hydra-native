@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Checks the order of the portal calls of tools/portal_screencast.py with its dry run (no dialog opens)."""
+"""Checks the order of the portal calls of build/hydra-native-capture (src/capture_linux.c) with its dry run (no
+dialog opens)."""
 import pathlib
 import subprocess
 import sys
 
 EXPECTED_CALLS = ["CreateSession", "SelectSources", "Start", "OpenPipeWireRemote"]
 
-script = pathlib.Path(__file__).resolve().parent.parent / "tools" / "portal_screencast.py"
-output = subprocess.run([sys.executable, str(script), "640", "360", "--dry-run"], capture_output=True, text=True,
-                        check=True).stdout
+capture = pathlib.Path(__file__).resolve().parent.parent / "build" / "hydra-native-capture"
+output = subprocess.run([str(capture), "picker", "640", "360", "--dry-run"], capture_output=True, text=True, check=True).stdout
 calls = [line.split()[1] for line in output.splitlines() if line.startswith("call ")]
 command = [line for line in output.splitlines() if line.startswith("run ")]
 errors = []

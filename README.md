@@ -201,6 +201,8 @@ All `init*` calls accept `{ width, height }` for the capture size (default 1280x
 
 `initScreen()` opens the picker of xdg-desktop-portal, as `getDisplayMedia()` does in the browser.
 `initMonitor`, `initArea` and `initWindow` use the Mutter ScreenCast API directly and open no dialog.
+build/hydra-native-capture (src/capture.h, with the Linux backend src/capture_linux.c on GDBus) does both and
+writes the frames, so no Python runs; Python is only for some tests.
 A monitor stream sends no frame until something on that monitor repaints.
 Window and area streams start at once.
 

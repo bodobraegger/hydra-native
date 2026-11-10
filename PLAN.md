@@ -200,7 +200,7 @@ Other differences that remain:
 
 The MVP has one generic mechanism: a child process writes raw RGBA frames of a fixed size to a pipe.
 A reader thread keeps the newest frame, and the render thread uploads it with `glTexSubImage2D`.
-This covers webcams (`gst-launch-1.0 v4l2src`), monitors, areas and windows (`tools/screencast.py`, Mutter ScreenCast),
+This covers webcams (`gst-launch-1.0 v4l2src`), monitors, areas and windows (`build/hydra-native-capture`, Mutter ScreenCast and the portal),
 files and network streams (ffmpeg) and YouTube (`yt-dlp | ffmpeg`, yt-dlp is not installed).
 
 Measured: the webcam /dev/video0 gives MJPEG 1280x720 at 30 fps through this path.

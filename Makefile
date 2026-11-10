@@ -25,7 +25,7 @@ OBJECTS := build/main.o build/canvas2d.o build/svg_filter.o build/webgl.o build/
 CFLAGS := -O2 -g -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -I$(QUICKJS_DIR) -Ivendor/stb -I$(PLUTOVG_DIR)/include -DPLUTOVG_BUILD_STATIC -I$(HARFBUZZ_DIR)/src -I$(SHEENBIDI_DIR)/Headers $(shell pkg-config --cflags sdl2)
 LDLIBS := $(shell pkg-config --libs sdl2 glesv2 libpulse-simple libpulse alsa) -lm -ldl -lpthread
 
-all: build/hydra-native build/hydra-bundle.js build/p5.min.js vendor/fonts/NotoEmoji.ttf $(if $(WEBRTC_APM_LIBRARY),build/libhydra-webrtc-apm.so)
+all: build/hydra-native build/hydra-native-capture build/hydra-bundle.js build/p5.min.js vendor/fonts/NotoEmoji.ttf $(if $(WEBRTC_APM_LIBRARY),build/libhydra-webrtc-apm.so)
 
 $(QUICKJS_DIR)/quickjs.c:
 	mkdir -p vendor
@@ -99,6 +99,12 @@ build/%.o: src/%.c src/*.h $(QUICKJS_DIR)/quickjs.c $(PLUTOVG_DIR)/include/pluto
 	@mkdir -p build
 	$(CC) $(CFLAGS) -c $< -o $@
 
+# The screen capture of initScreen, initMonitor, initArea and initWindow (src/capture.h), a video source command.
+build/hydra-native-capture: src/capture_main.c src/capture_linux.c src/capture.h
+	@mkdir -p build
+	$(CC) -O2 -g -Wall -Wextra -Wno-unused-parameter $(shell pkg-config --cflags gio-unix-2.0) -o $@ src/capture_main.c \
+		src/capture_linux.c $(shell pkg-config --libs gio-unix-2.0)
+
 build/hydra-native: $(OBJECTS) $(QUICKJS_OBJECTS) $(PLUTOVG_OBJECTS) build/harfbuzz.o build/sheenbidi.o
 	$(CXX) -o $@ $^ $(LDLIBS)
 
@@ -128,7 +134,7 @@ build/audio-test: test/audio_test.c src/audio_processing.c src/audio_processing.
 	@mkdir -p build
 	$(CC) -O1 -g -Wall -Wextra -fsanitize=address,undefined -o $@ test/audio_test.c src/audio_processing.c src/analog_agc.c -lm -ldl -lpthread
 
-test: build/editor-test build/ui-test build/audio-test $(if $(WEBRTC_APM_LIBRARY),build/libhydra-webrtc-apm.so)
+test: build/editor-test build/ui-test build/audio-test build/hydra-native-capture $(if $(WEBRTC_APM_LIBRARY),build/libhydra-webrtc-apm.so)
 	build/editor-test
 	build/ui-test
 	build/audio-test
