@@ -298,7 +298,7 @@ the system library libwebrtc-audio-processing-1.so.3, which PipeWire installs. W
 and Windows, src/audio_processing.c does a similar noise suppression and gain control.
 
 hydra-native does not change the volume of the capture source, which Chrome does on Linux with the analog gain
-control of that library. Thus `a.setScale()` and `a.setCutoff()` can need other values than in the browser.
+control of that library. Thus `a.setScale()` and `a.setCutoff()` might need other values than in the browser.
 
 ## Benchmark
 
