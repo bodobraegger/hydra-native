@@ -2,6 +2,7 @@
 import { onAfterFrame } from './dom-shim.js'
 import Hydra from 'hydra-synth'
 import { installSources } from './sources.js'
+import beautify from 'js-beautify'
 
 const canvas = document.createElement('canvas')
 ;[canvas.width, canvas.height] = native.drawableSize()
@@ -64,3 +65,7 @@ onAfterFrame(() => {
   const top = windowHeight - audio.canvas.height
   native.fillRects(audio.ctx.rects.flatMap(([x, y, width, height, ...color]) => [left + x, top + y, width, height, ...color]))
 })
+
+// The formatter of the web editor (js-beautify with its options), called by src/ui.c.
+// The web editor indents with tabs; hydra-native uses two spaces, like the Pulsar setup.
+window.__format = (code) => beautify(code, { indent_size: 2, break_chained_methods: true })

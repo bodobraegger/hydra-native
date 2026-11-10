@@ -142,9 +142,12 @@ static void test_line_operations(void) {
     EXPECT_TEXT(&editor, "osc()\nosc()\n  .out()\n\nnoise()");
     EXPECT(editor.cursor == 7);
 
-    load(&editor, "osc(10,\n0.1)\n.rotate()   \n    .out()\nshape(4)");
-    editor_format(&editor);
-    EXPECT_TEXT(&editor, "osc(10,\n  0.1)\n  .rotate()\n  .out()\nshape(4)");
+    load(&editor, "osc()\n  .out()");
+    editor_set_cursor(&editor, editor_offset_at(&editor, 1, 4), false);
+    editor_replace_text(&editor, "osc(10)\n.out()", 14);
+    EXPECT(editor.cursor == editor_offset_at(&editor, 1, 4)); // the cursor keeps line and column
+    editor_undo(&editor);
+    EXPECT_TEXT(&editor, "osc()\n  .out()");
     editor_free(&editor);
 }
 

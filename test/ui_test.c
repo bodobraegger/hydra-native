@@ -1,5 +1,6 @@
 // Checks the key table and the overlay commands without a window: key events in, evaluated code and file content out.
 // The overlay drawing is replaced by stubs. Run with `make test`.
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -39,6 +40,12 @@ static char *evaluate(const char *code, size_t length, const char *name) {
     char *error = strdup(next_error);
     next_error[0] = '\0';
     return error;
+}
+
+static char *uppercase(const char *function, const char *argument) {
+    char *text = strdup(argument);
+    for (char *c = text; *c; c++) *c = (char)toupper((unsigned char)*c);
+    return text;
 }
 
 static void nothing(void) {}
@@ -85,7 +92,7 @@ int main(void) {
     int fd = mkstemp(path);
     close(fd);
     write_file(path, "osc(10)\n  .out()\n\nnoise().out()");
-    static const struct ui_host host = { evaluate, nothing, never, nothing };
+    static const struct ui_host host = { evaluate, nothing, never, nothing, uppercase };
     ui_init("unused.ttf", 20, path, &host);
     ui_draw(800, 600, 0);
 
@@ -129,6 +136,11 @@ int main(void) {
     key(SDLK_RETURN, KMOD_LCTRL);
     key(SDLK_RETURN, KMOD_LCTRL);
     EXPECT_STRING(evaluated, "solid().out()");
+
+    // Shift+Ctrl+F and Shift+Alt+F format through the JS host (js-beautify); here a stub makes upper case.
+    key(SDLK_f, KMOD_LCTRL | KMOD_LSHIFT);
+    key(SDLK_RETURN, KMOD_LCTRL | KMOD_LALT);
+    EXPECT_STRING(evaluated, "SOLID().OUT()");
 
     unlink(path);
     if (failures) {

@@ -248,6 +248,14 @@ static void find_from_selection_start(void) {
     if (!editor_find_next(&editor, query, strlen(query))) ui_show_message("not found", false);
 }
 
+// Formats with js-beautify, like the web editor (see __format in js/main.js).
+static void format_code(void) {
+    char *formatted = host.call("__format", editor.text);
+    if (!formatted) return ui_show_message("format: the code has an error", true);
+    editor_replace_text(&editor, formatted, strlen(formatted));
+    free(formatted);
+}
+
 static void run_command(enum command command, bool extend) {
     size_t start, end;
     long page = (long)visible_rows() - 1;
@@ -275,7 +283,7 @@ static void run_command(enum command command, bool extend) {
     case COMMAND_MOVE_LINE_UP: editor_move_lines(&editor, -1); break;
     case COMMAND_MOVE_LINE_DOWN: editor_move_lines(&editor, 1); break;
     case COMMAND_DUPLICATE_LINE: editor_duplicate_lines(&editor); break;
-    case COMMAND_FORMAT: editor_format(&editor); break;
+    case COMMAND_FORMAT: format_code(); break;
     case COMMAND_SELECT_NEXT_OCCURRENCE: editor_select_next_occurrence(&editor); break;
     case COMMAND_FIND:
         if (searching && query[0]) editor_find_next(&editor, query, strlen(query));

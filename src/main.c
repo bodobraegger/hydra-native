@@ -815,6 +815,27 @@ static bool write_screenshot(const char *path, int width, int height) {
     return file != NULL;
 }
 
+static char *call_text_function(const char *function, const char *argument) {
+    JSValue global = JS_GetGlobalObject(js);
+    JSValue callee = JS_GetPropertyStr(js, global, function);
+    JSValue value = JS_NewString(js, argument);
+    JSValue result = JS_Call(js, callee, global, 1, &value);
+    char *text = NULL;
+    if (JS_IsException(result)) {
+        js_std_dump_error(js);
+    } else {
+        const char *string = JS_ToCString(js, result);
+        if (string) text = strdup(string);
+        JS_FreeCString(js, string);
+    }
+    JS_FreeValue(js, result);
+    JS_FreeValue(js, value);
+    JS_FreeValue(js, callee);
+    JS_FreeValue(js, global);
+    run_pending_jobs();
+    return text;
+}
+
 static void toggle_fullscreen(void) {
     bool fullscreen = SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN_DESKTOP;
     SDL_SetWindowFullscreen(window, fullscreen ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
@@ -869,6 +890,7 @@ int main(int argc, char **argv) {
         .toggle_fullscreen = toggle_fullscreen,
         .is_fullscreen = is_fullscreen,
         .quit = request_quit,
+        .call = call_text_function,
     };
     if (!ui_init(options.font_path, options.font_size, sketch, &host)) return 1;
     if (options.hide_code) ui_set_visible(false);

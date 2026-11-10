@@ -527,64 +527,18 @@ void editor_duplicate_lines(struct editor *editor) {
     free(text);
 }
 
-// ---------------------------------------------------------------- format
+// ---------------------------------------------------------------- whole text
 
-struct scan_state {
-    int depth;
-    char string_quote; // 0, '\'', '"' or '`'
-    bool block_comment;
-};
-
-// Updates the bracket depth over one line, outside of strings and comments.
-static void scan_line(struct scan_state *state, const char *text, size_t length) {
-    for (size_t i = 0; i < length; i++) {
-        char c = text[i], next = i + 1 < length ? text[i + 1] : '\0';
-        if (state->block_comment) {
-            if (c == '*' && next == '/') { state->block_comment = false; i++; }
-        } else if (state->string_quote) {
-            if (c == '\\') i++;
-            else if (c == state->string_quote) state->string_quote = 0;
-        } else if (c == '/' && next == '/') {
-            return;
-        } else if (c == '/' && next == '*') {
-            state->block_comment = true;
-            i++;
-        } else if (c == '\'' || c == '"' || c == '`') {
-            state->string_quote = c;
-        } else if (c == '(' || c == '[' || c == '{') {
-            state->depth++;
-        } else if ((c == ')' || c == ']' || c == '}') && state->depth > 0) {
-            state->depth--;
-        }
-    }
-    if (state->string_quote != '`') state->string_quote = 0; // only template strings span lines
-}
-
-// Re-indents every line by bracket depth, plus one level for hydra chains that start with ".",
-// and removes trailing spaces. Lines inside block comments and template strings stay as they are.
-void editor_format(struct editor *editor) {
-    static const char spaces[] = "                                                                ";
-    size_t count = editor->line_count;
-    struct line_change *changes = calloc(count, sizeof *changes);
-    struct scan_state state = { 0 };
-    for (size_t line = 0; line < count; line++) {
-        size_t length;
-        const char *text = line_text(editor, line, &length);
-        size_t indent = leading_whitespace(text, length);
-        if (!state.string_quote && !state.block_comment) {
-            changes[line] = (struct line_change){ .removed = indent, .insert = spaces, .trim_end = true };
-            if (indent < length) {
-                int closers = 0;
-                for (size_t i = indent; i < length && strchr(")]}", text[i]); i++) closers++;
-                int level = state.depth - closers > 0 ? state.depth - closers : 0;
-                size_t width = (size_t)level * INDENT_WIDTH + (text[indent] == '.' ? INDENT_WIDTH : 0);
-                changes[line].inserted = width < sizeof spaces - 1 ? width : sizeof spaces - 1;
-            }
-        }
-        scan_line(&state, text, length);
-    }
-    change_lines(editor, 0, count - 1, changes);
-    free(changes);
+void editor_replace_text(struct editor *editor, const char *text, size_t length) {
+    if (length == editor->length && memcmp(text, editor->text, length) == 0) return;
+    struct line_position position = line_position(editor);
+    begin_edit(editor, EDIT_OTHER);
+    replace(editor, 0, editor->length, text, length);
+    size_t cursor_line = position.cursor_line < editor->line_count ? position.cursor_line : editor->line_count - 1;
+    size_t column = editor_line_end(editor, cursor_line) - editor_line_start(editor, cursor_line);
+    size_t offset = editor_line_start(editor, cursor_line) + (position.cursor_column < column ? position.cursor_column : column);
+    while (offset > 0 && is_continuation((unsigned char)editor->text[offset])) offset--;
+    editor->cursor = editor->anchor = offset;
 }
 
 // ---------------------------------------------------------------- evaluation ranges

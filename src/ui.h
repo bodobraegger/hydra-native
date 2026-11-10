@@ -12,6 +12,8 @@ struct ui_host {
     void (*toggle_fullscreen)(void);
     bool (*is_fullscreen)(void);
     void (*quit)(void);
+    // Calls a global JS function with one string; returns its string result (malloc'd) or NULL after an error.
+    char *(*call)(const char *function, const char *argument);
 };
 
 // `file_path` may be NULL (no file) or a path that does not exist yet (Ctrl+S creates it).

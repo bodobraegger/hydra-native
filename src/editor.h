@@ -85,7 +85,8 @@ bool editor_redo(struct editor *editor);
 void editor_toggle_comment(struct editor *editor);
 void editor_move_lines(struct editor *editor, int direction); // -1 up, +1 down
 void editor_duplicate_lines(struct editor *editor);
-void editor_format(struct editor *editor);
+// Replaces all text as one undo step; the cursor keeps its line and column where it can.
+void editor_replace_text(struct editor *editor, const char *text, size_t length);
 void editor_indent(struct editor *editor, bool outdent);
 
 // Ranges for evaluation, as byte offsets [start, end).
