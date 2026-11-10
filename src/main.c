@@ -16,6 +16,9 @@
 #include <unistd.h>
 
 #include <SDL3/SDL.h>
+#if defined(__APPLE__)
+#include <mach-o/dyld.h>
+#endif
 
 // stb_image_write.h 1.16 (public domain or MIT, see THIRD_PARTY.md) writes the PNG files.
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -1172,10 +1175,20 @@ static void set_window_icon(const char *directory) {
     stbi_image_free(pixels);
 }
 
+// The folder of the program, which holds the bundle, p5.js and the capture tool. In a macOS app, SDL_GetBasePath
+// gives Contents/Resources, so macOS asks dyld for the program itself (Contents/MacOS).
 static bool executable_directory(char *directory, size_t size) {
+#if defined(__APPLE__)
+    char path[PATH_MAX], resolved[PATH_MAX];
+    uint32_t length = sizeof path;
+    if (_NSGetExecutablePath(path, &length) != 0 || !realpath(path, resolved)) return false;
+    *strrchr(resolved, '/') = '\0';
+    snprintf(directory, size, "%s", resolved);
+#else
     const char *base = SDL_GetBasePath(); // ends with a slash
     if (!base) return false;
     snprintf(directory, size, "%.*s", (int)strlen(base) - 1, base);
+#endif
     return true;
 }
 

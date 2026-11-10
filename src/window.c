@@ -1,26 +1,47 @@
 #include "window.h"
 
 #include <stdio.h>
+#include <string.h>
 
 #if !defined(__linux__)
+#include <GLES3/gl3.h>
 #if defined(__APPLE__)
+#include <dlfcn.h>
 #define EGL_LIBRARY "libEGL.dylib"
 #define GLES_LIBRARY "libGLESv2.dylib"
 #else
+#include <windows.h>
 #define EGL_LIBRARY "libEGL.dll"
 #define GLES_LIBRARY "libGLESv2.dll"
 #endif
 
-// SDL loads ANGLE from the program folder, the same files that the program links (rpath or DLL folder), so that
-// SDL and the GL calls of the program use one ANGLE.
+// The folder of the libGLESv2 that the program links (through its rpath or the DLL search), with the separator.
+static void angle_folder(char *folder, size_t size) {
+    folder[0] = '\0';
+#if defined(__APPLE__)
+    Dl_info info;
+    if (dladdr((const void *)glGetString, &info) && info.dli_fname) snprintf(folder, size, "%s", info.dli_fname);
+    char *separator = strrchr(folder, '/');
+#else
+    HMODULE module = GetModuleHandleA(GLES_LIBRARY);
+    if (module) GetModuleFileNameA(module, folder, (DWORD)size);
+    char *separator = strrchr(folder, '\\');
+#endif
+    if (separator) separator[1] = '\0';
+    else folder[0] = '\0';
+}
+
+// SDL loads the ANGLE that the program links, from its folder, so that SDL and the GL calls of the program use
+// one ANGLE.
 static void use_angle(void) {
-    const char *base = SDL_GetBasePath();
-    char path[1024];
+    char base[1024];
+    angle_folder(base, sizeof base);
+    char path[1100];
     SDL_SetHint(SDL_HINT_VIDEO_FORCE_EGL, "1");
     SDL_SetHint(SDL_HINT_OPENGL_ES_DRIVER, "1");
-    snprintf(path, sizeof path, "%s%s", base ? base : "", EGL_LIBRARY);
+    snprintf(path, sizeof path, "%s%s", base, EGL_LIBRARY);
     SDL_SetHint(SDL_HINT_EGL_LIBRARY, path);
-    snprintf(path, sizeof path, "%s%s", base ? base : "", GLES_LIBRARY);
+    snprintf(path, sizeof path, "%s%s", base, GLES_LIBRARY);
     SDL_SetHint(SDL_HINT_OPENGL_LIBRARY, path);
 }
 #endif
