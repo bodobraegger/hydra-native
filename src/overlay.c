@@ -1,3 +1,4 @@
+// Glyph rendering uses stb_truetype.h 1.26 (public domain or MIT, see THIRD_PARTY.md).
 #include "overlay.h"
 
 #include <stdio.h>

@@ -16,6 +16,7 @@
 
 #include <SDL.h>
 
+// stb_image_write.h 1.16 (public domain or MIT, see THIRD_PARTY.md) writes the PNG files.
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
