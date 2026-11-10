@@ -80,3 +80,16 @@ void fetch_poll(void (*done)(int id, bool ok, const char *data, size_t length)) 
         }
     }
 }
+
+void fetch_stop_all(void) {
+    for (int id = 0; id < MAX_FETCHES; id++) {
+        struct fetch *fetch = fetches[id];
+        if (!fetch) continue;
+        kill(fetch->pid, SIGTERM);
+        waitpid(fetch->pid, NULL, 0);
+        close(fetch->fd);
+        free(fetch->data);
+        free(fetch);
+        fetches[id] = NULL;
+    }
+}

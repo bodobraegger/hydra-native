@@ -23,6 +23,7 @@ bool audio_features(float specific[BARK_BAND_COUNT], float *total);
 // output and whether it exited with status 0.
 int fetch_start(const char *url);
 int process_start(char *const argv[]);
+void fetch_stop_all(void); // at exit, without output of the stopped processes
 void fetch_poll(void (*done)(int id, bool ok, const char *data, size_t length));
 
 // Recording of the hydra output to a WebM file through ffmpeg (vidRecorder).

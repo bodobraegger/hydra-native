@@ -1331,6 +1331,7 @@ int main(int argc, char **argv) {
     }
 
     if (recorder_active()) recorder_stop();
+    fetch_stop_all();
     video_close_all();
     if (listener >= 0) {
         close(listener);
