@@ -33,7 +33,8 @@ window.addEventListener('resize', () => {
 onAfterFrame(() => {
   const audio = hydra.synth.a
   if (!audio || !audio.isDrawing || !audio.ctx) return
-  const left = canvas.width - audio.canvas.width
-  const top = canvas.height - audio.canvas.height
+  const [windowWidth, windowHeight] = native.drawableSize()
+  const left = windowWidth - audio.canvas.width
+  const top = windowHeight - audio.canvas.height
   native.fillRects(audio.ctx.rects.flatMap(([x, y, width, height, ...color]) => [left + x, top + y, width, height, ...color]))
 })
