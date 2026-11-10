@@ -1,9 +1,9 @@
-// Sends a MIDI clock at a known tempo through the "Midi Through" port and checks that the tempo computed
+// Sends a MIDI clock at a known tempo from a sequencer client of its own and checks that the tempo computed
 // from the time stamps of src/midi.c stays steady, while the test reads the messages only every 50 ms
-// like a slow frame. Skips when the ALSA sequencer or the Midi Through port is not there (for example in CI).
+// like a slow frame. The own client keeps the clocks of other programs out. Skips without the ALSA sequencer
+// (for example in CI).
 #include <alsa/asoundlib.h>
 #include <math.h>
-#include <pthread.h>
 #include <stdio.h>
 #include <time.h>
 
@@ -18,49 +18,37 @@
 #define MIDI_CLOCK 0xF8
 #define NANOSECONDS_PER_SECOND 1000000000L
 
-static int through_client = -1, through_port;
+static snd_seq_t *sender;
+static int sender_client, sender_port;
 static double clock_times[CLOCKS];
 static double poll_times[CLOCKS];
 static int received;
 static double poll_time;
 
-static bool find_through_port(snd_seq_t *sequencer) {
-    snd_seq_client_info_t *client;
-    snd_seq_port_info_t *port;
-    snd_seq_client_info_alloca(&client);
-    snd_seq_port_info_alloca(&port);
-    snd_seq_client_info_set_client(client, -1);
-    while (snd_seq_query_next_client(sequencer, client) >= 0) {
-        if (strcmp(snd_seq_client_info_get_name(client), "Midi Through") != 0) continue;
-        through_client = snd_seq_client_info_get_client(client);
-        snd_seq_port_info_set_client(port, through_client);
-        snd_seq_port_info_set_port(port, -1);
-        if (snd_seq_query_next_port(sequencer, port) < 0) return false;
-        through_port = snd_seq_port_info_get_port(port);
-        return true;
-    }
-    return false;
-}
-
-static void *send_clock(void *argument) {
+// The queue of the sender schedules every clock in the kernel, so that the load of the machine does not move
+// the clocks; the test then measures only the time stamps of src/midi.c.
+static void send_clock(void) {
+    int queue = snd_seq_alloc_queue(sender);
+    snd_seq_start_queue(sender, queue, NULL);
+    snd_seq_drain_output(sender);
     long interval = (long)(60.0 / TEMPO_BPM / CLOCKS_PER_BEAT * NANOSECONDS_PER_SECOND);
-    struct timespec next;
-    clock_gettime(CLOCK_MONOTONIC, &next);
-    unsigned char clock = MIDI_CLOCK;
     for (int i = 0; i < CLOCKS; i++) {
-        next.tv_nsec += interval;
-        if (next.tv_nsec >= NANOSECONDS_PER_SECOND) {
-            next.tv_nsec -= NANOSECONDS_PER_SECOND;
-            next.tv_sec++;
-        }
-        clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &next, NULL);
-        midi_send(through_client, through_port, &clock, 1);
+        long nanoseconds = (long)(i + 1) * interval;
+        snd_seq_real_time_t time = { (unsigned)(nanoseconds / NANOSECONDS_PER_SECOND),
+                                     (unsigned)(nanoseconds % NANOSECONDS_PER_SECOND) };
+        snd_seq_event_t event;
+        snd_seq_ev_clear(&event);
+        event.type = SND_SEQ_EVENT_CLOCK;
+        snd_seq_ev_set_source(&event, sender_port);
+        snd_seq_ev_set_subs(&event);
+        snd_seq_ev_schedule_real(&event, queue, 0, &time);
+        snd_seq_event_output(sender, &event);
     }
-    return NULL;
+    snd_seq_drain_output(sender);
 }
 
 static void receive(int client, int port, double time, const unsigned char *bytes, int length) {
-    if (client != through_client || port != through_port || length != 1 || bytes[0] != MIDI_CLOCK) return;
+    if (client != sender_client || port != sender_port || length != 1 || bytes[0] != MIDI_CLOCK) return;
     if (received == CLOCKS) return;
     poll_times[received] = poll_time;
     clock_times[received++] = time;
@@ -91,17 +79,14 @@ int main(void) {
         printf("midi test: skipped, no ALSA sequencer\n");
         return 0;
     }
-    if (!midi_start()) return 1;
-    snd_seq_t *query;
-    if (snd_seq_open(&query, "default", SND_SEQ_OPEN_DUPLEX, 0) < 0) return 1;
-    bool found = find_through_port(query);
-    snd_seq_close(query);
-    if (!found) {
-        printf("midi test: skipped, no Midi Through port (modprobe snd-seq-dummy)\n");
-        return 0;
-    }
-    pthread_t sender;
-    pthread_create(&sender, NULL, send_clock, NULL);
+    // The port exists before midi_start, which connects to every readable port.
+    if (snd_seq_open(&sender, "default", SND_SEQ_OPEN_OUTPUT, 0) < 0) return 1;
+    snd_seq_set_client_name(sender, "hydra-native midi test");
+    sender_client = snd_seq_client_id(sender);
+    sender_port = snd_seq_create_simple_port(sender, "clock", SND_SEQ_PORT_CAP_READ | SND_SEQ_PORT_CAP_SUBS_READ,
+                                             SND_SEQ_PORT_TYPE_MIDI_GENERIC | SND_SEQ_PORT_TYPE_APPLICATION);
+    if (sender_port < 0 || !midi_start()) return 1;
+    send_clock();
     double deadline = monotonic_ms() + (BEATS + 2) * 60000.0 / TEMPO_BPM;
     while (received < CLOCKS && monotonic_ms() < deadline) {
         struct timespec wait = { 0, POLL_INTERVAL_MS * 1000000L };
@@ -109,7 +94,7 @@ int main(void) {
         poll_time = monotonic_ms();
         midi_poll(receive);
     }
-    pthread_join(sender, NULL);
+    snd_seq_close(sender);
     if (received < CLOCKS) {
         printf("midi test: FAIL, received %d of %d clocks\n", received, CLOCKS);
         return 1;
