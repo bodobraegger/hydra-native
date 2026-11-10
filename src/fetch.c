@@ -13,7 +13,7 @@
 
 #include "native.h"
 
-#define MAX_FETCHES 16
+#define MAX_FETCHES 64
 #define FETCH_TIMEOUT_SECONDS "30"
 #define MAX_REQUEST_HEADERS 64
 
