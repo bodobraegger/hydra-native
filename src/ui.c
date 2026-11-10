@@ -1383,7 +1383,7 @@ static void draw_settings(void) {
     if (!font_choices_loaded) load_font_choices();
     float label_x = left + char_width, value_x = left + 15 * char_width, y = top + line_height / 2;
     char action[32];
-    const char *labels[] = { "theme", "autocomplete", "trigger", "line wrap", "font size", "font" };
+    const char *labels[] = { "theme", "autocomplete", "trigger", "whitespace", "line wrap", "font size", "font" };
     for (size_t row = 0; row < sizeof labels / sizeof labels[0]; row++)
         overlay_text(label_x, y + (float)row * 1.5f * line_height, labels[row], strlen(labels[row]), 0, 14, NULL, theme->help_keys);
     float x = value_x;
@@ -1397,6 +1397,13 @@ static void draw_settings(void) {
     y += 1.5f * line_height;
     x = panel_label(value_x, y, "Ctrl+Space", active_settings.autocomplete_trigger == AUTOCOMPLETE_MANUAL, "trigger 0");
     panel_label(x, y, "while typing", active_settings.autocomplete_trigger == AUTOCOMPLETE_TYPING, "trigger 1");
+    y += 1.5f * line_height;
+    x = value_x;
+    for (int i = WHITESPACE_NONE; i <= WHITESPACE_ALL; i++) {
+        snprintf(action, sizeof action, "whitespace %d", i);
+        x = panel_label(x, y, settings_whitespace_name((enum render_whitespace)i), active_settings.render_whitespace == (enum render_whitespace)i,
+                        action);
+    }
     y += 1.5f * line_height;
     x = panel_label(value_x, y, "on", wrap, "wrap 1");
     panel_label(x, y, "off", !wrap, "wrap 0");
@@ -1421,7 +1428,10 @@ static void run_settings_action(const char *action) {
     if (!strncmp(action, "theme ", 6) && index < theme_count) set_theme(&themes[index]);
     else if (!strncmp(action, "style ", 6)) set_autocomplete((enum autocomplete_style)index, active_settings.autocomplete_trigger);
     else if (!strncmp(action, "trigger ", 8)) set_autocomplete(active_settings.autocomplete_style, (enum autocomplete_trigger)index);
-    else if (!strncmp(action, "wrap ", 5)) {
+    else if (!strncmp(action, "whitespace ", 11) && index <= WHITESPACE_ALL) {
+        stored_settings.render_whitespace = active_settings.render_whitespace = (enum render_whitespace)index;
+        save_settings();
+    } else if (!strncmp(action, "wrap ", 5)) {
         wrap = stored_settings.word_wrap = active_settings.word_wrap = index != 0;
         layout.valid = false;
         save_settings();
@@ -1643,6 +1653,44 @@ static void draw_bar(int width, int height, const char *text, uint32_t color, si
     overlay_text(MARGIN, y + BAR_PADDING, text, strlen(text), 0, visible_columns(), NULL, color);
 }
 
+// editor.renderWhitespace of VS Code: whether the space or tab at `offset` shows.
+static bool whitespace_shown(size_t line_start, size_t line_end, size_t offset, const struct selection *selections, size_t selection_count) {
+    switch (active_settings.render_whitespace) {
+    case WHITESPACE_NONE: return false;
+    case WHITESPACE_ALL: return true;
+    case WHITESPACE_TRAILING: {
+        size_t end = offset;
+        while (end < line_end && (editor.text[end] == ' ' || editor.text[end] == '\t')) end++;
+        return end == line_end;
+    }
+    case WHITESPACE_SELECTION:
+        for (size_t i = 0; i < selection_count; i++) {
+            size_t start = selections[i].cursor < selections[i].anchor ? selections[i].cursor : selections[i].anchor;
+            size_t end = selections[i].cursor < selections[i].anchor ? selections[i].anchor : selections[i].cursor;
+            if (offset >= start && offset < end) return true;
+        }
+        return false;
+    case WHITESPACE_BOUNDARY: // all but a single space between two words
+        if (editor.text[offset] == '\t') return true;
+        return (offset > line_start && (editor.text[offset - 1] == ' ' || editor.text[offset - 1] == '\t')) ||
+               (offset + 1 < line_end && (editor.text[offset + 1] == ' ' || editor.text[offset + 1] == '\t')) ||
+               offset == line_start || offset + 1 >= line_end;
+    }
+    return false;
+}
+
+// A middle-height dot for a space, an arrow for a tab.
+static void draw_whitespace(size_t column, float y, bool tab) {
+    if (column < scroll_column || column >= scroll_column + visible_columns()) return;
+    float char_width = overlay_char_width(), x = MARGIN + (float)(column - scroll_column) * char_width;
+    if (tab) {
+        overlay_text(x, y, "\xE2\x86\x92", 3, 0, 1, NULL, theme->whitespace); // U+2192
+        return;
+    }
+    float size = char_width / 6 < 2 ? 2 : char_width / 6;
+    overlay_rect(x + (char_width - size) / 2, y + (overlay_line_height() - size) / 2, size, size, theme->whitespace);
+}
+
 // Rectangles over the cells of a right-to-left row whose text starts in [start, end).
 static void cell_rects(float y, const struct editor_cell *cells, size_t count, size_t start, size_t end, uint32_t color) {
     for (size_t i = 0; i < count; i++)
@@ -1675,6 +1723,11 @@ static void draw_bidi_row(size_t line, size_t row_start, size_t row_end, size_t 
             size_t position = (size_t)(k ? bracket_self : bracket);
             cell_rects(y, cells, count, position, position + 1, theme->bracket);
         }
+    for (size_t i = 0; i < count; i++) {
+        char c = editor.text[cells[i].start];
+        if ((c == ' ' || c == '\t') && whitespace_shown(line_start, editor_line_end(&editor, line), cells[i].start, selections, selection_count))
+            draw_whitespace(cells[i].column, y, c == '\t');
+    }
     for (size_t i = 0; i < count;) {
         size_t end = i + 1, first = cells[i].start, last = cells[i].end;
         while (end < count && cells[end].level == cells[i].level) {
@@ -1732,6 +1785,17 @@ static void draw_row(size_t line, size_t row_start, size_t row_end, size_t inden
         if (bracket < 0 || positions[k] < (long)row_start || positions[k] >= (long)row_end) continue;
         size_t column = indent + columns_between(row_start, (size_t)positions[k]);
         column_rect(y, column, column + 1, theme->bracket);
+    }
+    if (active_settings.render_whitespace != WHITESPACE_NONE) {
+        size_t line_end = editor_line_end(&editor, line), column = indent;
+        for (size_t i = row_start; i < row_end;) {
+            size_t next = editor_cluster_end(&editor, i);
+            char c = editor.text[i];
+            if ((c == ' ' || c == '\t') && whitespace_shown(line_start, line_end, i, selections, selection_count))
+                draw_whitespace(column, y, c == '\t');
+            column = indent + columns_between(row_start, next);
+            i = next;
+        }
     }
     size_t skip = scroll_column > indent ? scroll_column - indent : 0;
     size_t shift = indent > scroll_column ? indent - scroll_column : 0;
