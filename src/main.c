@@ -100,28 +100,79 @@ static void run_pending_jobs(void) {
         if (status < 0) js_std_dump_error(job_context);
 }
 
-// Evaluates code in the global scope. Returns NULL on success, else a malloc'd message with the stack.
+static char *error_message(JSValue error) {
+    const char *text = JS_ToCString(js, error);
+    const char *stack = NULL;
+    JSValue stack_value = JS_UNDEFINED;
+    if (JS_IsError(js, error)) {
+        stack_value = JS_GetPropertyStr(js, error, "stack");
+        if (!JS_IsUndefined(stack_value)) stack = JS_ToCString(js, stack_value);
+    }
+    char *message;
+    if (asprintf(&message, "%s\n%s", text ? text : "error", stack ? stack : "") < 0) message = strdup("error");
+    JS_FreeCString(js, text);
+    if (stack) JS_FreeCString(js, stack);
+    JS_FreeValue(js, stack_value);
+    return message;
+}
+
+// Evaluations that wait for a promise (top-level await); their errors arrive later.
+#define MAX_PENDING_EVALUATIONS 32
+static JSValue pending_evaluations[MAX_PENDING_EVALUATIONS];
+static int pending_evaluation_count;
+
+// Evaluates code in the global scope with top-level await, like the web editor, but `var` and functions
+// stay global as in the browser console. Returns NULL on success, else a malloc'd message with the stack.
 static char *evaluate(const char *code, size_t length, const char *name) {
-    JSValue result = JS_Eval(js, code, length, name, JS_EVAL_TYPE_GLOBAL);
+    JSValue result = JS_Eval(js, code, length, name, JS_EVAL_TYPE_GLOBAL | JS_EVAL_FLAG_ASYNC);
     char *message = NULL;
     if (JS_IsException(result)) {
         JSValue exception = JS_GetException(js);
-        const char *text = JS_ToCString(js, exception);
-        const char *stack = NULL;
-        JSValue stack_value = JS_UNDEFINED;
-        if (JS_IsError(js, exception)) {
-            stack_value = JS_GetPropertyStr(js, exception, "stack");
-            if (!JS_IsUndefined(stack_value)) stack = JS_ToCString(js, stack_value);
-        }
-        if (asprintf(&message, "%s\n%s", text ? text : "error", stack ? stack : "") < 0) message = strdup("error");
-        JS_FreeCString(js, text);
-        if (stack) JS_FreeCString(js, stack);
-        JS_FreeValue(js, stack_value);
+        message = error_message(exception);
         JS_FreeValue(js, exception);
+        JS_FreeValue(js, result);
+        run_pending_jobs();
+        return message;
+    }
+    run_pending_jobs();
+    switch (JS_PromiseState(js, result)) {
+    case JS_PROMISE_REJECTED: {
+        JSValue reason = JS_PromiseResult(js, result);
+        message = error_message(reason);
+        JS_FreeValue(js, reason);
+        break;
+    }
+    case JS_PROMISE_PENDING:
+        if (pending_evaluation_count < MAX_PENDING_EVALUATIONS) {
+            pending_evaluations[pending_evaluation_count++] = result;
+            return NULL;
+        }
+        break;
+    default: break;
     }
     JS_FreeValue(js, result);
-    run_pending_jobs();
     return message;
+}
+
+static void check_pending_evaluations(void) {
+    for (int i = 0; i < pending_evaluation_count;) {
+        JSValue promise = pending_evaluations[i];
+        JSPromiseStateEnum state = JS_PromiseState(js, promise);
+        if (state == JS_PROMISE_PENDING) {
+            i++;
+            continue;
+        }
+        if (state == JS_PROMISE_REJECTED) {
+            JSValue reason = JS_PromiseResult(js, promise);
+            char *message = error_message(reason);
+            fprintf(stderr, "%s\n", message);
+            ui_show_message(message, true);
+            free(message);
+            JS_FreeValue(js, reason);
+        }
+        JS_FreeValue(js, promise);
+        pending_evaluations[i] = pending_evaluations[--pending_evaluation_count];
+    }
 }
 
 static char *evaluate_file(const char *path) {
@@ -833,6 +884,7 @@ int main(int argc, char **argv) {
         JSValue arguments[1] = { JS_NewFloat64(js, now) };
         call_global("__frame", 1, arguments);
         run_pending_jobs();
+        check_pending_evaluations();
         double after_js = now_ms();
         int drawable_width, drawable_height;
         SDL_GL_GetDrawableSize(window, &drawable_width, &drawable_height);
