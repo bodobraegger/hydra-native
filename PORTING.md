@@ -52,7 +52,11 @@ Windows: ANGLE on Direct3D 11 gives GLES 3. Windows.Graphics.Capture needs Windo
 replaces QuickJS, which does not build with MSVC. The code socket becomes a named pipe.
 
 The camera: the SDL3 camera API is a candidate for the camera on all three platforms, but on Linux it stays
-with GStreamer until a measurement shows the same speed with the same formats (MJPEG at 1280x720 and 30 fps).
+with GStreamer, because SDL 3.4.2 was slower in a measurement. The integrated camera of this machine sends MJPEG
+at 1280x720 (11 to 12 fps in low light). In `initCam()`, the GStreamer thread that reads and decodes the frames
+used 1.5 s of CPU in 10 s; the SDL camera thread, which decodes and converts to RGBA, used 2.1 s for the same
+frames (about 13 ms against 18 ms for each frame). The SDL camera is the better choice on macOS and Windows,
+where no GStreamer is installed.
 
 The icon: assets/icon/favicon.ico has only 16, 32 and 48 px images. The Linux package uses them as hicolor icons
 and as the window icon. A macOS .icns needs images up to 1024 px, and a Windows .ico for the taskbar and the
