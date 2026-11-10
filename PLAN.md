@@ -132,7 +132,7 @@ gallery and signalling server (hydra-synth/hydra-server) and from the CodeMirror
 | -------------------------------- | ----------------------------------- | --------------------------------- |
 | eval line, block, all; flash     | the same keys, also Ctrl+Alt+Enter  | yes                               |
 | error line                       | also shader errors                  | yes                               |
-| hide code, format, comment       | the same keys                       | format uses spaces, not tabs      |
+| hide code, format, comment       | the same keys                       | yes                               |
 | screencap with code              | PNG and js in ~/Downloads           | yes                               |
 | clear all, random example        | toolbar, keys                       | yes                               |
 | mutator, undo, change a function | toolbar with Shift and Ctrl         | yes                               |
@@ -241,7 +241,7 @@ Decisions:
 - Code from the socket does not enter the editor text. The overlay shows the sketch file; socket errors show in the error bar.
 - `--watch` replaces the overlay text only when it has no unsaved edits.
 - Only the left Alt key counts as Alt, so AltGr still types characters on the ch and us+intl layouts.
-- The formatter is js-beautify with the options of the web editor, but with two spaces instead of tabs.
+- The formatter is js-beautify with the options of formatCode() in the web editor, tabs included.
 - Line commands with several cursors work on the lines from the first to the last cursor.
 - The editor core is my own code. I compared it with lite-xl and kilo, but no code of them is in it;
   the borrowed parts are listed in THIRD_PARTY.md.
