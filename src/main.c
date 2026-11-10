@@ -1,6 +1,7 @@
 // hydra-native: runs hydra-synth (bundled with a regl shim) in QuickJS and renders with GLES in an SDL window.
 #define _GNU_SOURCE
 #include <errno.h>
+#include <fcntl.h>
 #include <limits.h>
 #include <poll.h>
 #include <signal.h>
@@ -972,8 +973,16 @@ static void default_socket_path(char *path, size_t size) {
     snprintf(path, size, "%s/%s", directory ? directory : "/tmp", SOCKET_FILE_NAME);
 }
 
+// SOCK_CLOEXEC, SOCK_NONBLOCK and accept4 are not on macOS, so fcntl sets the flags.
+static int with_flags(int fd, bool nonblocking) {
+    if (fd < 0) return fd;
+    fcntl(fd, F_SETFD, FD_CLOEXEC);
+    if (nonblocking) fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK);
+    return fd;
+}
+
 static int connect_socket(const char *path) {
-    int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    int fd = with_flags(socket(AF_UNIX, SOCK_STREAM, 0), false);
     struct sockaddr_un address = { .sun_family = AF_UNIX };
     snprintf(address.sun_path, sizeof address.sun_path, "%s", path);
     if (connect(fd, (struct sockaddr *)&address, sizeof address) != 0) {
@@ -991,7 +1000,7 @@ static int listen_socket(const char *path) {
         return -1;
     }
     unlink(path);
-    int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+    int fd = with_flags(socket(AF_UNIX, SOCK_STREAM, 0), true);
     struct sockaddr_un address = { .sun_family = AF_UNIX };
     snprintf(address.sun_path, sizeof address.sun_path, "%s", path);
     if (bind(fd, (struct sockaddr *)&address, sizeof address) != 0 || listen(fd, 4) != 0) {
@@ -1017,7 +1026,7 @@ static char *read_all(int fd, size_t *length) {
 
 // ponytail: one client at a time, read synchronously with a timeout; editors send small blocks and close.
 static void serve_client(int listener) {
-    int client = accept4(listener, NULL, NULL, SOCK_CLOEXEC);
+    int client = with_flags(accept(listener, NULL, NULL), false);
     if (client < 0) return;
     struct timeval timeout = { .tv_sec = CLIENT_TIMEOUT_SECONDS };
     setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof timeout);

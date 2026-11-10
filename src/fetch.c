@@ -58,7 +58,13 @@ int http_start(const char *url, const char *method, const char *const *headers, 
     // loop does not wait for curl to read it.
     SDL_IOStream *input = NULL;
     if (body) {
+#if defined(__linux__)
         int body_fd = memfd_create("hydra-native-request", MFD_CLOEXEC);
+#else // a temporary file, removed at once; the open file stays until the last close
+        char name[] = "/tmp/hydra-native-request-XXXXXX";
+        int body_fd = mkstemp(name);
+        if (body_fd >= 0) unlink(name);
+#endif
         if (body_fd < 0) return -1;
         for (size_t written = 0; written < body_length;) {
             ssize_t count = write(body_fd, (const char *)body + written, body_length - written);
@@ -68,9 +74,12 @@ int http_start(const char *url, const char *method, const char *const *headers, 
             }
             written += (size_t)count;
         }
+        // On Linux /dev/fd/N opens the file again at offset 0; on macOS it duplicates the descriptor and keeps
+        // its offset, so the offset goes back first.
+        lseek(body_fd, 0, SEEK_SET);
         char path[32];
         snprintf(path, sizeof path, "/dev/fd/%d", body_fd);
-        input = SDL_IOFromFile(path, "rb"); // a new open file at offset 0
+        input = SDL_IOFromFile(path, "rb");
         close(body_fd);
         if (!input) return -1;
     }
