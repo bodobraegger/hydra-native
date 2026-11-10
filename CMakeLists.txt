@@ -218,6 +218,41 @@ else()
 endif()
 target_compile_options(hydra-native-capture PRIVATE ${WARNINGS})
 
+# The audio processing of Chrome in build/libhydra-webrtc-apm, which src/audio.c loads at run time. Linux uses the
+# system library of PipeWire (not downloaded; only its headers come from upstream). macOS and Windows build the
+# release sources (cmake/webrtc-audio-processing.cmake); HYDRA_WEBRTC_APM_FROM_SOURCE does the same on Linux.
+# C++17 makes absl::optional the std::optional that the system library uses.
+if(HYDRA_LINUX)
+  find_library(WEBRTC_APM_LIBRARY NAMES libwebrtc-audio-processing-1.so.3)
+  option(HYDRA_WEBRTC_APM_FROM_SOURCE "Build webrtc-audio-processing from source" OFF)
+else()
+  set(HYDRA_WEBRTC_APM_FROM_SOURCE ON)
+endif()
+if(WEBRTC_APM_LIBRARY OR HYDRA_WEBRTC_APM_FROM_SOURCE)
+  vendor_archive(webrtc-audio-processing
+    https://freedesktop.org/software/pulseaudio/webrtc-audio-processing/webrtc-audio-processing-${WEBRTC_APM_VERSION}.tar.xz
+    2365e93e778d7b61b5d6e02d21c47d97222e9c7deff9e1d0838ad6ec2e86f1b9 webrtc/modules/audio_processing/include/audio_processing.h
+    # Debian's copy of the same release, for when freedesktop.org fails (seen on GitHub runners)
+    https://deb.debian.org/debian/pool/main/w/webrtc-audio-processing/webrtc-audio-processing_${WEBRTC_APM_VERSION}.orig.tar.gz
+    95552fc17faa0202133707bbb3727e8c2cf64d4266fe31bfdb2298d769c1db75)
+  vendor_archive(abseil-cpp https://github.com/abseil/abseil-cpp/archive/${ABSEIL_VERSION}.tar.gz
+    81311c17599b3712069ded20cca09a62ab0bf2a89dfa16993786c8782b7ed145 absl/types/optional.h)
+  add_library(hydra-webrtc-apm SHARED src/webrtc_apm.cc)
+  set_target_properties(hydra-webrtc-apm PROPERTIES CXX_STANDARD 17 PREFIX lib WINDOWS_EXPORT_ALL_SYMBOLS ON)
+  if(HYDRA_WEBRTC_APM_FROM_SOURCE)
+    include(cmake/webrtc-audio-processing.cmake)
+    target_link_libraries(hydra-webrtc-apm PRIVATE webrtc-audio-processing)
+  else()
+    target_compile_definitions(hydra-webrtc-apm PRIVATE WEBRTC_POSIX WEBRTC_LINUX)
+    target_include_directories(hydra-webrtc-apm PRIVATE ${VENDOR}/webrtc-audio-processing/webrtc ${VENDOR}/abseil-cpp)
+    target_link_libraries(hydra-webrtc-apm PRIVATE ${WEBRTC_APM_LIBRARY})
+  endif()
+  target_compile_options(hydra-webrtc-apm PRIVATE ${QUIET})
+  set(WEBRTC_APM_FILE $<TARGET_FILE:hydra-webrtc-apm>)
+else()
+  message(STATUS "libwebrtc-audio-processing-1 is not installed: the audio input has no echo and noise filters")
+endif()
+
 if(NOT HYDRA_LINUX)
   # The parts of the program that are ported so far; the others come with the ports of PORTING.md. The editor
   # core and the overlay compile here as a check, without a program yet.
@@ -241,7 +276,6 @@ endif()
 # ---------------------------------------------------------------- programs (Linux)
 
 pkg_check_modules(SYSTEM REQUIRED IMPORTED_TARGET glesv2 libpulse-simple libpulse alsa)
-find_library(WEBRTC_APM_LIBRARY NAMES libwebrtc-audio-processing-1.so.3)
 
 add_executable(hydra-native src/main.c src/canvas2d.c src/svg_filter.c src/webgl.c src/video.c src/audio.c
   src/audio_processing.c src/analog_agc.c src/fetch.c src/thumbnails.c src/midi.c src/recorder.c src/patch_bay.c
@@ -255,27 +289,6 @@ target_link_libraries(hydra-native PRIVATE quickjs plutovg harfbuzz sheenbidi SD
 # harfbuzz is C++, so the C++ driver links the program.
 set_target_properties(hydra-native PROPERTIES LINKER_LANGUAGE CXX)
 
-
-# The audio processing of Chrome from the system (not downloaded); only its headers come from upstream.
-# C++17 makes absl::optional the std::optional that the system library uses.
-if(WEBRTC_APM_LIBRARY)
-  vendor_archive(webrtc-audio-processing
-    https://freedesktop.org/software/pulseaudio/webrtc-audio-processing/webrtc-audio-processing-${WEBRTC_APM_VERSION}.tar.xz
-    2365e93e778d7b61b5d6e02d21c47d97222e9c7deff9e1d0838ad6ec2e86f1b9 webrtc/modules/audio_processing/include/audio_processing.h
-    # Debian's copy of the same release, for when freedesktop.org fails (seen on GitHub runners)
-    https://deb.debian.org/debian/pool/main/w/webrtc-audio-processing/webrtc-audio-processing_${WEBRTC_APM_VERSION}.orig.tar.gz
-    95552fc17faa0202133707bbb3727e8c2cf64d4266fe31bfdb2298d769c1db75)
-  vendor_archive(abseil-cpp https://github.com/abseil/abseil-cpp/archive/${ABSEIL_VERSION}.tar.gz
-    81311c17599b3712069ded20cca09a62ab0bf2a89dfa16993786c8782b7ed145 absl/types/optional.h)
-  add_library(hydra-webrtc-apm SHARED src/webrtc_apm.cc)
-  set_target_properties(hydra-webrtc-apm PROPERTIES CXX_STANDARD 17)
-  target_compile_options(hydra-webrtc-apm PRIVATE -O2 -w)
-  target_compile_definitions(hydra-webrtc-apm PRIVATE WEBRTC_POSIX WEBRTC_LINUX)
-  target_include_directories(hydra-webrtc-apm PRIVATE ${VENDOR}/webrtc-audio-processing/webrtc ${VENDOR}/abseil-cpp)
-  target_link_libraries(hydra-webrtc-apm PRIVATE ${WEBRTC_APM_LIBRARY})
-else()
-  message(STATUS "libwebrtc-audio-processing-1 is not installed: the audio input has no echo and noise filters")
-endif()
 
 # ---------------------------------------------------------------- JavaScript
 

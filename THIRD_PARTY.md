@@ -19,11 +19,12 @@ a distributed hydra-native binary with its bundle falls under the AGPL-3.0.
   Text shaping of panels and prompts (src/overlay.c); built from the amalgamated src/harfbuzz.cc.
 - webrtc-audio-processing 1.3 (freedesktop.org, from the WebRTC code of Chrome), BSD-3-Clause license.
   https://gitlab.freedesktop.org/pulseaudio/webrtc-audio-processing
-  The system library libwebrtc-audio-processing-1.so.3 (installed with PipeWire, not downloaded) processes the
-  microphone. `make` downloads the release tarball only for its headers, and src/webrtc_apm.cc links the
-  library into build/libhydra-webrtc-apm.so, which src/audio.c opens at run time.
+  On Linux, the system library libwebrtc-audio-processing-1.so.3 (installed with PipeWire, not downloaded)
+  processes the microphone, and `make` downloads the release tarball only for its headers. On macOS and Windows,
+  cmake/webrtc-audio-processing.cmake builds the sources of the tarball. src/webrtc_apm.cc links the library into
+  build/libhydra-webrtc-apm, which src/audio.c opens at run time.
 - Abseil 20230125.1 (the version of the abseil-cpp.wrap of webrtc-audio-processing 1.3), Apache-2.0 license.
-  https://github.com/abseil/abseil-cpp. Headers only, for the headers of webrtc-audio-processing.
+  https://github.com/abseil/abseil-cpp. Headers only, for webrtc-audio-processing.
 - SheenBidi 2.9.0 by Muhammad Tayyab Akram, Apache-2.0 license. https://github.com/Tehreer/SheenBidi
   The Unicode bidi algorithm (UAX #9) for the text of panels and prompts (src/overlay.c); built from
   Source/SheenBidi.c with SB_CONFIG_UNITY.
