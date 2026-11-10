@@ -63,6 +63,10 @@ struct options {
     bool hide_code;
 };
 
+#define SWAP_MARGIN_MS 3.0 // time left for the swap after the timers
+#define MIN_FRAME_PERIOD_MS 4.0
+#define MAX_FRAME_PERIOD_MS 50.0
+static double frame_period_ms, last_swap;
 static JSRuntime *runtime;
 static JSContext *js;
 static char executable_path_directory[PATH_MAX];
@@ -945,6 +949,9 @@ static bool create_window(const struct options *options) {
         return false;
     }
     SDL_GL_SetSwapInterval(options->vsync ? 1 : 0);
+    SDL_DisplayMode mode;
+    if (SDL_GetCurrentDisplayMode(SDL_GetWindowDisplayIndex(window), &mode) == 0 && mode.refresh_rate > 0)
+        frame_period_ms = 1000.0 / mode.refresh_rate;
     SDL_StartTextInput();
 
     // Every hydra pass draws the same triangle, so its buffer stays bound at attribute 0.
@@ -1082,6 +1089,37 @@ static char *call_text_function(const char *function, const char *argument) {
 static bool is_sketch_url(const char *argument) {
     bool url = !strncmp(argument, "http://", 7) || !strncmp(argument, "https://", 8) || argument[0] == '?';
     return url && (strstr(argument, "code=") || strstr(argument, "sketch_id="));
+}
+
+
+static double run_timers(void) {
+    JSValue global = JS_GetGlobalObject(js);
+    JSValue function = JS_GetPropertyStr(js, global, "__runTimers");
+    JSValue now = JS_NewFloat64(js, now_ms());
+    JSValue result = JS_Call(js, function, global, 1, &now);
+    double next = -1;
+    if (JS_IsException(result)) js_std_dump_error(js);
+    else JS_ToFloat64(js, &next, result);
+    JS_FreeValue(js, result);
+    JS_FreeValue(js, function);
+    JS_FreeValue(js, global);
+    run_pending_jobs();
+    return next;
+}
+
+static void serve_client(int listener);
+
+// Waits until `deadline` (ms of now_ms()), runs each timer at its time, and handles input and socket code meanwhile.
+static void wait_for_frame(double deadline, int listener) {
+    for (;;) {
+        double next = run_timers(), now = now_ms();
+        if (now >= deadline || quit_requested) return;
+        double until = next >= 0 && next < deadline ? next : deadline;
+        int wait = (int)(until - now);
+        if (wait > 0 && SDL_WaitEventTimeout(NULL, wait)) handle_events();
+        struct pollfd poll_listener = { .fd = listener, .events = POLLIN };
+        if (listener >= 0 && poll(&poll_listener, 1, 0) > 0) serve_client(listener);
+    }
 }
 
 static void toggle_fullscreen(void) {
@@ -1223,7 +1261,18 @@ int main(int argc, char **argv) {
         // every BENCH_FINISH_FRAMES frames makes the benchmark count rendered frames, not submitted ones.
         if (options.bench_seconds > 0 && (bench_frames % BENCH_FINISH_FRAMES == 0)) glFinish();
         // A hidden Wayland surface never releases its buffers, so a swap could block for ever.
-        if (!options.hidden) SDL_GL_SwapWindow(window);
+        if (!options.hidden) {
+            // Until shortly before the next display refresh, run timers and events instead of a blocking swap.
+            if (options.vsync && frame_period_ms > 0) wait_for_frame(last_swap + frame_period_ms - SWAP_MARGIN_MS, listener);
+            SDL_GL_SwapWindow(window);
+            double swapped = now_ms();
+            if (last_swap > 0) {
+                double period = swapped - last_swap;
+                if (period > MIN_FRAME_PERIOD_MS && period < MAX_FRAME_PERIOD_MS)
+                    frame_period_ms = frame_period_ms > 0 ? frame_period_ms * 0.9 + period * 0.1 : period;
+            }
+            last_swap = swapped;
+        }
 
         if (options.bench_seconds > 0 && now - start >= BENCH_WARMUP_MS) {
             if (bench_frames == 0) bench_start = now;

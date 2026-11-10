@@ -50,7 +50,11 @@ window.__dispatchEvent = (type, event) => {
 }
 
 // ---------------------------------------------------------------- timers and frames
-// ponytail: timers fire at frame boundaries, so their resolution is one frame (16 ms at 60 Hz).
+// Timers run in time order between frames: src/main.c calls __runTimers while it waits for the next frame,
+// so a timer fires within about a millisecond of its time, unless a frame is just rendering.
+
+const MINIMUM_REPEAT_MS = 1
+const MAX_TIMER_RUNS = 1000 // per call, so that a zero-delay loop cannot block the frames
 
 let timers = []
 let frameCallbacks = []
@@ -59,7 +63,7 @@ const afterFrameCallbacks = []
 
 function addTimer (callback, delay, args, repeat) {
   const id = nextId++
-  const interval = Math.max(Number(delay) || 0, 1)
+  const interval = Math.max(Number(delay) || 0, 0)
   timers.push({ id, at: native.now() + interval, interval, callback, args, repeat })
   return id
 }
@@ -87,13 +91,23 @@ function run (label, callback, ...args) {
   }
 }
 
+// Runs the due timers, the earliest first; returns the time of the next timer, or -1.
+window.__runTimers = (now) => {
+  for (let runs = 0; runs < MAX_TIMER_RUNS; runs++) {
+    let due = null
+    for (const timer of timers) if (timer.at <= now && (!due || timer.at < due.at)) due = timer
+    if (!due) break
+    if (due.repeat) due.at = Math.max(due.at + Math.max(due.interval, MINIMUM_REPEAT_MS), now)
+    else timers = timers.filter((item) => item !== due)
+    run('timer', due.callback, ...due.args)
+    now = native.now()
+  }
+  return timers.reduce((next, timer) => (next < 0 || timer.at < next ? timer.at : next), -1)
+}
+
 // Called by src/main.c once per displayed frame.
 window.__frame = (now) => {
-  for (const timer of timers.filter((item) => item.at <= now)) {
-    if (timer.repeat) timer.at = now + timer.interval
-    else timers = timers.filter((item) => item !== timer)
-    run('timer', timer.callback, ...timer.args)
-  }
+  window.__runTimers(now)
   const callbacks = frameCallbacks
   frameCallbacks = []
   for (const { callback } of callbacks) run('requestAnimationFrame', callback, now)
