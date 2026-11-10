@@ -157,9 +157,10 @@ add_custom_command(OUTPUT ${NODE_MODULES}/.modules.yaml
   DEPENDS ${CMAKE_SOURCE_DIR}/package.json ${CMAKE_SOURCE_DIR}/pnpm-lock.yaml
   WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 file(GLOB JS_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/js/*.js ${CMAKE_SOURCE_DIR}/js/hydra-editor/*)
-add_custom_command(OUTPUT ${CMAKE_BINARY_DIR}/hydra-bundle.js
+# The metafile lists the bundled npm packages for the license files of the release archive.
+add_custom_command(OUTPUT ${CMAKE_BINARY_DIR}/hydra-bundle.js ${CMAKE_BINARY_DIR}/hydra-bundle.meta.json
   COMMAND ${NODE_MODULES}/.bin/esbuild js/main.js --bundle --format=iife --log-level=warning
-    --outfile=${CMAKE_BINARY_DIR}/hydra-bundle.js
+    --outfile=${CMAKE_BINARY_DIR}/hydra-bundle.js --metafile=${CMAKE_BINARY_DIR}/hydra-bundle.meta.json
     --alias:regl=./js/regl-shim.js --alias:raf-loop=./js/raf-loop-shim.js --alias:meyda=./js/meyda-shim.js
   DEPENDS ${JS_SOURCES} ${NODE_MODULES}/.modules.yaml
   WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})

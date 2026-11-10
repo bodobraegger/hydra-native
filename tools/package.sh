@@ -29,11 +29,10 @@ cp -r "$root/assets/icon" "$root/assets/hydra-native.desktop" "$target/assets/"
 # Its require() (for wrtc.node) resolves from tools/, like the require of Node.js in the repo.
 "$root/node_modules/.bin/esbuild" "$root/tools/patch-bay.mjs" --bundle --platform=node --format=esm \
 	--log-level=warning --banner:js="import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);" \
-	--outfile="$target/tools/patch-bay.mjs"
+	--outfile="$target/tools/patch-bay.mjs" --metafile="$stage/patch-bay.meta.json"
 cp -rL "$(realpath "$root/node_modules/@roamhq/wrtc")/../wrtc-linux-x64" "$target/node_modules/@roamhq/"
 
-# Licenses: the AGPL-3.0 of the program, the C libraries in the binary, the font, and every production
-# package of package.json (a superset of the bundled ones).
+# Licenses: the AGPL-3.0 of the program, the C libraries in the binary, the font, and the npm packages in the archive.
 cp "$root/node_modules/hydra-synth/LICENSE" "$target/LICENSE"
 cp "$root/THIRD_PARTY.md" "$target/"
 licenses=$target/licenses
@@ -46,21 +45,30 @@ cp "$root/vendor/abseil-cpp/LICENSE" "$licenses/abseil.txt"
 cp "$root/vendor/webrtc-audio-processing/COPYING" "$licenses/webrtc-audio-processing.txt"
 sed -n '/^This software is available under 2 licenses/,$p' "$root/vendor/stb/stb_truetype.h" > "$licenses/stb.txt"
 cp "$root/vendor/fonts/NotoEmoji-OFL.txt" "$licenses/noto-emoji.txt"
-(cd "$root" && pnpm licenses list --prod --json) | node -e '
+# The npm packages in the archive: those that esbuild bundled (its metafiles), plus p5 and the WebRTC module,
+# which are copied as files.
+node -e '
 const fs = require("fs"), path = require("path")
-const target = process.argv[1], lines = []
-for (const packages of Object.values(JSON.parse(fs.readFileSync(0, "utf8"))))
-  for (const { name, versions, paths, license } of packages)
-    paths.forEach((directory, i) => {
-      lines.push(`${name}@${versions[i]}\t${license}`)
-      const files = fs.readdirSync(directory).filter((file) => /^(licen[cs]e|copying)/i.test(file))
-      if (!files.length) return
-      const folder = path.join(target, `${name.replace("/", "+")}@${versions[i]}`)
-      fs.mkdirSync(folder, { recursive: true })
-      for (const file of files) fs.copyFileSync(path.join(directory, file), path.join(folder, file))
-    })
-fs.writeFileSync(path.join(target, "packages.tsv"), lines.sort().join("\n") + "\n")
-' "$licenses/node"
+const [root, target, ...metafiles] = process.argv.slice(1)
+const wrtc = fs.realpathSync(path.join(root, "node_modules/@roamhq/wrtc"))
+const directories = new Set([fs.realpathSync(path.join(root, "node_modules/p5")), wrtc, path.join(wrtc, "../wrtc-linux-x64")])
+for (const metafile of metafiles)
+  for (const input of Object.keys(JSON.parse(fs.readFileSync(metafile, "utf8")).inputs)) {
+    const match = input.match(/^(.*node_modules\/(?:@[^/]+\/)?[^/]+)\//)
+    if (match) directories.add(path.resolve(root, match[1]))
+  }
+const lines = []
+for (const directory of directories) {
+  const { name, version, license } = JSON.parse(fs.readFileSync(path.join(directory, "package.json"), "utf8"))
+  lines.push(`${name}@${version}\t${license || "see the files"}`)
+  const files = fs.readdirSync(directory).filter((file) => /^(licen[cs]e|copying|notice)/i.test(file))
+  if (!files.length) continue
+  const folder = path.join(target, `${name.replace("/", "+")}@${version}`)
+  fs.mkdirSync(folder, { recursive: true })
+  for (const file of files) fs.copyFileSync(path.join(directory, file), path.join(folder, file))
+}
+fs.writeFileSync(path.join(target, "packages.tsv"), [...new Set(lines)].sort().join("\n") + "\n")
+' "$root" "$licenses/node" "$build/hydra-bundle.meta.json" "$stage/patch-bay.meta.json"
 
 git -C "$root" archive --format=tar.gz --prefix="hydra-native-$version-source/" \
 	-o "$target/source/hydra-native-$version-source.tar.gz" HEAD
