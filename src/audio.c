@@ -1,6 +1,7 @@
 // Computes the same "loudness" feature as Meyda (used by hydra-synth's lib/audio.js):
 // a 512-sample Hann window, the FFT amplitude spectrum, 24 Bark bands, specific[i] = sum^0.23.
-// Then a.setScale/setCutoff values from browser sketches keep their meaning.
+// Then a.setScale/setCutoff values from browser sketches keep their meaning. Before that, src/audio_processing.c
+// applies the noise suppression and gain control of the browser.
 #include <math.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -9,11 +10,8 @@
 #include <pulse/error.h>
 #include <pulse/simple.h>
 
+#include "audio_processing.h"
 #include "native.h"
-
-#define AUDIO_BUFFER_SIZE 512
-#define AUDIO_SAMPLE_RATE 48000
-#define SPECTRUM_SIZE (AUDIO_BUFFER_SIZE / 2)
 
 static pthread_t thread;
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
@@ -22,33 +20,6 @@ static bool available;
 static float latest_specific[BARK_BAND_COUNT];
 static float latest_total;
 static char device_name[256];
-
-static void fft(float *real, float *imaginary, int size) {
-    for (int i = 1, j = 0; i < size; i++) {
-        int bit = size >> 1;
-        for (; j & bit; bit >>= 1) j ^= bit;
-        j ^= bit;
-        if (i < j) {
-            float swap = real[i]; real[i] = real[j]; real[j] = swap;
-            swap = imaginary[i]; imaginary[i] = imaginary[j]; imaginary[j] = swap;
-        }
-    }
-    for (int length = 2; length <= size; length <<= 1) {
-        float angle = -2.0f * (float)M_PI / (float)length;
-        for (int start = 0; start < size; start += length) {
-            for (int k = 0; k < length / 2; k++) {
-                float w_real = cosf(angle * k), w_imaginary = sinf(angle * k);
-                int even = start + k, odd = start + k + length / 2;
-                float odd_real = real[odd] * w_real - imaginary[odd] * w_imaginary;
-                float odd_imaginary = real[odd] * w_imaginary + imaginary[odd] * w_real;
-                real[odd] = real[even] - odd_real;
-                imaginary[odd] = imaginary[even] - odd_imaginary;
-                real[even] += odd_real;
-                imaginary[even] += odd_imaginary;
-            }
-        }
-    }
-}
 
 static void compute_band_limits(int limits[BARK_BAND_COUNT + 1]) {
     float bark[SPECTRUM_SIZE];
@@ -87,22 +58,15 @@ static void *capture(void *argument) {
 
     int limits[BARK_BAND_COUNT + 1];
     compute_band_limits(limits);
-    float window[AUDIO_BUFFER_SIZE];
-    for (int i = 0; i < AUDIO_BUFFER_SIZE; i++)
-        window[i] = 0.5f - 0.5f * cosf(2.0f * (float)M_PI * i / (AUDIO_BUFFER_SIZE - 1));
-
-    float samples[AUDIO_BUFFER_SIZE], real[AUDIO_BUFFER_SIZE], imaginary[AUDIO_BUFFER_SIZE];
+    struct audio_processor processor = { 0 };
+    float samples[AUDIO_BUFFER_SIZE], magnitude[SPECTRUM_SIZE];
     while (pa_simple_read(stream, samples, sizeof samples, &error) >= 0) {
-        for (int i = 0; i < AUDIO_BUFFER_SIZE; i++) {
-            real[i] = samples[i] * window[i];
-            imaginary[i] = 0.0f;
-        }
-        fft(real, imaginary, AUDIO_BUFFER_SIZE);
+        audio_analyze(&processor, samples, magnitude);
         float specific[BARK_BAND_COUNT], total = 0.0f;
         for (int band = 0; band < BARK_BAND_COUNT; band++) {
             float sum = 0.0f;
             for (int bin = limits[band]; bin < limits[band + 1]; bin++)
-                sum += sqrtf(real[bin] * real[bin] + imaginary[bin] * imaginary[bin]);
+                sum += magnitude[bin];
             specific[band] = powf(sum, 0.23f);
             total += specific[band];
         }

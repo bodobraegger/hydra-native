@@ -148,7 +148,9 @@ The 2D canvas has gradients, patterns, shadows, image data, images and all blend
 (VP9, 25 fps) in ~/Downloads. `navigator.requestMIDIAccess()` gives MIDI input and output through ALSA.
 
 The audio object `a` is the one of hydra-synth (`a.show()`, `a.setBins()`, `a.setSmooth()`, `a.fft`).
-The browser applies automatic gain control to the microphone, hydra-native does not.
+Like getUserMedia() of a browser, hydra-native applies noise suppression and automatic gain control to the input
+(src/audio_processing.c). These follow the rules of the WebRTC audio processing in Chrome, but they are own code,
+so the values can differ a little. Echo cancellation is not necessary, because hydra plays no sound.
 Thus `a.setScale()` and `a.setCutoff()` can need other values than in the browser.
 
 ## Benchmark
