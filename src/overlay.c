@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include <GLES3/gl3.h>
+#include <SDL.h>
 
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "stb_truetype.h"
@@ -76,6 +77,45 @@ static struct {
 static int image_count;
 static bool atlas_full;
 static size_t vertex_count, vertex_capacity;
+
+// A layer that overlay_end() composites with blend mode difference (|destination - source|): the autocomplete
+// list. KHR_blend_equation_advanced does it in the blending stage where the context has it; otherwise a shader
+// reads a copy of the screen below the layer.
+#define GL_DIFFERENCE_KHR_VALUE 0x929E
+static struct {
+    size_t first, end; // its vertices
+    bool used;
+    float x, y, width, height;
+    GLuint framebuffer, texture, below; // the layer, and the copy of the screen for the shader
+    int texture_width, texture_height;
+    GLuint program;
+    GLint screen_location;
+    bool checked, advanced, coherent;
+    void (*barrier)(void);
+} difference;
+
+// With KHR_blend_equation_advanced the shader declares the blend equation that it draws with.
+static const char *advanced_fragment_source =
+    "#version 300 es\n"
+    "#extension GL_KHR_blend_equation_advanced : require\n"
+    "precision mediump float;\n"
+    "layout(blend_support_difference) out;\n"
+    "in vec2 v_uv; in vec4 v_color;\n"
+    "uniform sampler2D layer;\n"
+    "out vec4 out_color;\n"
+    "void main() { out_color = texture(layer, v_uv) * v_color; }\n";
+
+static const char *difference_fragment_source =
+    "#version 300 es\n"
+    "precision mediump float;\n"
+    "in vec2 v_uv; in vec4 v_color;\n"
+    "uniform sampler2D layer; uniform sampler2D below;\n"
+    "out vec4 out_color;\n"
+    "void main() {\n"
+    "  vec4 source = texture(layer, v_uv), destination = texture(below, v_uv);\n"
+    "  vec3 color = source.a > 0.0 ? source.rgb / source.a : vec3(0.0);\n"
+    "  out_color = vec4(mix(destination.rgb, abs(destination.rgb - color), source.a), destination.a);\n"
+    "}\n";
 
 static const char *vertex_source =
     "#version 300 es\n"
@@ -399,6 +439,7 @@ float overlay_line_height(void) { return line_height; }
 void overlay_begin(void) {
     vertex_count = 0;
     image_count = 0;
+    difference.used = false;
 }
 
 void overlay_image(float x, float y, float width, float height, unsigned texture) {
@@ -424,6 +465,114 @@ static void push_quad(float x0, float y0, float x1, float y1, float u0, float v0
 
 // Color glyphs keep their colors and take only the alpha of the text color.
 static uint32_t glyph_color(const struct glyph *glyph, uint32_t color) { return glyph->color ? 0xFFFFFF00u | (color & 0xFF) : color; }
+
+void overlay_difference_begin(void) { difference.first = vertex_count; }
+
+void overlay_difference_end(float x, float y, float width, float height) {
+    difference.end = vertex_count;
+    difference.used = difference.end > difference.first;
+    difference.x = x;
+    difference.y = y;
+    difference.width = width;
+    difference.height = height;
+}
+
+const char *overlay_difference_method(void) { return difference.checked ? (difference.advanced ? "KHR_blend_equation_advanced" : "shader") : "none"; }
+
+static void check_difference_support(void) {
+    difference.checked = true;
+    const char *extensions = (const char *)glGetString(GL_EXTENSIONS);
+    difference.advanced = extensions && strstr(extensions, "GL_KHR_blend_equation_advanced");
+    difference.coherent = extensions && strstr(extensions, "GL_KHR_blend_equation_advanced_coherent");
+    if (difference.advanced && !difference.coherent) {
+        difference.barrier = (void (*)(void))SDL_GL_GetProcAddress("glBlendBarrierKHR");
+        if (!difference.barrier) difference.advanced = false;
+    }
+    for (int attempt = 0; attempt < 2; attempt++) {
+        difference.program = glCreateProgram();
+        glAttachShader(difference.program, compile(GL_VERTEX_SHADER, vertex_source));
+        glAttachShader(difference.program, compile(GL_FRAGMENT_SHADER, difference.advanced ? advanced_fragment_source : difference_fragment_source));
+        glBindAttribLocation(difference.program, 0, "position");
+        glBindAttribLocation(difference.program, 1, "uv");
+        glBindAttribLocation(difference.program, 2, "color");
+        glLinkProgram(difference.program);
+        GLint linked;
+        glGetProgramiv(difference.program, GL_LINK_STATUS, &linked);
+        if (linked || !difference.advanced) break;
+        glDeleteProgram(difference.program); // the driver names the extension but does not compile its shaders
+        difference.advanced = false;
+    }
+    difference.screen_location = glGetUniformLocation(difference.program, "screen");
+    glUseProgram(difference.program);
+    glUniform1i(glGetUniformLocation(difference.program, "layer"), 0);
+    glUniform1i(glGetUniformLocation(difference.program, "below"), 1);
+}
+
+static GLuint window_texture(int width, int height) {
+    GLuint texture;
+    glGenTextures(1, &texture);
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    return texture;
+}
+
+// Draws the vertices of the layer into a window-sized texture (premultiplied), then composites the rectangle of
+// the layer onto the window with |destination - source|.
+static void draw_difference_layer(int width, int height) {
+    if (!difference.checked) check_difference_support();
+    if (difference.texture_width != width || difference.texture_height != height) {
+        if (difference.texture) {
+            glDeleteTextures(1, &difference.texture);
+            glDeleteTextures(1, &difference.below);
+        }
+        difference.texture = window_texture(width, height);
+        difference.below = window_texture(width, height);
+        if (!difference.framebuffer) glGenFramebuffers(1, &difference.framebuffer);
+        glBindFramebuffer(GL_FRAMEBUFFER, difference.framebuffer);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, difference.texture, 0);
+        difference.texture_width = width;
+        difference.texture_height = height;
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, difference.framebuffer);
+    glClearColor(0, 0, 0, 0);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+    glUseProgram(program);
+    glBindTexture(GL_TEXTURE_2D, atlas);
+    glDrawArrays(GL_TRIANGLES, (GLint)difference.first, (GLsizei)(difference.end - difference.first));
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    // The quad of the layer rectangle; v counts from the bottom, as the rows of the textures do.
+    size_t quad = vertex_count;
+    float x0 = difference.x, y0 = difference.y, x1 = x0 + difference.width, y1 = y0 + difference.height;
+    push_quad(x0, y0, x1, y1, x0 / (float)width, 1 - y0 / (float)height, x1 / (float)width, 1 - y1 / (float)height, 0xFFFFFFFFu);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(vertex_count * sizeof *vertices), vertices, GL_STREAM_DRAW);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, difference.texture);
+    glUseProgram(difference.program);
+    glUniform2f(difference.screen_location, (float)width, (float)height);
+    if (difference.advanced) {
+        glBlendEquation(GL_DIFFERENCE_KHR_VALUE);
+        if (difference.barrier) difference.barrier();
+        glDrawArrays(GL_TRIANGLES, (GLint)quad, 6);
+        glBlendEquation(GL_FUNC_ADD);
+    } else {
+        int left = (int)x0 < 0 ? 0 : (int)x0, bottom = height - (int)y1 < 0 ? 0 : height - (int)y1;
+        int copy_width = (int)x1 - left, copy_height = (height - (int)y0) - bottom;
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, difference.below);
+        if (copy_width > 0 && copy_height > 0) glCopyTexSubImage2D(GL_TEXTURE_2D, 0, left, bottom, left, bottom, copy_width, copy_height);
+        glDisable(GL_BLEND);
+        glDrawArrays(GL_TRIANGLES, (GLint)quad, 6);
+        glActiveTexture(GL_TEXTURE0);
+        glEnable(GL_BLEND);
+    }
+    vertex_count = quad;
+}
 
 void overlay_rect(float x, float y, float width, float height, uint32_t color) {
     const float white = (ATLAS_SIZE - 1.0f) / ATLAS_SIZE;
@@ -665,7 +814,12 @@ void overlay_end(int width, int height) {
     glBindVertexArray(vertex_array);
     glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);
     glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(vertex_count * sizeof *vertices), vertices, GL_STREAM_DRAW);
-    glDrawArrays(GL_TRIANGLES, 0, (GLsizei)vertex_count);
+    if (difference.used) { // the layer draws last, over everything else
+        glDrawArrays(GL_TRIANGLES, 0, (GLsizei)difference.first);
+        glDrawArrays(GL_TRIANGLES, (GLint)difference.end, (GLsizei)(vertex_count - difference.end));
+    } else {
+        glDrawArrays(GL_TRIANGLES, 0, (GLsizei)vertex_count);
+    }
     if (image_count) {
         size_t first = vertex_count;
         for (int i = 0; i < image_count; i++)
@@ -677,6 +831,7 @@ void overlay_end(int width, int height) {
             glDrawArrays(GL_TRIANGLES, (GLint)(first + 6 * (size_t)i), 6);
         }
     }
+    if (difference.used) draw_difference_layer(width, height);
     glBindVertexArray(0);
     glDisable(GL_BLEND);
 }

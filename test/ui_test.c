@@ -54,6 +54,8 @@ void overlay_text(float x, float y, const char *text, size_t length, size_t firs
     if (length > 6 && !strncmp(text, "find: ", 6)) snprintf(bar_text, sizeof bar_text, "%.*s", (int)length, text);
 }
 void overlay_end(int width, int height) {}
+void overlay_difference_begin(void) {}
+void overlay_difference_end(float x, float y, float width, float height) {}
 int overlay_columns(int codepoint) { return 1; }
 void overlay_image(float x, float y, float width, float height, unsigned texture) {}
 unsigned thumbnail_texture(const char *url) { return 0; }
@@ -272,9 +274,16 @@ int main(void) {
     key(SDLK_RETURN, 0);
     EXPECT_STRING(evaluated, "shape(1).out()\nshape(2).out()\nnoise().out()");
 
+    // Autocomplete opens only with Ctrl+Space (the default trigger): after typing "no", Enter makes a new line.
     key(SDLK_END, KMOD_LCTRL);
     type("\nno");
-    key(SDLK_RETURN, 0); // the completion list is open: Enter inserts "noise"
+    key(SDLK_RETURN, 0);
+    key(SDLK_RETURN, KMOD_LCTRL | KMOD_LALT);
+    EXPECT_STRING(evaluated, "shape(1).out()\nshape(2).out()\nnoise().out()\nno\n");
+    key(SDLK_BACKSPACE, 0);
+    key(SDLK_SPACE, KMOD_LCTRL); // opens the list
+    type("i"); // the open list follows the typed word
+    key(SDLK_RETURN, 0); // Enter inserts "noise"
     key(SDLK_RETURN, KMOD_LCTRL);
     EXPECT_STRING(evaluated, "noise");
 
@@ -316,6 +325,72 @@ int main(void) {
     settings_defaults(&loaded);
     settings_load(&loaded, settings_file);
     EXPECT(loaded.autocomplete_style == AUTOCOMPLETE_GHOST);
+
+    // Ghost text (the style is "ghost" now): Tab accepts the rest of the best candidate.
+    key(SDLK_a, KMOD_LCTRL);
+    type("n");
+    key(SDLK_SPACE, KMOD_LCTRL);
+    key(SDLK_TAB, 0);
+    key(SDLK_RETURN, KMOD_LCTRL);
+    EXPECT_STRING(evaluated, "noise");
+    // Alt+] and Alt+[ cycle through the candidates "osc" and "out".
+    key(SDLK_a, KMOD_LCTRL);
+    type("o");
+    key(SDLK_SPACE, KMOD_LCTRL);
+    key(SDLK_RIGHTBRACKET, KMOD_LALT);
+    key(SDLK_TAB, 0);
+    key(SDLK_RETURN, KMOD_LCTRL);
+    EXPECT_STRING(evaluated, "out");
+    key(SDLK_a, KMOD_LCTRL);
+    type("o");
+    key(SDLK_SPACE, KMOD_LCTRL);
+    key(SDLK_RIGHTBRACKET, KMOD_LALT);
+    key(SDLK_LEFTBRACKET, KMOD_LALT);
+    key(SDLK_TAB, 0);
+    key(SDLK_RETURN, KMOD_LCTRL);
+    EXPECT_STRING(evaluated, "osc");
+    // Escape dismisses it, and Tab then indents.
+    key(SDLK_a, KMOD_LCTRL);
+    type("o");
+    key(SDLK_SPACE, KMOD_LCTRL);
+    key(SDLK_ESCAPE, 0);
+    key(SDLK_TAB, 0);
+    key(SDLK_RETURN, KMOD_LCTRL);
+    EXPECT_CONTAINS(evaluated, "o");
+    EXPECT(strcmp(evaluated, "osc") != 0);
+    // Without Ctrl+Space, typing shows nothing; with the trigger "while typing" it does.
+    key(SDLK_a, KMOD_LCTRL);
+    type("no");
+    key(SDLK_TAB, 0);
+    key(SDLK_RETURN, KMOD_LCTRL);
+    EXPECT(strcmp(evaluated, "noise") != 0);
+    key(SDLK_p, KMOD_LCTRL | KMOD_LSHIFT);
+    type("autocomplete on Ctrl+Space or while");
+    key(SDLK_RETURN, 0);
+    key(SDLK_a, KMOD_LCTRL);
+    type("no");
+    key(SDLK_TAB, 0);
+    key(SDLK_RETURN, KMOD_LCTRL);
+    EXPECT_STRING(evaluated, "noise");
+    // Another edit (a cursor motion) hides the suggestion.
+    key(SDLK_a, KMOD_LCTRL);
+    type("no");
+    key(SDLK_LEFT, 0);
+    key(SDLK_TAB, 0);
+    key(SDLK_RETURN, KMOD_LCTRL);
+    EXPECT(strcmp(evaluated, "noise") != 0);
+    // The list style with the trigger "while typing": the list opens on its own, Enter inserts.
+    key(SDLK_p, KMOD_LCTRL | KMOD_LSHIFT);
+    type("autocomplete as a list or as ghost");
+    key(SDLK_RETURN, 0);
+    key(SDLK_a, KMOD_LCTRL);
+    type("no");
+    key(SDLK_RETURN, 0);
+    key(SDLK_RETURN, KMOD_LCTRL);
+    EXPECT_STRING(evaluated, "noise");
+    settings_defaults(&loaded);
+    settings_load(&loaded, settings_file);
+    EXPECT(loaded.autocomplete_style == AUTOCOMPLETE_LIST && loaded.autocomplete_trigger == AUTOCOMPLETE_TYPING);
 
     unlink(settings_file);
     *strrchr(settings_file, '/') = '\0';

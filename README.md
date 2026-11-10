@@ -70,7 +70,11 @@ a file of key=value lines: font, font_size, theme, autocomplete_style (list or g
 (manual or typing). hydra-native reads it at the start; --font, --font-size and --theme override it for one run.
 
 The editor has multiple cursors, find and replace, go to line, a command palette and autocomplete of hydra
-names and of the words of the file. Typing an opening bracket or quote adds the closing one. Find works like
+names and of the words of the file. Autocomplete opens with Ctrl+Space, or while typing with the trigger "while
+typing" of the settings menu. The style "list" shows the candidates over the bottom lines of the window with blend
+mode difference: a blue box with white text over black, inverted colors over anything else. The style "ghost
+text" shows the rest of the best candidate after the cursor, like the inline suggestions of VS Code: Tab accepts
+it, Escape dismisses it, Alt+] and Alt+[ show the other candidates. Typing an opening bracket or quote adds the closing one. Find works like
 the find bar of a browser: it ignores case and accents, highlights all matches and shows their count.
 
 ## Send code from an editor
@@ -120,7 +124,7 @@ Keys marked "always" also work while the overlay is hidden.
 | Ctrl+F2, F2, Shift+F2; Ctrl+F3, Alt+F3         | bookmarks; find or select the word under the cursor    |
 | Ctrl+K, then Ctrl+U, L, K, Backspace, D        | the two-key commands of the sublime keymap             |
 | Ctrl+F, F3, Shift+F3; Ctrl+H; Ctrl+G           | find; replace (Tab, Enter, Ctrl+Alt+Enter); go to line |
-| Ctrl+Space                                     | autocomplete (also while typing a word)                |
+| Ctrl+Space; Tab, Escape; Alt+], Alt+[          | autocomplete; accept, dismiss; other ghost candidates  |
 | Ctrl+], Ctrl+[; Tab, Shift+Tab                 | indent, outdent                                        |
 | Ctrl+M; Ctrl+Shift+M                           | go to the bracket; select inside the brackets          |
 | Ctrl+Up, Ctrl+Down                             | nothing                                                |

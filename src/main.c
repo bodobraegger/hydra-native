@@ -25,6 +25,7 @@
 #include "webgl.h"
 #include "midi.h"
 #include "native.h"
+#include "overlay.h"
 #include "thumbnails.h"
 #include "settings.h"
 #include "ui.h"
@@ -1420,10 +1421,10 @@ int main(int argc, char **argv) {
                 int width, height;
                 SDL_GL_GetDrawableSize(window, &width, &height);
                 printf("{\"width\":%d,\"height\":%d,\"vsync\":%s,\"fps\":%.1f,\"jsFrameMeanMs\":%.3f,"
-                       "\"overlayFrameMeanMs\":%.3f,\"renderer\":\"%s\"}\n",
+                       "\"overlayFrameMeanMs\":%.3f,\"renderer\":\"%s\",\"differenceBlend\":\"%s\"}\n",
                        width, height, options.vsync ? "true" : "false", (bench_frames - 1) / (elapsed / 1000),
                        frame_js_ms / bench_frames, frame_overlay_ms / bench_frames,
-                       (const char *)glGetString(GL_RENDERER));
+                       (const char *)glGetString(GL_RENDERER), overlay_difference_method());
                 quit_requested = true;
             }
         }

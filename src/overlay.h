@@ -26,6 +26,10 @@ void overlay_text(float x, float y, const char *text, size_t length, size_t firs
                   const uint32_t *colors, uint32_t color);
 void overlay_image(float x, float y, float width, float height, unsigned texture); // an RGBA GL texture
 void overlay_end(int width, int height);
+// What is drawn between these two calls composites with blend mode difference over the rectangle, after all else.
+void overlay_difference_begin(void);
+void overlay_difference_end(float x, float y, float width, float height);
+const char *overlay_difference_method(void); // "KHR_blend_equation_advanced", "shader", or "none" before the first use
 int overlay_columns(int codepoint); // 2 for wide East Asian characters, else 1
 size_t overlay_text_columns(const char *text, size_t length);
 // Proportional text, shaped with HarfBuzz, in visual order after a bidi pass; returns the width in pixels.

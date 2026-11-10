@@ -11,6 +11,11 @@ static const struct key_binding keymap[] = {
     { SDLK_RETURN, 0, COMMAND_COMPLETION_ACCEPT, .context = CONTEXT_COMPLETION },
     { SDLK_TAB, 0, COMMAND_COMPLETION_ACCEPT, .context = CONTEXT_COMPLETION },
 
+    // while a ghost-text suggestion shows (the inline suggestion keys of VS Code); Escape dismisses it
+    { SDLK_TAB, 0, COMMAND_COMPLETION_ACCEPT, .context = CONTEXT_GHOST },
+    { SDLK_RIGHTBRACKET, KEY_ALT, COMMAND_COMPLETION_NEXT, .context = CONTEXT_GHOST },
+    { SDLK_LEFTBRACKET, KEY_ALT, COMMAND_COMPLETION_PREVIOUS, .context = CONTEXT_GHOST },
+
     // while find, replace, go to line or the command palette is open
     { SDLK_RETURN, KEY_CTRL | KEY_ALT, COMMAND_REPLACE_ALL, .context = CONTEXT_PROMPT },
     { SDLK_RETURN, 0, COMMAND_PROMPT_ACCEPT, .context = CONTEXT_PROMPT },

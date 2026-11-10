@@ -139,6 +139,7 @@ enum command {
 enum key_context {
     CONTEXT_ANY,
     CONTEXT_COMPLETION, // the autocomplete list is open
+    CONTEXT_GHOST, // a ghost-text suggestion shows after the cursor
     CONTEXT_PROMPT, // find, replace, go to line or the command palette is open
 };
 

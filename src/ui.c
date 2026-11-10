@@ -32,6 +32,10 @@
 #define MIN_COMPLETION_PREFIX 2
 #define MAX_PALETTE_ROWS 12
 #define MAX_ROWS_PER_LINE 1024
+// The autocomplete list draws with blend mode difference, so these are its colors over black in every theme.
+#define COMPLETION_BOX_COLOR 0x0000FFFFu
+#define COMPLETION_SELECTED_COLOR 0x6060FFFFu
+#define COMPLETION_TEXT_COLOR 0xFFFFFFFFu
 
 // A color theme of the settings menu; colors are RGBA. The code floats over the visuals, so backgrounds are
 // translucent in the dark themes.
@@ -677,7 +681,22 @@ static void prompt_backspace(void) {
     prompt_changed();
 }
 
+static void run_command_body(enum command command, bool extend);
+
+static bool is_completion_command(enum command command) {
+    return command == COMMAND_TRIGGER_COMPLETION || command == COMMAND_COMPLETION_NEXT || command == COMMAND_COMPLETION_PREVIOUS ||
+           command == COMMAND_COMPLETION_ACCEPT;
+}
+
+// Open suggestions follow Backspace and close for any other command, as in VS Code.
 static void run_command(enum command command, bool extend) {
+    bool was_open = completion.open;
+    if (was_open && !is_completion_command(command) && command != COMMAND_BACKSPACE) close_completion();
+    run_command_body(command, extend);
+    if (was_open && command == COMMAND_BACKSPACE) open_completion(true);
+}
+
+static void run_command_body(enum command command, bool extend) {
     size_t start, end;
     long page = (long)visible_rows() - 1;
     if (command != COMMAND_COMPLETION_NEXT && command != COMMAND_COMPLETION_PREVIOUS &&
@@ -873,7 +892,7 @@ static void run_command(enum command command, bool extend) {
 }
 
 static enum key_context key_context(void) {
-    if (completion.open) return CONTEXT_COMPLETION;
+    if (completion.open) return active_settings.autocomplete_style == AUTOCOMPLETE_GHOST ? CONTEXT_GHOST : CONTEXT_COMPLETION;
     if (prompt.kind != PROMPT_NONE) return CONTEXT_PROMPT;
     return CONTEXT_ANY;
 }
@@ -920,7 +939,10 @@ void ui_text_input(const char *text) {
     }
     editor_type(&editor, text, strlen(text));
     bool word = isalnum((unsigned char)text[0]) || text[0] == '_' || text[0] == '$';
-    if (word || completion.open) open_completion(false);
+    // Open suggestions follow the typed word; new ones open only with the trigger "while typing" (the default is
+    // Ctrl+Space alone).
+    if (completion.open) open_completion(true);
+    else if (word && active_settings.autocomplete_trigger == AUTOCOMPLETE_TYPING) open_completion(false);
     reveal_cursor();
 }
 
@@ -1723,24 +1745,39 @@ static void draw_code(void) {
     free(selections);
 }
 
-static void draw_completion(void) {
-    if (!completion.open) return;
-    size_t x, row = global_row(editor.cursor, &x);
-    if (row < scroll_row || row >= scroll_row + visible_rows()) return;
+// The list over the bottom lines of the window, composited with blend mode difference: over black it shows a
+// blue box with white text, over anything else it inverts what is below.
+static void draw_completion_list(void) {
     float char_width = overlay_char_width(), line_height = overlay_line_height();
     size_t width = 0;
     for (size_t i = 0; i < completion.count; i++)
         if (strlen(completion.items[i]) > width) width = strlen(completion.items[i]);
-    float left = MARGIN + ((float)(x - scroll_column) - (float)completion.prefix_length) * char_width;
-    float top = MARGIN + (float)(row - scroll_row + 1) * line_height;
-    if (top + (float)completion.count * line_height > (float)last_height - bar_height())
-        top -= (float)(completion.count + 1) * line_height;
+    float box_width = (float)(width + 2) * char_width, box_height = (float)completion.count * line_height;
+    float left = MARGIN, top = (float)last_height - bar_height() - box_height;
+    overlay_difference_begin();
     for (size_t i = 0; i < completion.count; i++) {
         float y = top + (float)i * line_height;
-        overlay_rect(left - TEXT_PADDING, y, (float)(width + 1) * char_width + 2 * TEXT_PADDING, line_height,
-                     i == completion.selected ? theme->popup_selected : theme->popup_background);
-        overlay_text(left, y, completion.items[i], strlen(completion.items[i]), 0, width, NULL, theme->text);
+        overlay_rect(left, y, box_width, line_height, i == completion.selected ? COMPLETION_SELECTED_COLOR : COMPLETION_BOX_COLOR);
+        overlay_text(left + char_width, y, completion.items[i], strlen(completion.items[i]), 0, width, NULL, COMPLETION_TEXT_COLOR);
     }
+    overlay_difference_end(left, top, box_width, box_height);
+}
+
+// Ghost text: the rest of the selected candidate after the cursor, in the dim ghost color of the theme.
+static void draw_completion_ghost(void) {
+    size_t x, row = global_caret_row(editor.cursor, editor.sticky, &x);
+    if (row < scroll_row || row >= scroll_row + visible_rows() || x < scroll_column) return;
+    const char *rest = completion.items[completion.selected] + completion.prefix_length;
+    float left = MARGIN + (float)(x - scroll_column) * overlay_char_width(), top = MARGIN + (float)(row - scroll_row) * overlay_line_height();
+    size_t columns = overlay_text_columns(rest, strlen(rest));
+    overlay_rect(left, top, (float)columns * overlay_char_width() + TEXT_PADDING, overlay_line_height(), theme->line_background);
+    overlay_text(left, top, rest, strlen(rest), 0, visible_columns() - (x - scroll_column), NULL, theme->ghost);
+}
+
+static void draw_completion(void) {
+    if (!completion.open) return;
+    if (active_settings.autocomplete_style == AUTOCOMPLETE_GHOST) draw_completion_ghost();
+    else draw_completion_list();
 }
 
 static void draw_prompt(int width, int height) {
