@@ -79,6 +79,17 @@ static bool evaluating;
 static char console_message[MAX_MESSAGE];
 static bool suppress_text; // the key press before this text input was a command
 static bool help_visible;
+static bool info_visible;
+static size_t info_scroll;
+static float pointer_x, pointer_y; // the last mouse position, for toolbar tooltips
+
+#define MAX_LANGUAGES 16
+#define INFO_COLUMNS 72
+static struct {
+    char code[8];
+    float x, width;
+} language_buttons[MAX_LANGUAGES];
+static size_t language_button_count;
 static SDL_Keycode chord_prefix; // the first key of a two-key command, or 0
 static char composition[64]; // the text of an IME composition, shown at the cursor
 static uint32_t *colors;
@@ -498,6 +509,7 @@ static void escape(void) {
     if (completion.open) close_completion();
     else if (prompt.kind != PROMPT_NONE) prompt.kind = PROMPT_NONE;
     else if (help_visible) help_visible = false;
+    else if (info_visible) info_visible = false;
     else if (visible && editor_selection_count(&editor) > 1) editor_collapse_to_first(&editor);
     else if (visible && editor_has_selection(&editor)) editor_set_cursor(&editor, editor.cursor, false);
     else if (host.is_fullscreen()) host.toggle_fullscreen();
@@ -551,6 +563,10 @@ static void run_command(enum command command, bool extend) {
     case COMMAND_MUTATE_TRANSFORM: replace_with("__mutateTransform", "mutator: the code does not parse"); break;
     case COMMAND_MUTATE_UNDO: replace_with("__mutateUndo", "mutator: nothing to undo"); break;
     case COMMAND_TOGGLE_HELP: help_visible = !help_visible; return;
+    case COMMAND_TOGGLE_INFO:
+        info_visible = !info_visible;
+        info_scroll = 0;
+        return;
     case COMMAND_SELECT_NEXT_OCCURRENCE: editor_select_next_occurrence(&editor); break;
     case COMMAND_FIND: open_prompt(PROMPT_FIND); break;
     case COMMAND_REPLACE: open_prompt(PROMPT_REPLACE); break;
@@ -714,17 +730,18 @@ void ui_text_input(const char *text) {
 
 struct toolbar_item {
     const char *label;
+    const char *title; // the tooltip in the texts of the web editor (toolbar.run, ...)
     enum command command;
     enum command with_shift; // like Shift+click on the dice of the web editor
     enum command with_ctrl;
 };
 
 static const struct toolbar_item toolbar[] = {
-    { "run", COMMAND_EVAL_ALL, COMMAND_EVAL_ALL, COMMAND_EVAL_ALL },
-    { "clear", COMMAND_CLEAR_ALL, COMMAND_CLEAR_ALL, COMMAND_CLEAR_ALL },
-    { "example", COMMAND_SHOW_EXAMPLE, COMMAND_SHOW_EXAMPLE, COMMAND_SHOW_EXAMPLE },
-    { "mutate", COMMAND_MUTATE, COMMAND_MUTATE_UNDO, COMMAND_MUTATE_TRANSFORM },
-    { "?", COMMAND_TOGGLE_HELP, COMMAND_TOGGLE_HELP, COMMAND_TOGGLE_HELP },
+    { "run", "toolbar.run", COMMAND_EVAL_ALL, COMMAND_EVAL_ALL, COMMAND_EVAL_ALL },
+    { "clear", "toolbar.clear", COMMAND_CLEAR_ALL, COMMAND_CLEAR_ALL, COMMAND_CLEAR_ALL },
+    { "example", "toolbar.shuffle", COMMAND_SHOW_EXAMPLE, COMMAND_SHOW_EXAMPLE, COMMAND_SHOW_EXAMPLE },
+    { "mutate", "toolbar.random", COMMAND_MUTATE, COMMAND_MUTATE_UNDO, COMMAND_MUTATE_TRANSFORM },
+    { "?", "toolbar.show-info", COMMAND_TOGGLE_INFO, COMMAND_TOGGLE_HELP, COMMAND_TOGGLE_HELP },
 };
 #define TOOLBAR_COUNT (sizeof toolbar / sizeof toolbar[0])
 
@@ -757,7 +774,97 @@ static void draw_toolbar(void) {
         overlay_rect(x, MARGIN, width, overlay_line_height(), COLOR_TOOLBAR);
         overlay_text(x + overlay_char_width() / 2, MARGIN, toolbar[i].label, strlen(toolbar[i].label), 0, 64, NULL,
                      COLOR_INFO);
+        bool hover = pointer_y >= MARGIN && pointer_y <= MARGIN + overlay_line_height() && pointer_x >= x &&
+                     pointer_x <= x + width;
+        if (!hover) continue;
+        const char *title = toolbar[i].command == COMMAND_TOGGLE_INFO && info_visible ? "toolbar.hide-info" : toolbar[i].title;
+        char *text = host.call("__translate", title);
+        if (!text) continue;
+        size_t columns = overlay_text_columns(text, strlen(text));
+        float tooltip_width = (float)columns * overlay_char_width();
+        float left = x + width - tooltip_width;
+        if (left < MARGIN) left = MARGIN;
+        float top = MARGIN + overlay_line_height() + TEXT_PADDING;
+        overlay_rect(left - TEXT_PADDING, top, tooltip_width + 2 * TEXT_PADDING, overlay_line_height(), COLOR_POPUP_BACKGROUND);
+        overlay_text(left, top, text, strlen(text), 0, columns, NULL, COLOR_TEXT);
+        free(text);
     }
+}
+
+// ---------------------------------------------------------------- info panel
+
+// The info window of the web editor (src/views/info.js) with its language buttons; the texts come from
+// js/l10n.js in the selected language.
+static void info_panel(float *left, float *top, float *width, float *height) {
+    size_t columns = visible_columns() < INFO_COLUMNS + 4 ? visible_columns() : INFO_COLUMNS + 4;
+    *width = (float)columns * overlay_char_width();
+    *left = ((float)last_width - *width) / 2;
+    *top = MARGIN + 2 * overlay_line_height();
+    *height = (float)last_height - *top - MARGIN - bar_height();
+}
+
+static void draw_info(void) {
+    float left, top, width, height, line_height = overlay_line_height(), char_width = overlay_char_width();
+    info_panel(&left, &top, &width, &height);
+    overlay_rect(left, top, width, height, COLOR_HELP_BACKGROUND);
+    char *languages = host.call("__languages", "");
+    float x = left + char_width;
+    language_button_count = 0;
+    for (char *line = languages ? strtok(languages, "\n") : NULL; line && language_button_count < MAX_LANGUAGES;
+         line = strtok(NULL, "\n")) {
+        char *name = strchr(line, '\t');
+        if (!name) continue;
+        *name++ = '\0';
+        char *selected = strchr(name, '\t');
+        if (selected) *selected++ = '\0';
+        size_t columns = overlay_text_columns(name, strlen(name)) + 1;
+        if (x + (float)columns * char_width > left + width) break;
+        snprintf(language_buttons[language_button_count].code, sizeof language_buttons[0].code, "%s", line);
+        language_buttons[language_button_count].x = x;
+        language_buttons[language_button_count++].width = (float)columns * char_width;
+        overlay_rect(x, top + line_height / 2, (float)columns * char_width, line_height,
+                     selected && *selected == '1' ? COLOR_POPUP_SELECTED : COLOR_TOOLBAR);
+        overlay_text(x + char_width / 2, top + line_height / 2, name, strlen(name), 0, columns, NULL, COLOR_TEXT);
+        x += (float)(columns + 1) * char_width;
+    }
+    free(languages);
+    char columns_text[16];
+    size_t text_columns = (size_t)(width / char_width) - 4;
+    snprintf(columns_text, sizeof columns_text, "%zu", text_columns);
+    char *text = host.call("__infoText", columns_text);
+    if (!text) return;
+    char *saveptr;
+    char *direction = strtok_r(text, "\n", &saveptr);
+    bool rtl = direction && !strcmp(direction, "rtl");
+    size_t rows = (size_t)((height - 3 * line_height) / line_height), row = 0, skipped = 0;
+    // strtok_r skips empty lines, so the paragraphs are split by hand.
+    for (char *line = saveptr; line && *line != '\0' && row < rows;) {
+        char *end = strchr(line, '\n');
+        size_t length = end ? (size_t)(end - line) : strlen(line);
+        if (skipped++ >= info_scroll) {
+            size_t columns = overlay_text_columns(line, length);
+            float line_x = rtl ? left + width - 2 * char_width - (float)columns * char_width : left + 2 * char_width;
+            overlay_text(line_x, top + line_height * (2.0f + (float)row), line, length, 0, text_columns, NULL, COLOR_TEXT);
+            row++;
+        }
+        line = end ? end + 1 : NULL;
+    }
+    free(text);
+}
+
+static bool info_click(float x, float y) {
+    float left, top, width, height;
+    info_panel(&left, &top, &width, &height);
+    if (x < left || x > left + width || y < top || y > top + height) {
+        info_visible = false; // a click outside closes the panel
+        return false;
+    }
+    float line_height = overlay_line_height();
+    if (y >= top + line_height / 2 && y <= top + 1.5f * line_height)
+        for (size_t i = 0; i < language_button_count; i++)
+            if (x >= language_buttons[i].x && x <= language_buttons[i].x + language_buttons[i].width)
+                free(host.call("__setLanguage", language_buttons[i].code));
+    return true;
 }
 
 // ---------------------------------------------------------------- help
@@ -798,6 +905,7 @@ void ui_mouse_button(float x, float y, bool down, int clicks, SDL_Keymod modifie
         return;
     }
     if (toolbar_click(x, y, modifiers)) return;
+    if (info_visible && info_click(x, y)) return;
     close_completion();
     size_t offset = offset_at_point(x, y);
     mouse.dragging = true;
@@ -825,6 +933,8 @@ void ui_mouse_button(float x, float y, bool down, int clicks, SDL_Keymod modifie
 }
 
 void ui_mouse_motion(float x, float y) {
+    pointer_x = x;
+    pointer_y = y;
     if (!visible || !mouse.dragging) return;
     size_t offset = offset_at_point(x, y);
     if (mouse.column) {
@@ -838,6 +948,11 @@ void ui_mouse_motion(float x, float y) {
 
 void ui_wheel(int lines) {
     if (!visible) return;
+    if (info_visible) {
+        long target = (long)info_scroll - (long)lines * WHEEL_ROWS;
+        info_scroll = target < 0 ? 0 : (size_t)target;
+        return;
+    }
     update_layout();
     long target = (long)scroll_row - (long)lines * WHEEL_ROWS;
     long last = (long)layout.total_rows - 1;
@@ -1115,6 +1230,7 @@ void ui_draw(int width, int height, double now_ms) {
         return;
     }
     draw_code();
+    if (info_visible) draw_info();
     draw_toolbar();
     draw_completion();
     if (prompt.kind != PROMPT_NONE) draw_prompt(width, height);
@@ -1126,6 +1242,15 @@ void ui_draw(int width, int height, double now_ms) {
 // ---------------------------------------------------------------- setup
 
 void ui_set_visible(bool show) { visible = show; }
+
+void ui_show_info(void) { info_visible = true; }
+
+void ui_show_random_example(void) {
+    if (replace_with("__randomExample", "no example")) {
+        editor.modified = false;
+        evaluate_range(0, editor.length);
+    }
+}
 
 void ui_set_code(const char *code) { editor_set_text(&editor, code, strlen(code)); }
 

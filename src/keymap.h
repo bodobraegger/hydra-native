@@ -31,6 +31,7 @@
     X(MUTATE_TRANSFORM, "randomize a function (mutator)") \
     X(MUTATE_UNDO, "undo the last randomization") \
     X(TOGGLE_HELP, "help: keys and commands") \
+    X(TOGGLE_INFO, "info panel and language") \
     X(SELECT_NEXT_OCCURRENCE, "select the word, then add the next occurrence") \
     X(FIND, "find") \
     X(FONT_BIGGER, "bigger font") \

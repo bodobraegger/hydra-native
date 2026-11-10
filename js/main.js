@@ -5,6 +5,7 @@ import { installSources } from './sources.js'
 import beautify from 'js-beautify'
 import './editor-actions.js'
 import './midi.js'
+import { startLanguages } from './l10n.js'
 
 const canvas = document.createElement('canvas')
 ;[canvas.width, canvas.height] = native.drawableSize()
@@ -60,6 +61,8 @@ window.loadScript = (url = '') => new Promise((resolve) => {
     resolve()
   })
 })
+
+startLanguages(pendingFetches, native.language, native.l10nUrl)
 
 window.addEventListener('resize', () => {
   const [width, height] = native.drawableSize()

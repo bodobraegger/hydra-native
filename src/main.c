@@ -47,6 +47,8 @@ struct options {
     const char *socket_path;
     const char *font_path;
     const char *screenshot_path;
+    const char *language;
+    const char *l10n_url;
     float font_size;
     int window_width;
     int window_height;
@@ -518,6 +520,36 @@ static JSValue js_midi_poll(JSContext *ctx, JSValueConst this, int argc, JSValue
     return result;
 }
 
+static JSValue js_environment(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    const char *name = JS_ToCString(ctx, argv[0]);
+    const char *value = name ? getenv(name) : NULL;
+    JS_FreeCString(ctx, name);
+    return value ? JS_NewString(ctx, value) : JS_NULL;
+}
+
+// writeFile(path, text) creates missing parent directories, like mkdir -p.
+static JSValue js_write_file(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    const char *path = JS_ToCString(ctx, argv[0]);
+    size_t length;
+    const char *text = JS_ToCStringLen(ctx, &length, argv[1]);
+    bool ok = false;
+    if (path && text) {
+        char directory[PATH_MAX];
+        snprintf(directory, sizeof directory, "%s", path);
+        for (char *slash = strchr(directory + 1, '/'); slash; slash = strchr(slash + 1, '/')) {
+            *slash = '\0';
+            mkdir(directory, 0755);
+            *slash = '/';
+        }
+        FILE *file = fopen(path, "wb");
+        ok = file && fwrite(text, 1, length, file) == length;
+        if (file && fclose(file) != 0) ok = false;
+    }
+    JS_FreeCString(ctx, path);
+    JS_FreeCString(ctx, text);
+    return JS_NewBool(ctx, ok);
+}
+
 static JSValue js_now(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
     return JS_NewFloat64(ctx, now_ms());
 }
@@ -591,6 +623,8 @@ static const JSCFunctionListEntry native_functions[] = {
     JS_CFUNC_DEF("midiOutputs", 0, js_midi_outputs),
     JS_CFUNC_DEF("midiSend", 2, js_midi_send),
     JS_CFUNC_DEF("midiPoll", 0, js_midi_poll),
+    JS_CFUNC_DEF("environment", 1, js_environment),
+    JS_CFUNC_DEF("writeFile", 2, js_write_file),
     JS_CFUNC_DEF("now", 0, js_now),
     JS_CFUNC_DEF("screencap", 0, js_screencap),
     JS_CFUNC_DEF("recordStart", 0, js_record_start),
@@ -802,6 +836,8 @@ static void usage(void) {
             "  --font PATH        monospace TrueType font of the overlay (default %s)\n"
             "  --font-size PIXELS font size of the overlay (default %.0f)\n"
             "  --hide-code        start with the code overlay hidden (Ctrl+Shift+H shows it)\n"
+            "  --lang CODE        language of the info panel (ja es ar id pt-br ch ko fr de; default: $LANG)\n"
+            "  --l10n-url URL     load the language of --lang from this editor.json\n"
             "  --size WxH         window size (default %dx%d)\n"
             "  --fullscreen       start in fullscreen\n"
             "  --audio SOURCE     PulseAudio/PipeWire source for `a`, e.g. @DEFAULT_MONITOR@\n"
@@ -825,6 +861,8 @@ static bool parse_options(int argc, char **argv, struct options *options) {
         else if (!strcmp(argument, "--hidden")) options->hidden = true;
         else if (!strcmp(argument, "--fullscreen")) options->fullscreen = true;
         else if (!strcmp(argument, "--hide-code")) options->hide_code = true;
+        else if (!strcmp(argument, "--lang") && has_value) options->language = argv[++i];
+        else if (!strcmp(argument, "--l10n-url") && has_value) options->l10n_url = argv[++i];
         else if (!strcmp(argument, "--screenshot") && has_value) options->screenshot_path = argv[++i];
         else if (!strcmp(argument, "--font") && has_value) options->font_path = argv[++i];
         else if (!strcmp(argument, "--font-size") && has_value) options->font_size = (float)atof(argv[++i]);
@@ -1038,6 +1076,8 @@ int main(int argc, char **argv) {
     char directory[PATH_MAX];
     if (!executable_directory(directory, sizeof directory)) return 1;
     JS_SetPropertyStr(js, native, "directory", JS_NewString(js, directory));
+    JS_SetPropertyStr(js, native, "language", options.language ? JS_NewString(js, options.language) : JS_NULL);
+    JS_SetPropertyStr(js, native, "l10nUrl", options.l10n_url ? JS_NewString(js, options.l10n_url) : JS_NULL);
     JS_SetPropertyStr(js, global, "native", native);
     JS_FreeValue(js, global);
     if (!load_bundle(directory)) return 1;
@@ -1078,6 +1118,11 @@ int main(int argc, char **argv) {
         ui_set_code(url_code);
         if (!strncmp(url_code, SHOW_CODE_FALSE, strlen(SHOW_CODE_FALSE))) ui_set_visible(false);
         free(url_code);
+    }
+    // Without a sketch the web editor shows a random example and its info window.
+    if (options.file_count == 0 && !options.bench_seconds) {
+        ui_show_random_example();
+        ui_show_info();
     }
     if (options.hide_code) ui_set_visible(false);
     const char *watched = options.watch ? sketch : NULL;
