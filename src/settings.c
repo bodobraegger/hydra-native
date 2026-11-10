@@ -8,6 +8,9 @@
 #include <unistd.h>
 
 #include "quickjs.h"
+#if !defined(__linux__)
+#include <SDL3/SDL.h>
+#endif
 
 #define SETTINGS_DIRECTORY "hydra-native"
 #define SETTINGS_FILE "settings.json"
@@ -37,11 +40,20 @@ void settings_defaults(struct settings *settings) {
     settings->window_height = SETTINGS_DEFAULT_HEIGHT;
 }
 
+// Linux: XDG_CONFIG_HOME/hydra-native. macOS: ~/Library/Application Support/hydra-native. Windows:
+// %APPDATA%\hydra-native. SDL_GetPrefPath gives the last two; on Linux it gives the data folder instead.
 bool settings_path(char *path, size_t size) {
+#if defined(__linux__)
     const char *config = getenv("XDG_CONFIG_HOME"), *home = getenv("HOME");
     if (config && config[0]) snprintf(path, size, "%s/" SETTINGS_DIRECTORY "/" SETTINGS_FILE, config);
     else if (home && home[0]) snprintf(path, size, "%s/.config/" SETTINGS_DIRECTORY "/" SETTINGS_FILE, home);
     else return false;
+#else
+    char *folder = SDL_GetPrefPath(NULL, SETTINGS_DIRECTORY); // ends with the separator of the system
+    if (!folder) return false;
+    snprintf(path, size, "%s" SETTINGS_FILE, folder);
+    SDL_free(folder);
+#endif
     return true;
 }
 

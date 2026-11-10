@@ -8,7 +8,14 @@
 
 #define SETTINGS_TEXT 512
 #define SETTINGS_NAME 64
+// The monospace font that each system has; the settings menu lists other fonts only with fontconfig (Linux).
+#if defined(__APPLE__)
+#define SETTINGS_DEFAULT_FONT "/System/Library/Fonts/Menlo.ttc"
+#elif defined(_WIN32)
+#define SETTINGS_DEFAULT_FONT "C:\\Windows\\Fonts\\consola.ttf"
+#else
 #define SETTINGS_DEFAULT_FONT "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf"
+#endif
 #define SETTINGS_DEFAULT_FONT_SIZE 20.0f
 #define SETTINGS_DEFAULT_THEME "hydra"
 #define SETTINGS_DEFAULT_WIDTH 1280
