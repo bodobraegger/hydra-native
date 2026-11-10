@@ -26,9 +26,17 @@ processes (ffmpeg, Node.js) on all three systems; "Media on macOS and Windows" b
   Windows (SDL_GetPrefPath). The default font is Menlo on macOS and Consolas on Windows. The settings menu
   lists other fonts only through fontconfig, so on macOS and Windows it shows none; a "font" path in
   settings.json works. CoreText and DirectWrite lists are not done.
-- On macOS and Windows, CMake builds the window test and compiles the ported sources (editor, overlay, menu,
-  settings, signatures; on macOS only, because they still include POSIX headers) as a check. It does not link
-  the program yet. tools/package.sh has the macOS (.app in a zip) and Windows (zip) branches, untested.
+- macOS (arm64): CMake builds the program, the capture tool, the JS bundle and the unit tests except audio and
+  MIDI (`brew install sdl3 ninja`, then `cmake -S . -B build -G Ninja && cmake --build build`). In CI the program
+  renders test/check.js on ANGLE Metal in a hidden window and reads both outputs back, and editor_test, ui_test
+  and process_test pass. tools/package.sh packs hydra-native.app in a zip: the program folder is Contents/MacOS
+  (program, bundle, capture tool, ANGLE, the SDL3 of Homebrew with an @rpath name), next to Contents/tools,
+  vendor/ and assets/; the files are signed ad hoc. Nobody has started the app on a Mac yet: the microphone,
+  camera and screen recording permissions, the Dock icon and the code socket are untested.
+- Windows (x64): CMake builds the window test and the capture tool, and the window test passes on ANGLE Direct3D
+  11 (the WARP renderer of the runner). The program does not build: QuickJS does not build with MSVC (quickjs-ng
+  is the plan), and main.c still uses Unix sockets and POSIX calls. tools/package.sh has a Windows branch
+  (zip), untested.
 
 ## ANGLE
 
