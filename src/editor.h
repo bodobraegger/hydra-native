@@ -97,7 +97,9 @@ void editor_replace_text(struct editor *editor, const char *text, size_t length)
 size_t editor_line_of(const struct editor *editor, size_t offset);
 size_t editor_line_start(const struct editor *editor, size_t line);
 size_t editor_line_end(const struct editor *editor, size_t line); // offset of the newline or of the end
-size_t editor_column_of(const struct editor *editor, size_t offset); // in code points
+size_t editor_cluster_end(const struct editor *editor, size_t offset); // the end of the grapheme cluster (UAX #29)
+size_t editor_columns_between(const struct editor *editor, size_t start, size_t end); // grid columns, start inside a line
+size_t editor_column_of(const struct editor *editor, size_t offset); // in the grid: tabs and clusters counted
 size_t editor_offset_at(const struct editor *editor, size_t line, size_t column);
 
 // Selections. The functions without "all" in the name work on the primary selection.

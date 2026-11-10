@@ -399,6 +399,30 @@ static void test_group_motion(void) {
     editor_free(&editor);
 }
 
+// Grapheme clusters (UAX #29) for the grid, and the cursor stops of CodeMirror 5 (extending characters only).
+static void test_clusters(void) {
+    struct editor editor;
+    editor_init(&editor);
+    // "a", a family (man ZWJ woman ZWJ girl), "e" with U+0301, keycap 1, the flag of Switzerland, "b"
+    load(&editor, "a\xF0\x9F\x91\xA8\xE2\x80\x8D\xF0\x9F\x91\xA9\xE2\x80\x8D\xF0\x9F\x91\xA7"
+                  "e\xCC\x81" "1\xEF\xB8\x8F\xE2\x83\xA3" "\xF0\x9F\x87\xA8\xF0\x9F\x87\xAD" "b");
+    EXPECT(editor_cluster_end(&editor, 1) == 19);  // the family is one cluster
+    EXPECT(editor_cluster_end(&editor, 19) == 22); // e and the accent
+    EXPECT(editor_cluster_end(&editor, 22) == 29); // the keycap
+    EXPECT(editor_cluster_end(&editor, 29) == 37); // the flag
+    EXPECT(editor_column_of(&editor, editor.length) == 1 + 2 + 1 + 2 + 2 + 1);
+    size_t stops[] = { 1, 8, 15, 19, 22, 29, 33, 37, 38 }; // CodeMirror stops inside the family and the flag
+    editor_set_cursor(&editor, 0, false);
+    for (size_t i = 0; i < sizeof stops / sizeof stops[0]; i++) {
+        editor_move(&editor, MOTION_RIGHT, false);
+        EXPECT(editor.cursor == stops[i]);
+    }
+    editor_set_cursor(&editor, 22, false);
+    editor_backspace(&editor); // e and its accent go together
+    EXPECT(editor.cursor == 19 && editor.length == 35);
+    editor_free(&editor);
+}
+
 static void test_sublime_commands(void) {
     struct editor editor;
     editor_init(&editor);
@@ -477,6 +501,7 @@ int main(void) {
     test_wrap();
     test_sublime_commands();
     test_group_motion();
+    test_clusters();
     if (failures) {
         fprintf(stderr, "editor_test: %d failures\n", failures);
         return 1;

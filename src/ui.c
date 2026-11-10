@@ -1340,16 +1340,7 @@ static void highlight_line(struct highlight_state *state, const char *text, size
 
 _Static_assert(OVERLAY_TAB_WIDTH == EDITOR_TAB_WIDTH, "the overlay and the editor must agree on tabs");
 
-static size_t columns_between(size_t start, size_t end) {
-    size_t columns = 0;
-    for (size_t i = start; i < end;) {
-        size_t consumed;
-        int codepoint = unicode_decode((const unsigned char *)editor.text + i, end - i, &consumed);
-        columns += codepoint == '\t' ? EDITOR_TAB_WIDTH - columns % EDITOR_TAB_WIDTH : (size_t)unicode_columns(codepoint);
-        i += consumed;
-    }
-    return columns;
-}
+static size_t columns_between(size_t start, size_t end) { return editor_columns_between(&editor, start, end); }
 
 // A rectangle over the columns [from, to) of a screen row, clipped to the visible columns.
 static void column_rect(float y, size_t from, size_t to, uint32_t color) {
@@ -1361,12 +1352,7 @@ static void column_rect(float y, size_t from, size_t to, uint32_t color) {
     overlay_rect(x, y, (float)(to - from) * overlay_char_width(), overlay_line_height(), color);
 }
 
-static size_t text_columns(const char *text) {
-    size_t columns = 0, length = strlen(text), consumed;
-    for (size_t i = 0; i < length; i += consumed)
-        columns += (size_t)unicode_columns(unicode_decode((const unsigned char *)text + i, length - i, &consumed));
-    return columns;
-}
+static size_t text_columns(const char *text) { return overlay_text_columns(text, strlen(text)); }
 
 // The bar at the bottom; the columns [selected_from, selected_to) of the text get the selection color.
 static void draw_bar(int width, int height, const char *text, uint32_t color, size_t selected_from, size_t selected_to) {

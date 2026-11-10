@@ -426,42 +426,6 @@ static int decode_utf8(const unsigned char *text, size_t length, size_t *consume
     return codepoint == 0xFFFD ? FALLBACK_CODEPOINT : codepoint;
 }
 
-void overlay_text(float x, float y, const char *text, size_t length, size_t first_column, size_t max_columns,
-                  const uint32_t *colors, uint32_t color) {
-    size_t column = 0;
-    for (size_t offset = 0; offset < length && column < first_column + max_columns;) {
-        size_t consumed;
-        int codepoint = decode_utf8((const unsigned char *)text + offset, length - offset, &consumed);
-        int columns = codepoint == '\t' ? OVERLAY_TAB_WIDTH - (int)(column % OVERLAY_TAB_WIDTH) : overlay_columns(codepoint);
-        if (column >= first_column && codepoint > ' ') {
-            struct glyph *glyph = overlay_glyph(codepoint);
-            if (glyph) {
-                float pen_x = x + (float)(column - first_column) * char_width, pen_y = y + ascent;
-                // A color emoji that is wider than its columns shrinks to fit the grid.
-                float cell = (float)columns * char_width, glyph_width = glyph->x1 - glyph->x0;
-                float fit = glyph->color && glyph_width > cell ? cell / glyph_width : 1.0f;
-                push_quad(pen_x + glyph->x0 * fit, pen_y + glyph->y0 * fit, pen_x + glyph->x1 * fit, pen_y + glyph->y1 * fit,
-                          glyph->s0, glyph->t0, glyph->s1, glyph->t1, glyph_color(glyph, colors ? colors[offset] : color));
-            } else {
-                atlas_full = true;
-            }
-        }
-        offset += consumed;
-        column += (size_t)columns;
-    }
-}
-
-size_t overlay_text_columns(const char *text, size_t length) {
-    size_t columns = 0;
-    for (size_t offset = 0; offset < length;) {
-        size_t consumed;
-        int codepoint = decode_utf8((const unsigned char *)text + offset, length - offset, &consumed);
-        columns += codepoint == '\t' ? OVERLAY_TAB_WIDTH - columns % OVERLAY_TAB_WIDTH : (size_t)overlay_columns(codepoint);
-        offset += consumed;
-    }
-    return columns;
-}
-
 // ---------------------------------------------------------------- shaped text with bidi
 
 #define MAX_SHAPED 2048
@@ -490,7 +454,8 @@ struct shaped_glyph {
 };
 
 // Shapes `text` into glyphs in visual order and returns their count; `paragraph` is 1 for right-to-left text.
-static int shape(const char *text, size_t length, int paragraph, struct shaped_glyph *glyphs, int capacity) {
+// `forced` (or NULL) is the font for all of the text, as for an emoji sequence.
+static int shape_with(const char *text, size_t length, int paragraph, struct shaped_glyph *glyphs, int capacity, struct font *forced) {
     int codepoints[MAX_SHAPED], count = 0;
     for (size_t offset = 0; offset < length && count < MAX_SHAPED;) {
         size_t consumed;
@@ -504,10 +469,14 @@ static int shape(const char *text, size_t length, int paragraph, struct shaped_g
     int run_count = 0, glyph_count = 0;
     struct shaped_glyph logical[MAX_SHAPED];
     for (int i = 0; i < count;) {
-        struct font *font = font_for(codepoints[i]);
+        struct font *font = forced ? forced : font_for(codepoints[i]);
         if (!font) font = &fonts[0];
         int end = i + 1;
-        while (end < count && levels[end] == levels[i] && (font_for(codepoints[end]) == font || codepoints[end] == ' ')) end++;
+        // A run keeps its font for spaces and for the joiners, marks and modifiers of an emoji sequence.
+        while (end < count && levels[end] == levels[i] &&
+               (forced || font_for(codepoints[end]) == font || codepoints[end] == ' ' || unicode_break_class(codepoints[end]) == BREAK_EXTEND ||
+                codepoints[end] == 0x200D || (codepoints[end - 1] == 0x200D && color_emoji_font >= 0 && font == &fonts[color_emoji_font])))
+            end++;
         hb_buffer_t *buffer = hb_buffer_create();
         hb_buffer_add_codepoints(buffer, (const hb_codepoint_t *)codepoints, count, (unsigned)i, end - i);
         hb_buffer_set_direction(buffer, levels[i] % 2 ? HB_DIRECTION_RTL : HB_DIRECTION_LTR);
@@ -556,6 +525,10 @@ static int shape(const char *text, size_t length, int paragraph, struct shaped_g
     return out;
 }
 
+static int shape(const char *text, size_t length, int paragraph, struct shaped_glyph *glyphs, int capacity) {
+    return shape_with(text, length, paragraph, glyphs, capacity, NULL);
+}
+
 static struct shaped_glyph shaped_glyphs[MAX_SHAPED];
 
 float overlay_text_shaped_width(const char *text, size_t length, bool right_to_left) {
@@ -565,11 +538,11 @@ float overlay_text_shaped_width(const char *text, size_t length, bool right_to_l
     return width;
 }
 
-float overlay_text_shaped(float x, float y, const char *text, size_t length, bool right_to_left, uint32_t color) {
-    int count = shape(text, length, right_to_left, shaped_glyphs, MAX_SHAPED);
+// Draws shaped glyphs from the pen position; `scale` shrinks them (a cluster that is wider than its cells).
+static float draw_glyphs(float x, float y, const struct shaped_glyph *list, int count, uint32_t color, float scale) {
     float pen_x = x;
     for (int i = 0; i < count; i++) {
-        struct shaped_glyph *shaped = &shaped_glyphs[i];
+        const struct shaped_glyph *shaped = &list[i];
         int font_index = (int)(shaped->font - fonts);
         int key = -(font_index << 24 | (int)shaped->index) - 1; // shaped glyphs use negative keys
         unsigned hash = (unsigned)key * 2654435761u;
@@ -580,15 +553,77 @@ float overlay_text_shaped(float x, float y, const char *text, size_t length, boo
             else if (slot->codepoint == 0) glyph = render_font_glyph(slot, key, shaped->font, (int)shaped->index, 1);
         }
         if (glyph) {
-            float gx = pen_x + shaped->x_offset, gy = y + ascent - shaped->y_offset;
-            push_quad(gx + glyph->x0, gy + glyph->y0, gx + glyph->x1, gy + glyph->y1, glyph->s0, glyph->t0, glyph->s1,
-                      glyph->t1, glyph_color(glyph, color));
+            float gx = pen_x + shaped->x_offset * scale, gy = y + ascent - shaped->y_offset * scale;
+            push_quad(gx + glyph->x0 * scale, gy + glyph->y0 * scale, gx + glyph->x1 * scale, gy + glyph->y1 * scale, glyph->s0,
+                      glyph->t0, glyph->s1, glyph->t1, glyph_color(glyph, color));
         } else {
             atlas_full = true;
         }
-        pen_x += shaped->advance;
+        pen_x += shaped->advance * scale;
     }
     return pen_x - x;
+}
+
+float overlay_text_shaped(float x, float y, const char *text, size_t length, bool right_to_left, uint32_t color) {
+    int count = shape(text, length, right_to_left, shaped_glyphs, MAX_SHAPED);
+    return draw_glyphs(x, y, shaped_glyphs, count, color, 1);
+}
+
+#define MAX_CLUSTER_GLYPHS 32
+
+// A grapheme cluster of several code points (ZWJ sequence, flag, keycap, letter with marks) shaped as one,
+// shrunk to its cells when it is wider.
+static void draw_cluster(float x, float y, const char *text, size_t length, int columns, uint32_t color) {
+    struct shaped_glyph cluster[MAX_CLUSTER_GLYPHS];
+    // A cluster in emoji presentation (two columns) takes the color emoji font, also for keycaps such as 1 U+20E3.
+    size_t size;
+    int first = unicode_decode((const unsigned char *)text, length, &size);
+    bool emoji = columns == 2 && (!unicode_is_wide(first) || UNICODE_LOOKUP(extended_pictographic_ranges, first));
+    struct font *forced = emoji && color_emoji_font >= 0 ? &fonts[color_emoji_font] : NULL;
+    int count = shape_with(text, length, 0, cluster, MAX_CLUSTER_GLYPHS, forced);
+    float width = 0, cell = (float)columns * char_width;
+    for (int i = 0; i < count; i++) width += cluster[i].advance;
+    draw_glyphs(x, y, cluster, count, color, width > cell && width > 0 ? cell / width : 1);
+}
+
+void overlay_text(float x, float y, const char *text, size_t length, size_t first_column, size_t max_columns,
+                  const uint32_t *colors, uint32_t color) {
+    size_t column = 0;
+    for (size_t offset = 0; offset < length && column < first_column + max_columns;) {
+        size_t consumed, end = unicode_cluster_end((const unsigned char *)text, length, offset);
+        int codepoint = decode_utf8((const unsigned char *)text + offset, length - offset, &consumed);
+        int columns = codepoint == '\t' ? OVERLAY_TAB_WIDTH - (int)(column % OVERLAY_TAB_WIDTH)
+                                         : unicode_cluster_columns((const unsigned char *)text, offset, end);
+        if (column >= first_column && end > offset + consumed) {
+            draw_cluster(x + (float)(column - first_column) * char_width, y, text + offset, end - offset, columns,
+                         colors ? colors[offset] : color);
+        } else if (column >= first_column && codepoint > ' ') {
+            struct glyph *glyph = overlay_glyph(codepoint);
+            if (glyph) {
+                float pen_x = x + (float)(column - first_column) * char_width, pen_y = y + ascent;
+                // A color emoji that is wider than its columns shrinks to fit the grid.
+                float cell = (float)columns * char_width, glyph_width = glyph->x1 - glyph->x0;
+                float fit = glyph->color && glyph_width > cell ? cell / glyph_width : 1.0f;
+                push_quad(pen_x + glyph->x0 * fit, pen_y + glyph->y0 * fit, pen_x + glyph->x1 * fit, pen_y + glyph->y1 * fit,
+                          glyph->s0, glyph->t0, glyph->s1, glyph->t1, glyph_color(glyph, colors ? colors[offset] : color));
+            } else {
+                atlas_full = true;
+            }
+        }
+        offset = end;
+        column += (size_t)columns;
+    }
+}
+
+size_t overlay_text_columns(const char *text, size_t length) {
+    size_t columns = 0;
+    for (size_t offset = 0; offset < length;) {
+        size_t end = unicode_cluster_end((const unsigned char *)text, length, offset);
+        columns += text[offset] == '\t' ? OVERLAY_TAB_WIDTH - columns % OVERLAY_TAB_WIDTH
+                                         : (size_t)unicode_cluster_columns((const unsigned char *)text, offset, end);
+        offset = end;
+    }
+    return columns;
 }
 
 void overlay_end(int width, int height) {

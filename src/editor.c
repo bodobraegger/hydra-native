@@ -36,6 +36,28 @@ static size_t previous_char(const struct editor *editor, size_t offset) {
     return offset;
 }
 
+static bool is_extending_at(const struct editor *editor, size_t offset) {
+    size_t size;
+    return unicode_is_codemirror_extending(unicode_decode((const unsigned char *)editor->text + offset, editor->length - offset, &size));
+}
+
+// moveCharLogically of CodeMirror 5 (arrow keys, Backspace and Delete): one code point, then over the extending
+// characters after it, within the line.
+static size_t cursor_step(const struct editor *editor, size_t offset, int direction) {
+    size_t line = editor_line_of(editor, offset);
+    size_t start = editor_line_start(editor, line), end = editor_line_end(editor, line);
+    if (direction < 0) {
+        if (offset == 0) return 0;
+        offset = previous_char(editor, offset);
+        while (offset > start && is_extending_at(editor, offset)) offset = previous_char(editor, offset);
+    } else {
+        if (offset >= editor->length) return editor->length;
+        offset = next_char(editor, offset);
+        while (offset < end && is_extending_at(editor, offset)) offset = next_char(editor, offset);
+    }
+    return offset;
+}
+
 enum char_class { CLASS_SPACE, CLASS_WORD, CLASS_PUNCTUATION };
 
 static enum char_class class_of(unsigned char byte) {
@@ -165,35 +187,42 @@ size_t editor_line_end(const struct editor *editor, size_t line) {
     return line + 1 < editor->line_count ? editor->line_starts[line + 1] - 1 : editor->length;
 }
 
-// Columns of the character at `offset` when it starts at `column`: a tab reaches the next multiple of
-// EDITOR_TAB_WIDTH, a wide East Asian character takes two.
-static size_t char_columns(const struct editor *editor, size_t offset, size_t column) {
-    unsigned char c = (unsigned char)editor->text[offset];
-    if (c == '\t') return EDITOR_TAB_WIDTH - column % EDITOR_TAB_WIDTH;
-    if (c < 0xE0) return 1;
-    size_t consumed;
-    return (size_t)unicode_columns(unicode_decode((const unsigned char *)editor->text + offset, editor->length - offset, &consumed));
+size_t editor_cluster_end(const struct editor *editor, size_t offset) {
+    return unicode_cluster_end((const unsigned char *)editor->text, editor_line_end(editor, editor_line_of(editor, offset)), offset);
 }
 
-static size_t columns_between(const struct editor *editor, size_t start, size_t end) {
+// Columns of the grapheme cluster [offset, end) when it starts at `column`: a tab reaches the next multiple of
+// EDITOR_TAB_WIDTH, a wide character or an emoji takes two.
+static size_t cluster_columns(const struct editor *editor, size_t offset, size_t end, size_t column) {
+    if (editor->text[offset] == '\t') return EDITOR_TAB_WIDTH - column % EDITOR_TAB_WIDTH;
+    return (size_t)unicode_cluster_columns((const unsigned char *)editor->text, offset, end);
+}
+
+// A cluster that `end` cuts counts whole: the cursor of CodeMirror 5 can stop inside a ZWJ sequence, and the
+// grid then shows it after the cluster.
+size_t editor_columns_between(const struct editor *editor, size_t start, size_t end) {
     size_t columns = 0;
-    for (size_t i = start; i < end; i++)
-        if (!is_continuation((unsigned char)editor->text[i])) columns += char_columns(editor, i, columns);
+    for (size_t i = start; i < end;) {
+        size_t cluster_end = editor_cluster_end(editor, i);
+        columns += cluster_columns(editor, i, cluster_end, columns);
+        i = cluster_end;
+    }
     return columns;
 }
 
 size_t editor_column_of(const struct editor *editor, size_t offset) {
-    return columns_between(editor, editor_line_start(editor, editor_line_of(editor, offset)), offset);
+    return editor_columns_between(editor, editor_line_start(editor, editor_line_of(editor, offset)), offset);
 }
 
 // The offset `columns` columns after `offset` (not after `end`); a tab that does not fit stays after it.
 static size_t advance_columns(const struct editor *editor, size_t offset, size_t end, size_t columns) {
     size_t column = 0;
     while (offset < end) {
-        size_t width = char_columns(editor, offset, column);
+        size_t cluster_end = editor_cluster_end(editor, offset);
+        size_t width = cluster_columns(editor, offset, cluster_end, column);
         if (column + width > columns) break;
         column += width;
-        offset = next_char(editor, offset);
+        offset = cluster_end;
     }
     return offset;
 }
@@ -400,7 +429,7 @@ size_t editor_row_indent(const struct editor *editor, size_t line) {
     size_t length;
     const char *text = line_text(editor, line, &length);
     size_t start = editor_line_start(editor, line);
-    size_t indent = columns_between(editor, start, start + leading_whitespace(text, length)) + EDITOR_HANGING_INDENT;
+    size_t indent = editor_columns_between(editor, start, start + leading_whitespace(text, length)) + EDITOR_HANGING_INDENT;
     return editor->wrap_columns && indent > editor->wrap_columns / 2 ? editor->wrap_columns / 2 : indent;
 }
 
@@ -440,7 +469,7 @@ void editor_visual_position(const struct editor *editor, size_t offset, size_t *
     size_t current = 0;
     while (current + 1 < rows && starts[current + 1] <= offset) current++;
     *row = current;
-    *x = columns_between(editor, starts[current], offset) + (current > 0 ? editor_row_indent(editor, line) : 0);
+    *x = editor_columns_between(editor, starts[current], offset) + (current > 0 ? editor_row_indent(editor, line) : 0);
 }
 
 size_t editor_offset_at_visual(const struct editor *editor, size_t line, size_t row, size_t x) {
@@ -570,9 +599,9 @@ static size_t group_position(const struct editor *editor, size_t offset, int dir
     // Moves one character; across a line end only on the first move.
     #define MOVE_ONCE(bound_to_line) \
         (direction < 0 ? (position > 0 && (!(bound_to_line) || editor->text[position - 1] != '\n') \
-                              ? (position = previous_char(editor, position), true) : false) \
+                              ? (position = cursor_step(editor, position, -1), true) : false) \
                        : (position < editor->length && (!(bound_to_line) || editor->text[position] != '\n') \
-                              ? (position = next_char(editor, position), true) : false))
+                              ? (position = cursor_step(editor, position, 1), true) : false))
     for (bool first = true;; first = false) {
         if (direction < 0 && !MOVE_ONCE(!first)) break;
         char type;
@@ -643,8 +672,8 @@ static void move_one(struct editor *editor, void *data) {
     size_t line = editor_line_of(editor, offset);
     bool collapse = editor_has_selection(editor) && !arguments->extend;
     switch (arguments->motion) {
-    case MOTION_LEFT: offset = collapse ? start : previous_char(editor, offset); break;
-    case MOTION_RIGHT: offset = collapse ? end : next_char(editor, offset); break;
+    case MOTION_LEFT: offset = collapse ? start : cursor_step(editor, offset, -1); break;
+    case MOTION_RIGHT: offset = collapse ? end : cursor_step(editor, offset, 1); break;
     case MOTION_UP: vertical(editor, -arguments->rows, arguments->extend); return;
     case MOTION_DOWN: vertical(editor, arguments->rows, arguments->extend); return;
     case MOTION_LINE_START: {
@@ -924,7 +953,7 @@ static void backspace_one(struct editor *editor, void *data) {
         editor->cursor = editor->anchor = from;
         return;
     }
-    size_t start = previous_char(editor, editor->cursor);
+    size_t start = cursor_step(editor, editor->cursor, -1);
     char previous = editor->text[start], next = char_at(editor, editor->cursor);
     // An empty pair of brackets or quotes goes away as a whole.
     size_t end = previous && (strchr(OPENING_BRACKETS, previous) || strchr(QUOTES, previous)) &&
@@ -942,7 +971,7 @@ void editor_backspace(struct editor *editor) {
 
 static void delete_forward_one(struct editor *editor, void *data) {
     if (editor_has_selection(editor)) return replace_selection(editor, "", 0);
-    replace(editor, editor->cursor, next_char(editor, editor->cursor), "", 0);
+    replace(editor, editor->cursor, cursor_step(editor, editor->cursor, 1), "", 0);
 }
 
 void editor_delete_forward(struct editor *editor) {

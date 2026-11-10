@@ -77,5 +77,9 @@ the system.
 
 ## Algorithms from specifications
 
+- src/unicode_tables.h comes from the Unicode Character Database 16.0.0 (GraphemeBreakProperty.txt,
+  emoji-data.txt, EastAsianWidth.txt; Unicode License v3) and the extendingChars class of CodeMirror 5.65.9 (MIT),
+  through tools/unicode_tables.py. src/unicode.h follows the grapheme cluster rules of UAX #29.
+
 - src/svg_filter.c ports the feTurbulence reference code and uses the box blur sizes of the Filter Effects
   Module Level 1 specification of the W3C (https://www.w3.org/TR/filter-effects-1/).
