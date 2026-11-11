@@ -9,6 +9,7 @@
 #include "process.h"
 
 #define MAX_VIDEO_SOURCES 16
+#define MAX_VIDEO_DIMENSION 16384 // a sketch gives the size; larger frames are no video and overflow no size
 #define CAMERA_FPS 30
 
 // A source reads frames from a stream in a thread of its own (the output of a process, or a stream of the patch
@@ -51,28 +52,53 @@ static int free_handle(void) {
     return handle == MAX_VIDEO_SOURCES ? -1 : handle;
 }
 
+static bool valid_size(int width, int height) {
+    return width > 0 && height > 0 && width <= MAX_VIDEO_DIMENSION && height <= MAX_VIDEO_DIMENSION;
+}
+
+static void free_source(struct video_source *source) {
+    if (source->camera) SDL_CloseCamera(source->camera);
+    if (source->stream >= 0) stream_close(source->stream);
+    process_free(source->process);
+    SDL_DestroyMutex(source->lock);
+    free(source->front);
+    free(source->back);
+    free(source);
+}
+
 // A source for frames of width x height from `stream` or `camera`; the source owns the stream, the process and
-// the camera.
+// the camera, also when it cannot start (-1). The frame is black until the first one arrives.
 static int add_source(int handle, struct process *process, int stream, SDL_Camera *camera, int width, int height) {
     struct video_source *source = calloc(1, sizeof *source);
+    if (!source) {
+        if (camera) SDL_CloseCamera(camera);
+        if (stream >= 0) stream_close(stream);
+        process_free(process);
+        return -1;
+    }
     source->process = process;
     source->stream = stream;
     source->camera = camera;
     source->width = width;
     source->height = height;
     source->frame_size = (size_t)width * (size_t)height * 4;
-    source->front = malloc(source->frame_size);
-    source->back = malloc(source->frame_size);
-    SDL_SetAtomicInt(&source->running, 1);
+    source->front = calloc(1, source->frame_size);
+    source->back = calloc(1, source->frame_size);
     source->lock = SDL_CreateMutex();
-    if (!camera) source->thread = SDL_CreateThread(read_frames, "video", source);
+    SDL_SetAtomicInt(&source->running, 1);
+    bool ready = source->front && source->back && source->lock;
+    if (ready && !camera) ready = (source->thread = SDL_CreateThread(read_frames, "video", source)) != NULL;
+    if (!ready) {
+        free_source(source);
+        return -1;
+    }
     sources[handle] = source;
     return handle;
 }
 
 int video_open(const char *command, int width, int height) {
     int handle = free_handle();
-    if (handle < 0 || width <= 0 || height <= 0) return -1;
+    if (handle < 0 || !valid_size(width, height)) return -1;
     // The shell runs in a group of its own, so video_close stops the whole pipeline (helper plus gst or ffmpeg).
     int output;
     struct process *process = process_start_shell(command, NULL, &output);
@@ -82,7 +108,7 @@ int video_open(const char *command, int width, int height) {
 
 int video_open_stream(int stream, int width, int height) {
     int handle = free_handle();
-    if (handle < 0 || width <= 0 || height <= 0) {
+    if (handle < 0 || !valid_size(width, height)) {
         stream_close(stream);
         return -1;
     }
@@ -153,7 +179,7 @@ int video_camera_names(const char **names, int capacity) {
 // SDL converts and scales the frames of the camera to RGBA of width x height in its own camera thread.
 int video_open_camera(int index, int width, int height) {
     int handle = free_handle();
-    if (handle < 0 || width <= 0 || height <= 0 || !start_cameras()) return -1;
+    if (handle < 0 || !valid_size(width, height) || !start_cameras()) return -1;
     int count = 0;
     SDL_CameraID *cameras = SDL_GetCameras(&count);
     SDL_CameraID camera_id = cameras && index >= 0 && index < count ? cameras[index] : 0;
@@ -188,7 +214,8 @@ static void take_camera_frame(struct video_source *source) {
     int rows = newest->h < source->height ? newest->h : source->height;
     if (newest->format == SDL_PIXELFORMAT_RGBA32 && newest->w == source->width) {
         for (int y = 0; y < rows; y++)
-            memcpy(source->front + row * (size_t)y, (const uint8_t *)newest->pixels + (size_t)newest->pitch * (size_t)y, row);
+            memcpy(source->front + row * (size_t)y, (const uint8_t *)newest->pixels + (size_t)newest->pitch * (size_t)y,
+                   row);
         source->fresh = true;
     }
     SDL_ReleaseCameraFrame(source->camera, newest);
@@ -207,7 +234,8 @@ bool video_upload(int handle, GLuint texture) {
     bool fresh = source->fresh;
     if (fresh) {
         glBindTexture(GL_TEXTURE_2D, texture);
-        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, source->width, source->height, GL_RGBA, GL_UNSIGNED_BYTE, source->front);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, source->width, source->height, GL_RGBA, GL_UNSIGNED_BYTE,
+                        source->front);
         source->fresh = false;
     }
     SDL_UnlockMutex(source->lock);
@@ -244,6 +272,7 @@ void video_close(int handle) {
     // The reader thread ends at the end of the stream: the processes of the group end, or the socket shuts down.
     if (source->camera) {
         SDL_CloseCamera(source->camera);
+        source->camera = NULL;
     } else if (source->process) {
         // Not only SIGTERM: this runs on the main thread, which must not wait for a child that does not end.
         process_stop(source->process);
@@ -252,12 +281,7 @@ void video_close(int handle) {
         stream_shutdown(source->stream);
     }
     if (source->thread) SDL_WaitThread(source->thread, NULL);
-    if (source->stream >= 0) stream_close(source->stream);
-    process_free(source->process);
-    SDL_DestroyMutex(source->lock);
-    free(source->front);
-    free(source->back);
-    free(source);
+    free_source(source);
     sources[handle] = NULL;
 }
 
