@@ -181,11 +181,11 @@ static bool load_font(struct font *font, const char *path, int index) {
     FILE *file = fopen(path, "rb");
     if (!file) return false;
     fseek(file, 0, SEEK_END);
-    long size = ftell(file);
+    long size = ftell(file); // negative for a directory or a pipe
     fseek(file, 0, SEEK_SET);
-    font->data = malloc((size_t)size);
-    font->size = (size_t)size;
-    bool read = fread(font->data, 1, (size_t)size, file) == (size_t)size;
+    font->data = size > 0 ? malloc((size_t)size) : NULL;
+    font->size = font->data ? (size_t)size : 0;
+    bool read = font->data && fread(font->data, 1, font->size, file) == font->size;
     fclose(file);
     snprintf(font->path, sizeof font->path, "%s", path);
     font->index = index;
@@ -214,8 +214,24 @@ static unsigned glyph_index(struct font *font, int codepoint) {
     return hb_font_get_nominal_glyph(shaper(font), (hb_codepoint_t)codepoint, &glyph) ? glyph : 0;
 }
 
-// Asks fontconfig for a font with the code point and adds it to the fallback fonts.
+// Code points that no font has, so that fontconfig is asked once and not in each frame; the oldest one goes first.
+#define MAX_MISSING_CODEPOINTS 64
+static int missing_codepoints[MAX_MISSING_CODEPOINTS];
+static unsigned missing_codepoint_count;
+
+static struct font *find_fallback_font(int codepoint);
+
+// A font with the code point from fontconfig, or NULL.
 static struct font *fallback_font(int codepoint) {
+    for (unsigned i = 0; i < MAX_MISSING_CODEPOINTS; i++)
+        if (missing_codepoints[i] == codepoint) return NULL;
+    struct font *font = find_fallback_font(codepoint);
+    if (!font) missing_codepoints[missing_codepoint_count++ % MAX_MISSING_CODEPOINTS] = codepoint;
+    return font;
+}
+
+// Asks fontconfig for a font with the code point and adds it to the fallback fonts.
+static struct font *find_fallback_font(int codepoint) {
     if (font_count == MAX_FONTS) return NULL;
     char command[128], answer[MAX_FONT_PATH + 16] = "";
     snprintf(command, sizeof command, "fc-match -f '%%{file}|%%{index}' ':charset=%x'", codepoint);
@@ -391,7 +407,12 @@ bool overlay_set_font_size(float font_size) {
 
 bool overlay_set_font(const char *font_path) {
     struct font font = { 0 };
-    if (!load_font(&font, font_path, 0) || font.color) return false;
+    if (!load_font(&font, font_path, 0)) return false;
+    if (font.color) { // glyphs as pictures only: no code font
+        hb_font_destroy(font.shaper);
+        free(font.data);
+        return false;
+    }
     free(fonts[0].data);
     if (fonts[0].shaper) hb_font_destroy(fonts[0].shaper);
     fonts[0] = font;
