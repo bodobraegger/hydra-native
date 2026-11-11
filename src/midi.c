@@ -9,7 +9,9 @@
 
 #include "midi.h"
 
-#define MAX_MESSAGE_BYTES 64
+#define MAX_EVENT_BYTES 64 // of a channel message, and of each part of a system exclusive message that goes out
+#define SYSEX_START 0xF0
+#define SYSEX_END 0xF7
 #define SYSTEM_CLIENT 0
 
 static snd_seq_t *sequencer;
@@ -17,6 +19,10 @@ static int own_client, own_port, own_output_port, queue;
 static snd_midi_event_t *decoder;
 static snd_midi_event_t *encoder;
 static bool inputs_changed;
+// The sequencer gives a system exclusive message in parts; they collect here until the part that ends with F7.
+static unsigned char sysex[MIDI_MAX_MESSAGE_BYTES];
+static size_t sysex_length;
+static bool sysex_too_long;
 
 static bool has_capabilities(snd_seq_port_info_t *port, unsigned wanted) {
     unsigned capability = snd_seq_port_info_get_capability(port);
@@ -73,10 +79,10 @@ bool midi_start(void) {
     snd_seq_set_port_info(sequencer, own_port, port_info);
     snd_seq_start_queue(sequencer, queue, NULL);
     snd_seq_drain_output(sequencer);
-    snd_midi_event_new(MAX_MESSAGE_BYTES, &encoder);
+    snd_midi_event_new(MAX_EVENT_BYTES, &encoder);
     // The announce port reports new ports, so that devices plugged in later connect too.
     snd_seq_connect_from(sequencer, own_port, SND_SEQ_CLIENT_SYSTEM, SND_SEQ_PORT_SYSTEM_ANNOUNCE);
-    snd_midi_event_new(MAX_MESSAGE_BYTES, &decoder);
+    snd_midi_event_new(MAX_EVENT_BYTES, &decoder);
     snd_midi_event_no_status(decoder, 1);
     connect_all();
     return true;
@@ -143,6 +149,26 @@ static double queue_offset_ms(double now) {
     return now - real_time_ms(snd_seq_queue_status_get_real_time(status));
 }
 
+// Adds a part to `sysex`; true when the message is complete and fits.
+static bool collect_sysex(const unsigned char *part, size_t length) {
+    if (length && part[0] == SYSEX_START) {
+        sysex_length = 0;
+        sysex_too_long = false;
+    }
+    if (sysex_length + length > sizeof sysex) sysex_too_long = true;
+    else {
+        memcpy(sysex + sysex_length, part, length);
+        sysex_length += length;
+    }
+    if (!length || part[length - 1] != SYSEX_END) return false;
+    if (sysex_too_long) {
+        static bool reported;
+        if (!reported) fprintf(stderr, "midi: dropped a message of more than %d bytes\n", MIDI_MAX_MESSAGE_BYTES);
+        reported = true;
+    }
+    return !sysex_too_long;
+}
+
 int midi_poll(double now, void (*message)(int client, int port, double time, const unsigned char *bytes, int length)) {
     if (!sequencer) return 0;
     int count = 0;
@@ -157,8 +183,16 @@ int midi_poll(double now, void (*message)(int client, int port, double time, con
             inputs_changed = true;
             continue;
         }
-        unsigned char bytes[MAX_MESSAGE_BYTES];
-        long length = snd_midi_event_decode(decoder, bytes, sizeof bytes, event);
+        unsigned char channel_message[MAX_EVENT_BYTES];
+        const unsigned char *bytes = channel_message;
+        long length;
+        if (event->type == SND_SEQ_EVENT_SYSEX) {
+            if (!collect_sysex(event->data.ext.ptr, event->data.ext.len)) continue;
+            bytes = sysex;
+            length = (long)sysex_length;
+        } else {
+            length = snd_midi_event_decode(decoder, channel_message, sizeof channel_message, event);
+        }
         if (length > 0) {
             bool stamped = (event->flags & SND_SEQ_TIME_STAMP_MASK) == SND_SEQ_TIME_STAMP_REAL;
             double time = stamped ? offset + real_time_ms(&event->time.time) : now;

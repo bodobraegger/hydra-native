@@ -485,15 +485,17 @@ static JSValue js_midi_send(JSContext *ctx, JSValueConst this, int argc, JSValue
     int32_t length = 0;
     JS_ToInt32(ctx, &length, length_value);
     JS_FreeValue(ctx, length_value);
-    unsigned char bytes[1024];
-    if (length < 0 || length > (int32_t)sizeof bytes) return JS_ThrowRangeError(ctx, "MIDI data too long");
+    if (length < 0 || length > MIDI_MAX_MESSAGE_BYTES) return JS_ThrowRangeError(ctx, "MIDI data too long");
+    unsigned char *bytes = malloc((size_t)length + 1);
+    if (!bytes) return JS_ThrowOutOfMemory(ctx);
     for (int32_t i = 0; i < length; i++) {
         JSValue item = JS_GetPropertyUint32(ctx, argv[1], (uint32_t)i);
         bytes[i] = (unsigned char)to_int(ctx, item);
         JS_FreeValue(ctx, item);
     }
-    if (client < 0 || !midi_send(client, port, bytes, length)) return JS_ThrowInternalError(ctx, "cannot send MIDI");
-    return JS_UNDEFINED;
+    bool sent = client >= 0 && midi_send(client, port, bytes, length);
+    free(bytes);
+    return sent ? JS_UNDEFINED : JS_ThrowInternalError(ctx, "cannot send MIDI");
 }
 
 static JSValue midi_messages;

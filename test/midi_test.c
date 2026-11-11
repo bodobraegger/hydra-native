@@ -6,6 +6,7 @@
 #include <alsa/asoundlib.h>
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -21,6 +22,7 @@
 #define NANOSECONDS_PER_SECOND 1000000000L
 #define MAX_PORTS 64
 #define OUTPUT_TIMEOUT_MS 1000
+#define SYSEX_BYTES 300 // more than one event of the sequencer holds
 
 static snd_seq_t *sender;
 static int sender_port;
@@ -63,7 +65,12 @@ static bool find_port(int (*list)(struct midi_port *ports, int capacity), const 
     return false;
 }
 
+static int received_sysex_bytes;
+
 static void receive(int client, int port, double time, const unsigned char *bytes, int length) {
+    if (client == input.client && port == input.port && length == SYSEX_BYTES && bytes[0] == 0xF0 &&
+        bytes[length - 1] == 0xF7)
+        received_sysex_bytes = length;
     if (client != input.client || port != input.port || length != 1 || bytes[0] != MIDI_CLOCK) return;
     if (received == CLOCKS) return;
     poll_times[received] = poll_time;
@@ -111,6 +118,39 @@ static bool check_output(void) {
     return received_notes == 2;
 }
 
+// A system exclusive message of SYSEX_BYTES, in both directions: the sequencer carries it in parts, src/midi.h
+// gives and takes it as one message.
+static bool check_sysex(void) {
+    unsigned char message[SYSEX_BYTES];
+    memset(message, 0x11, sizeof message);
+    message[0] = 0xF0;
+    message[SYSEX_BYTES - 1] = 0xF7;
+    snd_seq_nonblock(sender, 1);
+    if (!midi_send(output.client, output.port, message, sizeof message)) return false;
+    int sent_bytes = 0;
+    double deadline = monotonic_ms() + OUTPUT_TIMEOUT_MS;
+    snd_seq_event_t *event;
+    while (sent_bytes < SYSEX_BYTES && monotonic_ms() < deadline)
+        if (snd_seq_event_input(sender, &event) >= 0 && event && event->type == SND_SEQ_EVENT_SYSEX)
+            sent_bytes += (int)event->data.ext.len;
+
+    snd_seq_event_t outgoing;
+    snd_seq_ev_clear(&outgoing);
+    snd_seq_ev_set_source(&outgoing, sender_port);
+    snd_seq_ev_set_subs(&outgoing);
+    snd_seq_ev_set_direct(&outgoing);
+    snd_seq_ev_set_sysex(&outgoing, sizeof message, message);
+    snd_seq_event_output_direct(sender, &outgoing);
+    while (!received_sysex_bytes && monotonic_ms() < deadline + OUTPUT_TIMEOUT_MS) {
+        struct timespec wait = { 0, 1000000L };
+        nanosleep(&wait, NULL);
+        midi_poll(monotonic_ms(), receive);
+    }
+    printf("midi test: system exclusive, %d of %d bytes sent, %d received\n", sent_bytes, SYSEX_BYTES,
+           received_sysex_bytes);
+    return sent_bytes == SYSEX_BYTES && received_sysex_bytes == SYSEX_BYTES;
+}
+
 int main(void) {
     if (access("/dev/snd/seq", R_OK | W_OK) != 0) {
         printf("midi test: skipped, no ALSA sequencer\n");
@@ -150,7 +190,7 @@ int main(void) {
     bool ordered = latest_lag >= 0 && latest_lag <= POLL_INTERVAL_MS * 2;
     printf("midi test: largest error %.3f BPM (limit %.1f), largest lag of a poll %.1f ms\n", error,
            MAX_TEMPO_ERROR_BPM, latest_lag);
-    bool sent = check_output();
+    bool sent = check_output() && check_sysex();
     snd_seq_close(sender);
     if (error > MAX_TEMPO_ERROR_BPM || !ordered || !sent) {
         printf("midi test: FAIL\n");

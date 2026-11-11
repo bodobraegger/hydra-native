@@ -4,6 +4,10 @@
 
 #include <stdbool.h>
 
+// The longest message that midi_send() takes and midi_poll() gives: a system exclusive message with its F0 and F7.
+// A longer one that arrives is dropped, with one line on stderr.
+#define MIDI_MAX_MESSAGE_BYTES 65536
+
 // `client` and `port` identify a port for midi_send() and midi_poll().
 struct midi_port {
     int client;
