@@ -3,6 +3,9 @@
 // Every draw is one full-screen triangle with the attribute `position` at location 0 (see src/main.c).
 
 const WRAP_CODES = { clamp: 0, repeat: 1, mirror: 2 }
+// hydra-synth replaces the texture of a source at each init call and never destroys the old one, so the GL
+// texture goes when its object is garbage.
+const unusedTextures = new FinalizationRegistry((id) => native.deleteTexture(id))
 
 class Prop {
   constructor (name) { this.name = name }
@@ -19,6 +22,7 @@ class Texture {
     this.height = height
     this.id = native.createTexture(width, height, mag === 'linear', min === 'linear',
       WRAP_CODES[wrapS] ?? 0, WRAP_CODES[wrapT] ?? 0)
+    unusedTextures.register(this, this.id, this.registration = {})
     if (data) this.subimage(data)
   }
 
@@ -37,7 +41,10 @@ class Texture {
     return this
   }
 
-  destroy () { native.deleteTexture(this.id) }
+  destroy () {
+    unusedTextures.unregister(this.registration)
+    native.deleteTexture(this.id)
+  }
 }
 
 class Framebuffer {

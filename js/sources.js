@@ -30,8 +30,11 @@ export function nativeVideo (handle, width, height) {
 export function installSources (sourcePrototype) {
   const clear = sourcePrototype.clear
 
+  // hydra-synth only replaces the texture; each init call would leave a texture of the capture size until the next
+  // garbage collection (js/regl-shim.js).
   sourcePrototype.clear = function () {
     if (this.src && this.src.close) this.src.close()
+    this.tex.destroy()
     clear.call(this)
   }
 
@@ -40,6 +43,7 @@ export function installSources (sourcePrototype) {
   function initHandle (source, { width = DEFAULT_WIDTH, height = DEFAULT_HEIGHT, ...params } = {}, open) {
     source.clear()
     source.src = nativeVideo(open(width, height), width, height)
+    source.tex.destroy()
     source.tex = source.regl.texture({ width, height, ...params })
     source.dynamic = true
     return source

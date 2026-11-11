@@ -24,14 +24,16 @@ const FILL = 1
 const STROKE = 2
 const FILL_AFTER = 4
 const WHITE = [1, 1, 1, 1]
+const MIN_RESIZE = 0.1 // of canvasResize, so that the texture keeps a size that the GPU can hold
+const MAX_RESIZE = 8
 
 const isPercentage = (value) => String(value).endsWith('%')
 const percentage = (value) => parseFloat(value) / 100
-const packColor = (value) => (parseColor(value) || WHITE).reduce((packed, channel) => packed * 256 + Math.round(channel * 255), 0)
+const packColor = (value) => (parseColor(value) || WHITE)
+  .reduce((packed, channel) => packed * 256 + Math.round(Math.min(Math.max(channel, 0), 1) * 255), 0)
 
 export function installText (hydra) {
   const Source = hydra.s[0].constructor
-  const textures = new FinalizationRegistry((id) => native.deleteTexture(id))
   window.hydraText = { ...DEFAULTS }
 
   // The source masked to its own aspect ratio, so that the text keeps its proportions in the output.
@@ -51,13 +53,14 @@ export function installText (hydra) {
     const longestLine = lines.reduce((a, b) => a.length > b.length ? a : b)
     const bold = /bold/.test(config.fontStyle)
     const italic = /italic|oblique/.test(config.fontStyle)
-    const scale = Number(config.canvasResize) || 1
+    const scale = Math.min(Math.max(Number(config.canvasResize) || 1, MIN_RESIZE), MAX_RESIZE)
     const padding = hydra.width * PADDING_PART
     let fontSize = (hydra.width - padding) / (native.textWidth(config.font, bold, italic, longestLine) || 1)
     const height = Math.ceil(fontSize * LINE_HEIGHT * lines.length * scale)
     if (isPercentage(config.fontSize)) fontSize *= percentage(config.fontSize)
     else if (config.fontSize !== 'auto') fontSize = parseFloat(String(config.fontSize).replace(/[^0-9.,]+/, ''))
-    const lineWidth = isPercentage(config.lineWidth) ? fontSize * percentage(config.lineWidth) : parseFloat(config.lineWidth)
+    const lineWidth = isPercentage(config.lineWidth) ? fontSize * percentage(config.lineWidth)
+      : parseFloat(config.lineWidth)
     const width = Math.ceil(hydra.width * scale)
     const align = ALIGNMENTS[config.textAlign] ?? ALIGNMENTS.center
     const x = [padding * scale / 2, width / 2, width - padding * scale / 2][align]
@@ -65,9 +68,8 @@ export function installText (hydra) {
     const source = new Source({ regl: hydra.regl, pb: hydra.pb, width: hydra.width, height: hydra.height })
     source.src = { width, height }
     source.tex = hydra.regl.texture({ width, height, min: config.interpolation, mag: config.interpolation })
-    textures.register(source, source.tex.id)
-    native.textTexture(source.tex.id, lines.join('\n'), config.font, bold, italic, width, height, fontSize * scale, x, align,
-      packColor(config.fillStyle), packColor(config.strokeStyle), lineWidth * scale, passes)
+    native.textTexture(source.tex.id, lines.join('\n'), String(config.font), bold, italic, width, height,
+      fontSize * scale, x, align, packColor(config.fillStyle), packColor(config.strokeStyle), lineWidth * scale, passes)
     return srcRelMask(source)
   }
 
@@ -76,7 +78,9 @@ export function installText (hydra) {
   const builtIn = (name, value) => Object.defineProperty(window, name, {
     configurable: true,
     get: () => value,
-    set: (other) => { if (typeof other !== 'function') Object.defineProperty(window, name, { value: other, writable: true }) }
+    set: (other) => {
+      if (typeof other !== 'function') Object.defineProperty(window, name, { value: other, writable: true })
+    }
   })
   builtIn('srcRelMask', srcRelMask)
   builtIn('text', (text, config) => render(text, config, FILL))
