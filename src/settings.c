@@ -68,6 +68,7 @@ static char *read_file(const char *path) {
     if (!file) return NULL;
     fseek(file, 0, SEEK_END);
     long length = ftell(file);
+    if (length < 0) length = 0; // a directory or a pipe
     fseek(file, 0, SEEK_SET);
     char *text = malloc((size_t)length + 1);
     size_t read = fread(text, 1, (size_t)length, file);
