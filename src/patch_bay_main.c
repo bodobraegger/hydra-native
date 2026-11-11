@@ -29,6 +29,7 @@
 
 #include <gio/gunixinputstream.h>
 #include <gio/gunixsocketaddress.h>
+#include <glib-unix.h>
 #include <glib/gstdio.h>
 #include <gst/app/gstappsink.h>
 #include <gst/app/gstappsrc.h>
@@ -948,9 +949,10 @@ static gboolean quit(gpointer data) {
     return G_SOURCE_REMOVE;
 }
 
-// The end of the input: leave the room as pb._destroy() does. Closed data channels tell the peers at once; the
-// pipelines end with the process, so that the close of the WebSocket gives the channels the time to send.
+// The end of the input, SIGTERM or SIGINT: leave the room as pb._destroy() does. Closed data channels tell the peers
+// at once; the pipelines end with the process, so that the close of the WebSocket gives the channels the time to send.
 static void shut_down(void) {
+    if (stopping) return;
     stopping = true;
     GHashTableIter iterator;
     struct peer *peer;
@@ -962,6 +964,11 @@ static void shut_down(void) {
         soup_websocket_connection_close(signaller, SOUP_WEBSOCKET_CLOSE_NORMAL, NULL);
     else if (signaller) g_main_loop_quit(loop);
     g_timeout_add(CLOSE_WAIT_MS, quit, NULL);
+}
+
+static gboolean on_quit_signal(gpointer data) {
+    shut_down();
+    return G_SOURCE_CONTINUE;
 }
 
 static void call(const char *method, JsonArray *arguments) {
@@ -1037,6 +1044,8 @@ int main(int argc, char **argv) {
     g_object_unref(standard_input);
     read_input();
     g_timeout_add(PUBLISH_CHECK_MS, check_publish, NULL);
+    g_unix_signal_add(SIGTERM, on_quit_signal, NULL);
+    g_unix_signal_add(SIGINT, on_quit_signal, NULL);
     g_main_loop_run(loop);
     g_unlink(socket_path);
     return 0;
