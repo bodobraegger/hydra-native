@@ -6,6 +6,7 @@
   "autocompleteStyle": "list",
   "autocompleteTrigger": "manual",
   "signatureHelp": "manual",
+  "autocompleteOpacity": 60,
   "codeBackgroundOpacity": 72,
   "codeBackgroundBlend": "normal",
   "codeTextBlend": "normal",

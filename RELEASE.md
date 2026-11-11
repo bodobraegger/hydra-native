@@ -1,15 +1,7 @@
-# Release plan
+# Release steps
 
-This file is the plan for the first release of hydra-native: Linux x86_64, and macOS arm64 as a preview.
-The release notes at the end are a draft, to approve before the release is published.
-
-## Version
-
-The first version is 0.1.0, with the git tag `v0.1.0`.
-The CMake build of the main branch uses the same project version.
+The first version is 0.1.0, with the git tag `v0.1.0`: Linux x86_64, and macOS arm64 as a preview.
 A version below 1.0 says that the settings file, the options and the archive layout can still change.
-
-## Steps to make the release
 
 1. Run `make check` on a machine with a GPU. The Linux runner of CI has no GPU for the checks that render in a
    window.
@@ -20,96 +12,15 @@ A version below 1.0 says that the settings file, the options and the archive lay
    .github/workflows relative to main.
 4. The workflow `build` makes the Linux archive and the macOS zip and attaches them to a draft release with the
    name of the tag. A failed macOS job does not stop the Linux archive.
-5. Copy the approved release notes into the draft, check the attached archive, and publish the draft by hand.
+5. Copy the approved release notes into the draft, check the attached archives, and publish the draft by hand.
 
-A manual run of the workflow (Actions, build, "Run workflow") makes the same archive as a workflow artifact,
+A manual run of the workflow (Actions, build, "Run workflow") makes the same archives as workflow artifacts,
 without a release.
-`tools/package.sh 0.1.0` makes the archive locally in dist/, after `make`.
+`tools/package.sh 0.1.0` makes the archive of this system in dist/, after `make`; its header describes the layout.
 `BUILD=dir make` and `HYDRA_NATIVE_BUILD=dir tools/package.sh` use another build directory.
 
-## Contents of the archive
-
-`hydra-native-0.1.0-linux-x86_64.tar.gz` (about 14 MB) unpacks into one folder:
-
-```text
-hydra-native-0.1.0-linux-x86_64/
-  bin/hydra-native                   the program
-  bin/hydra-native-capture           the screen capture (initScreen, initMonitor, initArea, initWindow)
-  bin/libhydra-webrtc-apm.so         the link to the WebRTC audio processing of the system
-  bin/hydra-bundle.js, bin/p5.min.js hydra-synth with the shims, and p5.js
-  tools/patch-bay.mjs                the webRTC patch bay (pb, initStream), one file for Node.js
-  node_modules/@roamhq/wrtc-linux-x64/wrtc.node   the WebRTC module of the patch bay
-  vendor/fonts/NotoEmoji.ttf         the emoji font of the overlay
-  assets/icon/                       favicon.ico and the hicolor icons (16, 32 and 48 px)
-  assets/hydra-native.desktop        the desktop file
-  LICENSE                            the GNU AGPL 3.0
-  THIRD_PARTY.md, licenses/          the third-party code and its license texts
-  source/                            the source of this build and a note where the rest of the source is
-```
-
-The program finds its files relative to its own path, also through a symbolic link.
-Thus the folder runs from any place.
-
-## Install and run
-
-```sh
-mkdir -p ~/.local/opt ~/.local/bin ~/.local/share/applications ~/.local/share/icons
-tar -xzf hydra-native-0.1.0-linux-x86_64.tar.gz -C ~/.local/opt
-ln -s ~/.local/opt/hydra-native-0.1.0-linux-x86_64/bin/hydra-native ~/.local/bin/hydra-native
-cp -r ~/.local/opt/hydra-native-0.1.0-linux-x86_64/assets/icon/hicolor ~/.local/share/icons/
-cp ~/.local/opt/hydra-native-0.1.0-linux-x86_64/assets/hydra-native.desktop ~/.local/share/applications/
-hydra-native sketch.js
-```
-
-The desktop file starts `hydra-native` from the PATH. Ubuntu adds ~/.local/bin to the PATH at the next login.
-To remove hydra-native, delete the folder, the link, the desktop file and the three icons.
-The settings stay in ~/.config/hydra-native.
-
-## Runtime dependencies on Ubuntu 26.04
-
-Required:
-
-```sh
-sudo apt install libsdl3-0 libgles2 libpulse0 libasound2t64 libglib2.0-0t64 fontconfig fonts-dejavu-mono curl
-```
-
-The GPU driver must give OpenGL ES 3.0 (Mesa does).
-
-Optional, for each feature:
-
-| Package                                       | Feature                                        |
-| --------------------------------------------- | ---------------------------------------------- |
-| libwebrtc-audio-processing-1-3                | audio processing as in Chrome (with PipeWire)  |
-| gstreamer1.0-tools, gstreamer1.0-plugins-good | initCam                                        |
-| gstreamer1.0-tools, gstreamer1.0-pipewire     | initScreen, initMonitor, initArea, initWindow  |
-| ffmpeg                                        | initVideo, initImage, vidRecorder              |
-| nodejs                                        | the patch bay (pb, initStream); tested with 22 |
-| xdg-utils                                     | links of the info panel                        |
-| xdg-desktop-portal                            | the picker of initScreen                       |
-| yt-dlp (pipx)                                 | YouTube links in initVideo                     |
-
-## Known limits
-
-- Linux x86_64: the binary needs glibc 2.43 and SDL3, so it runs on Ubuntu 26.04 and on newer systems.
-  Other distributions need a build from the source.
-- macOS arm64 is a preview: CI builds it and renders test/check.js on ANGLE, but the app has not run on a Mac
-  with a person yet. The permissions for the microphone, the camera and screen recording are untested, and the
-  app has only an ad-hoc signature, so macOS asks to allow it in the Privacy and Security settings.
-- No Windows build.
-- initMonitor, initArea and initWindow use the ScreenCast API of Mutter, so they work only on GNOME.
-- The patch bay needs `node` on the PATH.
-- The default font is DejaVu Sans Mono of the system. Without fonts-dejavu-mono, choose a font file in the settings menu.
-- The code socket is a Unix socket.
-- On Linux, CI builds the archive and runs the checks without a window. The checks that render run only on a
-  machine with a GPU (step 1 above).
-
-## License and source
-
-hydra-native contains hydra-synth and code of the hydra web editor, both under the AGPL-3.0.
-Thus the archive is under the AGPL-3.0, and LICENSE in the archive is its text.
-The AGPL-3.0 requires that each person who gets the program can also get its complete source.
-The archive contains the source of the build commit (`source/`), and source/README.txt says where the
-source of hydra-synth and of the web editor is.
+The Linux binary needs glibc 2.43 and SDL3, so it runs on Ubuntu 26.04 and on newer systems.
+README.md lists the packages for each feature.
 
 ## Release notes (DRAFT, for approval)
 
@@ -132,7 +43,7 @@ source of hydra-synth and of the web editor is.
 >   editor saves it;
 > - send code from Neovim or another editor through a Unix socket;
 > - use a webcam, a video file, an image, the screen, a monitor, an area or a window as a source;
-> - use the microphone or the system output for `a`, with the audio processing of Chrome;
+> - use the microphone or the system output for `a`, with noise suppression and automatic gain;
 > - use MIDI input and output, with the arrival time of each message, P5 and the 2D canvas;
 > - share streams with the web editor and with other hydra-native windows through the patch bay
 >   (`pb`, `s0.initStream`);

@@ -1,8 +1,8 @@
 # Third-party code
 
 hydra-native contains or downloads the code below.
-CMakeLists.txt downloads the C libraries into `vendor/` and checks their SHA-256 hashes; pnpm installs the JavaScript packages into `node_modules/`.
-esbuild bundles the JavaScript packages into `build/hydra-bundle.js`.
+CMakeLists.txt downloads the C libraries into `vendor/` and checks their SHA-256 hashes.
+pnpm installs the JavaScript packages into `node_modules/`, and esbuild bundles them into `build/hydra-bundle.js`.
 
 Because hydra-native bundles hydra-synth and code of the hydra web editor (AGPL-3.0),
 a distributed hydra-native binary with its bundle falls under the AGPL-3.0.
@@ -17,14 +17,6 @@ a distributed hydra-native binary with its bundle falls under the AGPL-3.0.
 - stb_image.h 2.30 by Sean Barrett, public domain or MIT license, same commit. Thumbnails (src/thumbnails.c).
 - HarfBuzz 14.6.0, "Old MIT" license. https://github.com/harfbuzz/harfbuzz
   Text shaping of panels and prompts (src/overlay.c); built from the amalgamated src/harfbuzz.cc.
-- webrtc-audio-processing 1.3 (freedesktop.org, from the WebRTC code of Chrome), BSD-3-Clause license.
-  https://gitlab.freedesktop.org/pulseaudio/webrtc-audio-processing
-  On Linux, the system library libwebrtc-audio-processing-1.so.3 (installed with PipeWire, not downloaded)
-  processes the microphone, and `make` downloads the release tarball only for its headers. src/webrtc_apm.cc
-  links the library into build/libhydra-webrtc-apm.so, which src/audio.c opens at run time. macOS and Windows
-  do not use it.
-- Abseil 20230125.1 (the version of the abseil-cpp.wrap of webrtc-audio-processing 1.3), Apache-2.0 license.
-  https://github.com/abseil/abseil-cpp. Headers only, for webrtc-audio-processing.
 - libremidi 5.4.3 by Jean-Michaël Celerier, BSD-2-Clause license (with parts of RtMidi, MIT license).
   https://github.com/celtera/libremidi. MIDI input and output on macOS (CoreMIDI) and Windows (WinMM) in its
   header-only mode; src/midi_libremidi.cc.
@@ -34,6 +26,9 @@ a distributed hydra-native binary with its bundle falls under the AGPL-3.0.
 - plutovg 1.3.3 by Samuel Ugochukwu, MIT license. https://github.com/sammycage/plutovg
   2D canvas (src/canvas2d.c). Its files plutovg-ft-*.c come from FreeType and are under the FreeType License (FTL);
   plutovg contains its own copy of stb_truetype.
+- ANGLE, commit 9684da72c67be785ed049e4c5704964b5d6e1bcb, BSD-3-Clause license. https://angleproject.org
+  OpenGL ES on macOS and Windows, as a prebuilt archive of https://github.com/jeremyfa/build-angle.
+- SDL 3, zlib license. https://libsdl.org. The macOS app contains the SDL3 library of Homebrew.
 
 ## JavaScript packages (installed by pnpm, bundled by esbuild)
 
@@ -52,26 +47,25 @@ a distributed hydra-native binary with its bundle falls under the AGPL-3.0.
   The WebRTC stack (ICE, DTLS-SRTP, VP8) of pb and s0.initStream.
   On macOS and Windows, pnpm installs the prebuilt binary of that system instead: @roamhq/wrtc-darwin-arm64,
   @roamhq/wrtc-darwin-x64 or @roamhq/wrtc-win32-x64, version 0.8.0, under the same license.
-- simple-peer 9.11.1 and socket.io-client 2.5.0 (the versions of the web editor), MIT license; shortid 2.2.17,
-  MIT license; inherits 2.0.4, ISC license.
+- simple-peer 9.11.1 and socket.io-client 2.5.0 (the versions of the web editor), MIT license.
 - socket.io 2.5.0, MIT license. Only for test/signalling_server.cjs.
 
 ## Code of the hydra web editor
 
 From https://github.com/hydra-synth/hydra (the editor of hydra.ojack.xyz), commit 680273b, AGPL-3.0:
 
-- js/hydra-editor/Mutator.js (src/views/editor/randomizer/Mutator.js), with changed imports and two fixes
-  that the file header lists.
-- js/hydra-editor/UndoStack.js (src/views/editor/randomizer/UndoStack.js), unchanged.
+- js/hydra-editor/Mutator.js (src/views/editor/randomizer/Mutator.js), rewritten to scan the text instead of
+  parsing it; see its header.
 - js/hydra-editor/examples.json (src/stores/examples.json), the examples of the "random example" button.
 - js/hydra-editor/text-elements.js (src/stores/text-elements.js), the English texts of the info panel, unchanged.
-- js/hydra-editor/rtc-patch-bay.js and js/hydra-editor/pb-live.js (src/lib/patch-bay/), the webRTC patch bay,
-  unchanged; tools/patch-bay.mjs runs them in Node.js.
+- js/hydra-editor/rtc-patch-bay.js and js/hydra-editor/pb-live.js (src/lib/patch-bay/), the webRTC patch bay;
+  tools/patch-bay.mjs runs them in Node.js. Changed: `inherits` comes from node:util, and the default name
+  comes from crypto.randomUUID() instead of shortid.
+- The class body of P5 in js/p5.js (src/lib/p5-wrapper.js).
+- The confirmation text of the gallery share prompt in src/ui.c (src/stores/gallery-store.js).
 
 From https://github.com/hydra-synth/hydra-server, backend/server.js, AGPL-3.0: the socket.io handlers of the
 signalling in test/signalling_server.cjs, without the TURN tokens of Twilio.
-- The class body of P5 in js/p5.js (src/lib/p5-wrapper.js).
-- The confirmation text of the gallery share prompt in src/ui.c (src/stores/gallery-store.js).
 
 From hydra-synth pull request #169 (closed, by the author of hydra-native), types/index.d.ts at commit
 40a8de992bc31da496e024a3f5dd137f4d2fba7d: the signatures of out, render and setResolution in
@@ -88,12 +82,10 @@ Translations of the info panel come at run time from https://github.com/hydra-sy
 
 ## Fonts
 
-The code overlay and the 2D canvas use fonts that are installed on the system (default: DejaVu Sans Mono).
+The code overlay and the 2D canvas use the fonts of the system.
 `make` downloads one font: Noto Emoji (monochrome), SIL Open Font License 1.1, from
 https://github.com/google/fonts (ofl/notoemoji, commit 8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5), into
 vendor/fonts with its OFL.txt. It draws emoji in the overlay when the system has no color emoji font.
-The color emoji come from the font that fontconfig gives for `emoji:color=true`, usually Noto Color Emoji of
-the system.
 
 ## Data
 

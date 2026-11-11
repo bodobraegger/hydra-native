@@ -23,7 +23,7 @@ Some inputs need more packages:
   xdg-desktop-portal. Only `initScreen` works outside of GNOME.
 - `initVideo`, `initImage` and `vidRecorder`: ffmpeg. YouTube links also need yt-dlp.
 - The patch bay (`pb`, `initStream`): nodejs.
-- Audio processing as in Chrome: libwebrtc-audio-processing-1-3.
+- The links of the info panel: xdg-utils.
 
 The folder runs from any place. The desktop file and the icons are in `assets/`.
 
@@ -55,7 +55,7 @@ The build needs gcc, CMake 3.25 or newer, Ninja, make, pnpm and these developmen
 
 ```sh
 sudo apt install build-essential cmake ninja-build libsdl3-dev libgles-dev libpulse-dev libasound2-dev \
-  libgio-2.0-dev libwebrtc-audio-processing-1-3
+  libgio-2.0-dev
 make            # build/hydra-native
 build/hydra-native sketch.js
 ```
@@ -68,8 +68,8 @@ make            # build/hydra-native, with ANGLE for OpenGL ES on Metal
 build/hydra-native sketch.js
 ```
 
-At the first build, CMake downloads QuickJS, HarfBuzz, SheenBidi, PlutoVG, stb, the Noto Emoji font and, on
-macOS, ANGLE into vendor/, and checks the SHA-256 hash of each download.
+At the first build, CMake downloads the C libraries of [THIRD_PARTY.md](THIRD_PARTY.md) into vendor/ and checks
+their SHA-256 hashes.
 
 `make test` runs the unit tests. `make check` also runs the checks in hidden windows, which need a GPU.
 `tools/package.sh VERSION` packs the release archive of this system into dist/.

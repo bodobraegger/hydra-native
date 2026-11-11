@@ -1,45 +1,30 @@
 # hydra-native manual
 
-The reference of hydra-native: the editor, the settings, the keys, the inputs and the scripts.
+The reference of hydra-native: the editor, the settings, the keys and the inputs.
 [README.md](../README.md) tells how to install, run and build it.
 
 ## Run
 
 ```sh
-build/hydra-native sketch.js                             # window, vsync, code overlay, code socket
-build/hydra-native setup.js sketch.js                    # evaluates setup.js, then shows and evaluates sketch.js
-build/hydra-native 'https://hydra.ojack.xyz/?code=...'  # a sketch URL of the web editor
-build/hydra-native --fullscreen --audio @DEFAULT_MONITOR@ sketch.js  # settings for this run only
+hydra-native sketch.js                             # window, vsync, code overlay, code socket
+hydra-native setup.js sketch.js                    # evaluates setup.js, then shows and evaluates sketch.js
+hydra-native 'https://hydra.ojack.xyz/?code=...'  # a sketch URL of the web editor
+hydra-native --fullscreen --audio @DEFAULT_MONITOR@ sketch.js  # settings for this run only
 ```
 
-The settings menu (Ctrl+,) sets everything that the program can be told: the theme, the font, the window, the
-audio input, the language, the server, the reload on file change and more. It saves them in settings.json. Each
-of these settings also has a flag that overrides it for one run (see "Settings file"). The flags for scripts and
-tests are in "Scripts and tests".
+Ctrl+, opens the settings menu, which saves to settings.json. Some settings have a flag for one run (see
+"Settings file"). `hydra-native --help` lists all flags.
 
 The program evaluates the files in the given order, in the global scope, like the browser console.
 Without a file, it starts like the web editor: with a random example and the info panel.
 The last file opens in the code overlay, and Ctrl+S saves the overlay text to it.
 If the file does not exist yet, the overlay starts empty and Ctrl+S creates the file.
-The "file" row of the settings menu shows the open file; a click on it opens a file dialog (on Linux through the
-desktop portal) for another .js file, which replaces the code (Ctrl+Z brings the old code back), runs, and
-becomes the open file. Without an open file, Ctrl+S asks for a file in a save dialog. The window title shows the
-name of the open file and the hydra.ojack.xyz URL of the code.
-With the setting "reload on file change" (watch), a change on disk replaces the overlay text and evaluates it,
+Click the "file" row of the settings menu to open another .js file. It replaces the code and runs; Ctrl+Z
+brings the old code back. Without an open file, Ctrl+S asks for a file in a save dialog. The window title shows
+the name of the open file.
+With the setting "reload on change" (watch), a change on disk replaces the overlay text and evaluates it,
 but only when the overlay has no unsaved edits. Otherwise the error bar says that the file changed, and the edits
-stay. Run `build/hydra-native --help` for all flags.
-
-## Scripts and tests
-
-These flags act on one run and are no settings:
-
-- `--send` sends the code on stdin to a running hydra-native through the code socket and prints its answer
-  (see "Send code from an editor").
-- `--socket PATH` uses another code socket than `$XDG_RUNTIME_DIR/hydra-native.sock` ("socket" in settings.json).
-- `--hidden` runs without a visible window, for the checks.
-- `--size WxH` sets the window size (default 1280x720), for example for the benchmark.
-- `--bench SECONDS` measures the frame rate after a warm-up, prints JSON and exits.
-- `--screenshot FILE` writes the window with the code as PNG after 1.5 s and exits.
+stay.
 
 ## Code overlay
 
@@ -61,12 +46,8 @@ The extensions panel lists the catalog of hydra-synth/hydra-extensions; "+" adds
 The window title shows the hydra.ojack.xyz URL of the code after each run of all code, as the address bar of
 the web editor does. Ctrl+Shift+L copies that URL, and Ctrl+Shift+O opens the URL in the clipboard.
 
-The "settings" entry of the toolbar (Ctrl+,) chooses the open file and its reload on change, the color theme,
-the autocomplete style with its opacity, its trigger and the signature help, the code display (background opacity and blend,
-text blend), the code at start, the rendering of whitespace, line wrap, the server, the window (fullscreen,
-vsync), the audio input with its gain, the language, the font size and a font from the installed monospace fonts
-(fc-list) or a font file. The rows of a group are indented under it. Each choice applies at once and goes into
-the settings file, except "code at start", which applies at the next start. The panel scrolls with the wheel.
+The table in "Settings file" lists each row of the settings menu. A change applies at once and goes into the
+settings file, except "code at start", which applies at the next start.
 "input gain" multiplies the audio input before the analysis of `a` (0 to 400 %, default 100 %); the system
 output, which has no automatic gain, often needs more than 100 %. The server is "off" (the
 default; `pb` is undefined then), hydra.ojack.xyz (https://api.hydrasynth.xyz) or a custom URL; a change starts or
@@ -74,20 +55,17 @@ stops the patch bay and the "share" button without a restart. While the patch ba
 the stream id, which other peers pass to `s0.initStream` and which `pb.list()` shows; its "copy" button and
 Ctrl+Alt+I copy it.
 
-The numbers of the settings menu (the opacities, the input gain and the font size) have - and + buttons and can
-also be typed: a click on the value turns it into a text field with the value selected. Enter applies the typed
-value, also with its unit ("45 %", "20px"), clamped to the valid range; Escape leaves the field without a
-change. An entry that is no number shows in the error color and changes nothing. Up and Down, and the mouse
-wheel over the value, step it at once, by one or with Shift by ten.
+Click a number of the settings menu to type a value, also with its unit ("45 %", "20px"). Enter applies it,
+Escape cancels. Up, Down and the wheel change it by 1, or by 10 with Shift.
 
 ### Settings file
 
 All settings live in one JSON file: ~/.config/hydra-native/settings.json on Linux,
 ~/Library/Application Support/hydra-native/settings.json on macOS, or $XDG_CONFIG_HOME/hydra-native/settings.json
 when that variable is set. settings.example.json shows every key. hydra-native reads the file at
-the start, and command line options override it for one run. The settings menu writes the file atomically (a
-temporary file, then rename), and keys that hydra-native does not know stay in it. When the file is no valid
-JSON, the defaults apply, the error bar shows the error with its line, and nothing overwrites the file.
+the start, and flags override it for one run. Keys that hydra-native does not know stay in the file. When the
+file is no valid JSON, the defaults apply, the error bar shows the error with its line, and nothing overwrites
+the file.
 
 | Key                   | Default          | Settings menu        | Flag for one run     | Meaning                    |
 | --------------------- | ---------------- | -------------------- | -------------------- | -------------------------- |
@@ -116,15 +94,11 @@ JSON, the defaults apply, the error bar shows the error with its line, and nothi
 | themes                | {}               |                      |                      | custom themes, see below   |
 | keybindings           | {}               |                      |                      | keys, see below            |
 
-The code overlay can blend with the visuals. "codeBackgroundOpacity" sets the opacity of the box behind each code
-line; without it, the theme sets it (72 % in "hydra"). With "codeBackgroundBlend": "difference", the box is white
-and inverts the visuals below it, at that opacity. With "codeTextBlend": "difference", the text shows as the
-difference of its theme color and the visuals, so it stays readable over bright and over dark visuals. The
-selection, the cursor, the flash of an evaluation, the find matches and the bars keep their normal look.
+"codeBackgroundOpacity" sets the opacity of the box behind each code line; without it, the theme sets it (72 %
+in "hydra"). With "difference", the box or the text inverts the visuals below it, so the code stays readable
+over bright and over dark visuals.
 
-"all" is the default of renderWhitespace because Pulsar showed invisible characters (showInvisibles) in the
-setup that hydra-native follows. The flags of a boolean switch it only in one direction for the run; the settings
-menu sets both.
+The flag of a boolean switches it only in one direction for the run.
 
 A custom theme in "themes" has a name, an optional "base" (a built-in theme, "hydra" by default) and colors as
 "#rrggbb" or "#rrggbbaa": lineBackground, selection, flash, bracket, cursor, text, keyword, number, string,
@@ -139,10 +113,8 @@ name in brackets and its keys after these changes.
 
 The editor has multiple cursors, find and replace, go to line, a command palette and autocomplete of hydra
 names and of the words of the file. Autocomplete opens with Ctrl+Space, or while typing with the trigger "while
-typing" of the settings menu. The style "list" shows the candidates below the word, or above its line when there is no
-room below. Its box inverts the visuals with blend mode difference (blue over black) and covers the code below
-it, with a dark scrim behind the white text. "autocompleteOpacity" (default 60 %) sets how much the box covers
-the code. The style "ghost
+typing" of the settings menu. The style "list" shows the candidates below the word, or above its line when
+there is no room below. "autocompleteOpacity" sets how much its box covers the code below it. The style "ghost
 text" shows the rest of the best candidate after the cursor, like the inline suggestions of VS Code: Tab accepts
 it, Escape dismisses it, Alt+] and Alt+[ show the other candidates.
 
@@ -159,10 +131,8 @@ Ctrl+Shift+Space shows the signature help of the hydra function around the curso
 its parameters and defaults, the current parameter marked, and its type and default on a second line. It follows
 the cursor between the commas, also in nested calls, and closes when the cursor leaves the call or with Escape.
 With "signatureHelp": "paren" (settings menu: "on ("), it also opens after typing "(" behind a hydra function. It
-has the look of the autocomplete style: a list box, or ghost text. The definitions
-come from the running hydra-synth, so functions of `setFunction` and of extensions appear after their evaluation.
-js/api-signatures.js describes the functions outside the glsl list, such as `out`, `render`, `setResolution`,
-`hush`, the `init*` sources and `a.setBins`.
+has the look of the autocomplete style. The definitions come from the running hydra-synth, so functions of
+`setFunction` and of extensions appear after their evaluation.
 
 Typing an opening bracket or quote adds the closing one. Find works like
 the find bar of a browser: it ignores case and accents, highlights all matches and shows their count.
@@ -176,11 +146,11 @@ Errors of socket code show in the error bar with the prefix `socket:`.
 The reply comes before the new shaders are compiled, so shader compile errors show only in the error bar and on stderr.
 
 ```sh
-echo 'osc(20, 0.1, 1.2).kaleid(5).out()' | build/hydra-native --send
+echo 'osc(20, 0.1, 1.2).kaleid(5).out()' | hydra-native --send
 socat - UNIX-CONNECT:$XDG_RUNTIME_DIR/hydra-native.sock < block.js
 ```
 
-From Neovim or Vim, send the visual selection with `:'<,'>w !build/hydra-native --send`.
+From Neovim or Vim, send the visual selection with `:'<,'>w !hydra-native --send`.
 
 ## Keys
 
@@ -216,7 +186,6 @@ Keys marked "always" also work while the overlay is hidden.
 | Tab, Shift+Tab; Escape (after a completion)    | next, previous argument of the call; end the tab stops |
 | Ctrl+], Ctrl+[; Tab, Shift+Tab                 | indent, outdent                                        |
 | Ctrl+M; Ctrl+Shift+M                           | go to the bracket; select inside the brackets          |
-| Ctrl+Up, Ctrl+Down                             | nothing                                                |
 | Escape                                         | close a popup, keep one cursor, leave fullscreen       |
 
 Sketches add keys with the browser API, for example
@@ -240,9 +209,7 @@ All `init*` calls accept `{ width, height }` for the capture size (default 1280x
 
 `initScreen()` opens the picker of xdg-desktop-portal, as `getDisplayMedia()` does in the browser.
 `initMonitor`, `initArea` and `initWindow` use the Mutter ScreenCast API directly and open no dialog.
-build/hydra-native-capture (src/capture.h, with the Linux backend src/capture_linux.c on GDBus) does both and
-writes the frames, so no Python runs; Python is only for some tests. On macOS, ScreenCaptureKit and its picker
-do the same, and on Windows Windows.Graphics.Capture; PORTING.md describes the permissions and the differences.
+On macOS, ScreenCaptureKit and its picker do the same, and on Windows Windows.Graphics.Capture.
 initVideo, initImage and vidRecorder need ffmpeg in PATH; the error bar names a missing program.
 A monitor stream sends no frame until something on that monitor repaints.
 Window and area streams start at once.
@@ -256,25 +223,22 @@ feOffset, feBlend, feComposite, feFlood, feMerge, feMorphology, feTurbulence and
 `fetch()` and `XMLHttpRequest` read local files and send HTTP and HTTPS requests with curl, so p5 `loadFont` and `loadJSON` work.
 Requests follow the CORS and mixed-content rules of a page at https://hydra.ojack.xyz, so a server that the web
 editor cannot read fails here too. `vidRecorder.start()` and `vidRecorder.stop()` record the visuals to a WebM file
-(VP9, 25 fps) in ~/Downloads. `navigator.requestMIDIAccess()` gives MIDI input and output through the ALSA
-sequencer (libremidi on macOS and Windows, see PORTING.md). The `timeStamp` of a MIDI message is its arrival time
-in the kernel, in the time of `performance.now()`.
+(VP9, 25 fps) in ~/Downloads. `navigator.requestMIDIAccess()` gives MIDI input and output. The `timeStamp` of a
+MIDI message is its arrival time, in the time of `performance.now()`.
 
 With a gallery server (settings menu: server), `pb` joins the room 'iclc' of the signalling server at that URL, as the web editor
 does with its server, and publishes the output of hydra-native. `pb.list()` shows the peers, and
-`s0.initStream(id)` receives a peer, such as a web editor in the same room. node runs the patch bay code of the
-web editor in tools/patch-bay.mjs, with the prebuilt WebRTC of @roamhq/wrtc (`pnpm install` downloads it).
-test/patch_bay_test.py checks it with two instances and test/signalling_server.cjs, a local copy of the signalling
-of hydra-server.
+`s0.initStream(id)` receives a peer, such as a web editor in the same room. The patch bay needs `node` in PATH.
 
 The audio object `a` is the one of hydra-synth (`a.show()`, `a.setBins()`, `a.setSmooth()`, `a.fft`).
-Like getUserMedia() in Chrome, hydra-native processes the input with the WebRTC audio processing: a high-pass
-filter, echo cancellation, noise suppression (level high) and the adaptive digital gain control of AGC2. It uses
-the system library libwebrtc-audio-processing-1.so.3, which PipeWire installs. Without that library, and on macOS
-and Windows, src/audio_processing.c does a similar noise suppression and gain control.
+hydra-native processes the input with a noise suppression and an automatic gain control, as getUserMedia() does
+in Chrome. It does not change the volume of the capture source, which Chrome does on Linux. Thus `a.setScale()`
+and `a.setCutoff()` might need other values than in the browser.
 
-hydra-native does not change the volume of the capture source, which Chrome does on Linux with the analog gain
-control of that library. Thus `a.setScale()` and `a.setCutoff()` might need other values than in the browser.
+On macOS, the first use of the microphone, the camera and the screen capture asks for a permission (System
+Settings, Privacy and Security). `initMonitor`, `initArea`, `initWindow` and the system output as audio input
+need the Screen Recording permission; start the capture again after you allow it. `initScreen` uses the picker
+of the system (macOS 14 or newer). A program that a terminal starts uses the permissions of the terminal.
 
 ## Shared sketches
 
@@ -285,16 +249,3 @@ with `initVideo`, `initImage`, `fetch` or `loadScript`, and cannot reach the hos
 screen capture, network URLs, audio, MIDI and the patch bay keep working. The sandbox stays on after the shared
 code, because that code can leave timers and changed globals behind. The examples of the toolbar come with the
 program and start no sandbox. To use local files and commands again, restart hydra-native.
-
-## Benchmark
-
-```sh
-bench/compare.sh 3 1920 1080 sketch.js   # native and Brave, alternating, same sketches
-build/hydra-native --no-vsync --bench 10 bench/prelude.js sketch.js
-```
-
-`bench/prelude.js` replaces the screen captures, the extensions and the audio input of the repo sketches with stubs.
-
-`src/programs.c` selects how shaders compile, and the environment variable `HYDRA_SHADER_COMPILE` overrides it:
-`thread` (a second GL context on a thread of its own, the default on Mesa), `parallel` (GL_KHR_parallel_shader_compile,
-the default with other drivers that have it, for example ANGLE) or `blocking` (the frame waits for the compiler).
