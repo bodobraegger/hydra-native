@@ -82,6 +82,8 @@ vendor_archive(quickjs https://bellard.org/quickjs/quickjs-${QUICKJS_VERSION}.ta
 vendor_archive(harfbuzz
   https://github.com/harfbuzz/harfbuzz/releases/download/${HARFBUZZ_VERSION}/harfbuzz-${HARFBUZZ_VERSION}.tar.xz
   d07a007327277708a2a73ae437887cdbaf282937f6d03ca5467723e9099af586 src/harfbuzz.cc)
+# The build needs only src/; the tests and the tools of the archive are 100 MB.
+file(REMOVE_RECURSE ${VENDOR}/harfbuzz/test ${VENDOR}/harfbuzz/perf ${VENDOR}/harfbuzz/util ${VENDOR}/harfbuzz/docs)
 vendor_archive(sheenbidi https://github.com/Tehreer/SheenBidi/archive/refs/tags/v${SHEENBIDI_VERSION}.tar.gz
   e90ae142c6fc8b94366f3526f84b349a2c10137f87093db402fe51f6eace6d13 Source/SheenBidi.c)
 set(STB_stb_image_SHA256 594c2fe35d49488b4382dbfaec8f98366defca819d916ac95becf3e75f4200b3)
