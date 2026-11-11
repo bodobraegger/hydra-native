@@ -18,4 +18,13 @@ check: test
 clean:
 	rm -rf $(BUILD)
 
-.PHONY: all test check clean
+.PHONY: all test check sanitize clean
+
+# The whole program with the address and undefined-behavior sanitizers, on the render check.
+sanitize:
+	cmake -S . -B build-sanitize -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+		-DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
+		-DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+	cmake --build build-sanitize
+	HYDRA_NATIVE_TEST=1 XDG_CONFIG_HOME=build-sanitize/test-config ASAN_OPTIONS=detect_leaks=0 \
+		build-sanitize/hydra-native --hidden test/check.js
