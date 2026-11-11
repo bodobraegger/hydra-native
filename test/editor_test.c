@@ -404,6 +404,9 @@ static void test_wrap(void) {
     editor.wrap_columns = 8;
     rows = editor_wrap_rows(&editor, 0, starts, 8);
     EXPECT(rows == 2 && starts[1] == 8); // breaks after the last space
+    load(&editor, "a\t\tb"); // a tab is wider than a row of 2 columns: each row still takes one character
+    editor.wrap_columns = 2;
+    EXPECT(editor_wrap_rows(&editor, 0, starts, 8) == 4);
     editor_free(&editor);
 }
 

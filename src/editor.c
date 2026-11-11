@@ -452,6 +452,8 @@ size_t editor_wrap_rows(const struct editor *editor, size_t line, size_t *row_st
     if (continuation_width < 1) continuation_width = 1;
     for (;;) {
         size_t limit = advance_columns(editor, position, end, width);
+        // A tab or a wide character that is wider than the row takes a row of its own, so that each row advances.
+        if (limit == position) limit = editor_cluster_end(editor, position);
         if (limit >= end) break;
         size_t row_break = limit;
         // Break after the last space of the row, like word wrap in Pulsar; a long word breaks hard.
@@ -780,6 +782,10 @@ static size_t move_visually(const struct editor *editor, size_t offset, enum sti
         *sticky = STICKY_AFTER;
     }
     size_t index = part_at(order, count, offset, *sticky);
+    if (index == NO_POSITION) { // the line has more direction changes than MAX_BIDI_SPANS
+        *sticky = direction < 0 ? STICKY_AFTER : STICKY_BEFORE;
+        return step_in_line(editor, line, offset, direction);
+    }
     const struct bidi_span *part = &order[index];
     if (part->level % 2 == 0 && (direction > 0 ? part->to > offset : part->from < offset)) {
         next = step_in_line(editor, line, offset, direction);
