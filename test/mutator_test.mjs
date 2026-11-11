@@ -1,7 +1,7 @@
 // Checks the scanner of js/hydra-editor/Mutator.js: which numbers and transform calls the mutator may change.
 // Run with `node test/mutator_test.mjs` (ctest "mutator").
 import assert from 'node:assert/strict'
-import { scanCode } from '../js/hydra-editor/Mutator.js'
+import Mutator, { scanCode } from '../js/hydra-editor/Mutator.js'
 
 const transforms = { osc: {}, rotate: {}, modulate: {}, color: {} }
 const code = `// osc(99).rotate(98)
@@ -18,4 +18,6 @@ console.log('calls', calls.map((call) => call.text).join(' '))
 assert.deepEqual(numbers.map((number) => number.value), [10, 0.1, 1.5, 2, 3, 0.1, 0.2, 4, 0.001, 16, 5])
 assert.deepEqual(calls.map((call) => call.text), ['rotate', 'modulate', 'color'])
 for (const number of numbers) assert.equal(code.slice(number.start, number.end), number.text)
+// A method of Object.prototype is no hydra transform.
+assert.equal(new Mutator().transform('osc(1).toString()', true), 'osc(1).toString()')
 console.log('mutator_test: ok')

@@ -110,8 +110,9 @@ export default class Mutator {
   constructor () {
     this.undoStack = []
     this.initialVector = []
-    this.funcTab = {}
-    this.transMap = {}
+    // Without a prototype, so that a method name such as toString is no transform.
+    this.funcTab = Object.create(null)
+    this.transMap = Object.create(null)
     for (const transform of glslFunctions()) {
       this.transMap[transform.name] = transform
       if (this.funcTab[transform.type] === undefined) this.funcTab[transform.type] = []
