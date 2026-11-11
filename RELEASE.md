@@ -13,12 +13,14 @@ A version below 1.0 says that the settings file, the options and the archive lay
 
 1. Run `make check` on a machine with a GPU. The Linux runner of CI has no GPU for the checks that render in a
    window.
-2. Tag a commit of main: `git tag -a v0.1.0 -m "hydra-native 0.1.0"`, then `git push origin v0.1.0`.
+2. Run `tools/release-tests.sh` in a desktop session: it walks through the tests that need a person (the screen
+   picker, the file dialogs, the patch bay, the autocomplete box, the macOS app).
+3. Tag a commit of main: `git tag -a v0.1.0 -m "hydra-native 0.1.0"`, then `git push origin v0.1.0`.
    The tag must point to a commit on main: the GITHUB_TOKEN cannot create a release for a commit that changes
    .github/workflows relative to main.
-3. The workflow `build` makes the Linux archive and the macOS zip and attaches them to a draft release with the
+4. The workflow `build` makes the Linux archive and the macOS zip and attaches them to a draft release with the
    name of the tag. A failed macOS job does not stop the Linux archive.
-4. Copy the approved release notes into the draft, check the attached archive, and publish the draft by hand.
+5. Copy the approved release notes into the draft, check the attached archive, and publish the draft by hand.
 
 A manual run of the workflow (Actions, build, "Run workflow") makes the same archive as a workflow artifact,
 without a release.
