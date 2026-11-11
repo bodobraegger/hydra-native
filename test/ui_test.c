@@ -49,7 +49,9 @@ static float copy_x, copy_y; // where the "copy" button of the settings panel sh
 bool overlay_init(const char *font_path, const char *emoji_font_path, float font_size) { return true; }
 static float font_size = 20; // clamped like src/overlay.c
 bool overlay_set_font_size(float size) {
-    font_size = size < OVERLAY_MIN_FONT_SIZE ? OVERLAY_MIN_FONT_SIZE : size > OVERLAY_MAX_FONT_SIZE ? OVERLAY_MAX_FONT_SIZE : size;
+    font_size = size;
+    if (size < OVERLAY_MIN_FONT_SIZE) font_size = OVERLAY_MIN_FONT_SIZE;
+    if (size > OVERLAY_MAX_FONT_SIZE) font_size = OVERLAY_MAX_FONT_SIZE;
     return true;
 }
 bool overlay_set_font(const char *font_path) { return true; }
@@ -93,13 +95,16 @@ static bool difference_layers[OVERLAY_LAYER_COUNT];
 void overlay_set_difference(enum overlay_layer layer, bool difference) { difference_layers[layer] = difference; }
 void overlay_image(float x, float y, float width, float height, unsigned texture) {}
 unsigned thumbnail_texture(const char *url) { return 0; }
-float overlay_text_shaped(float x, float y, const char *text, size_t length, bool right_to_left, uint32_t color) { return 0; }
+float overlay_text_shaped(float x, float y, const char *text, size_t length, bool right_to_left, uint32_t color) {
+    return 0;
+}
 void overlay_text_fitted(float x, float y, const char *text, size_t length, float width, uint32_t color) {}
 float overlay_text_shaped_width(const char *text, size_t length, bool right_to_left) { return (float)length * 10; }
 size_t overlay_text_columns(const char *text, size_t length) { return length; }
 
 // The definitions of hydra-synth in the format of __functionSignatures (js/main.js); "wobble" comes with setFunction.
-#define SIGNATURES "osc\tsrc\tfrequency:float:60\tsync:float:0.1\toffset:float:0\nnoise\tsrc\tscale:float:10\toffset:float:0.1\n" \
+#define SIGNATURES "osc\tsrc\tfrequency:float:60\tsync:float:0.1\toffset:float:0\n" \
+                   "noise\tsrc\tscale:float:10\toffset:float:0.1\n" \
                    "src\tsrc\ttex:sampler2D:\nmodulate\tcombineCoord\ttexture:vec4:\tamount:float:0.1\n"               \
                    "rotate\tcoord\tangle:float:10\tspeed:float:0\n"                                                 \
                    "initCam\tsource\tindex?:number:\tparams?:object:\n"                                         \
@@ -261,7 +266,8 @@ static void test_overlay_settings(const char *settings_file) {
 static const char *text_ending(const char *suffix) {
     for (size_t i = 0; i < drawn_text_count; i++) {
         size_t length = strlen(drawn_texts[i].text), suffix_length = strlen(suffix);
-        if (length >= suffix_length && !strcmp(drawn_texts[i].text + length - suffix_length, suffix)) return drawn_texts[i].text;
+        if (length >= suffix_length && !strcmp(drawn_texts[i].text + length - suffix_length, suffix))
+            return drawn_texts[i].text;
     }
     return "";
 }
@@ -494,7 +500,8 @@ static void expect_call(const char *text, const char *name, size_t argument, boo
         return;
     }
     if (strcmp(found->name, name) || call.argument != argument || call.direct != direct) {
-        fprintf(stderr, "in \"%s\": got %s argument %zu direct %d, expected %s argument %zu direct %d\n", text, found->name,
+        fprintf(stderr, "in \"%s\": got %s argument %zu direct %d, expected %s argument %zu direct %d\n", text,
+                found->name,
                 call.argument, call.direct, name, argument, direct);
         failures++;
     }
@@ -665,7 +672,8 @@ int main(void) {
     struct settings stored;
     settings_defaults(&stored);
     EXPECT(settings_save(&stored, settings_file, error, sizeof error));
-    write_file(settings_file, "{\n  \"fontSize\": 24,\n  \"theme\": \"mine\",\n  \"galleryServer\": \"http://127.0.0.1:9\",\n"
+    write_file(settings_file,
+               "{\n  \"fontSize\": 24,\n  \"theme\": \"mine\",\n  \"galleryServer\": \"http://127.0.0.1:9\",\n"
                               "  \"themes\": { \"mine\": { \"base\": \"solarized\", \"text\": \"#ff0000\" } },\n"
                               "  \"keybindings\": { \"join_lines\": \"Ctrl+Alt+J\" },\n"
                               "  \"somethingElse\": { \"kept\": [1, 2] }\n}\n");
@@ -743,7 +751,8 @@ int main(void) {
     key(SDLK_DELETE, SDL_KMOD_LCTRL | SDL_KMOD_LSHIFT);
     EXPECT_STRING(evaluated, "hush(); speed = 1");
     key(SDLK_RETURN, SDL_KMOD_LCTRL | SDL_KMOD_LALT);
-    EXPECT_STRING(evaluated, "\n \n // Type some code on a new line (such as \"osc().out()\"), and press CTRL+shift+enter");
+    EXPECT_STRING(evaluated,
+                  "\n \n // Type some code on a new line (such as \"osc().out()\"), and press CTRL+shift+enter");
     key(SDLK_F7, 0);
     EXPECT_STRING(evaluated, "noise().out()");
     key(SDLK_F8, 0);

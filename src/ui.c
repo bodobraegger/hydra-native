@@ -63,11 +63,13 @@ static const struct theme builtin_themes[] = {
       0xB5E655FFu, 0xA0A0A0FFu, 0x6FDCF2FFu, 0x000000D8u, 0xFF6B6BFFu, 0xE6E6E6FFu, 0x000000B8u, 0x101010F0u,
       0x3D6FD6FFu, 0x000000E0u, 0x6FDCF2FFu, 0x6FDCF2FFu, 0xFFFF00FFu, 0xFF9632FFu, 0x000000FFu, 0xF2F2F280u,
       { 0xFFD700FFu, 0xDA70D6FFu, 0x179FFFFFu }, 0xFFFFFF48u },
-    { "contrast", 0x000000FFu, 0x0050FFFFu, 0xFFFFFFA0u, 0xFFFFFF90u, 0xFFFF00FFu, 0xFFFFFFFFu, 0xFF5FFFFFu, 0xFFAF00FFu,
+    { "contrast", 0x000000FFu, 0x0050FFFFu, 0xFFFFFFA0u, 0xFFFFFF90u, 0xFFFF00FFu, 0xFFFFFFFFu, 0xFF5FFFFFu,
+      0xFFAF00FFu,
       0x5FFF5FFFu, 0xBCBCBCFFu, 0x5FFFFFFFu, 0x000000FFu, 0xFF3030FFu, 0xFFFFFFFFu, 0x000000FFu, 0x000000FFu,
       0x0050FFFFu, 0x000000F0u, 0x5FFFFFFFu, 0x5FFFFFFFu, 0xFFFF00FFu, 0xFF9632FFu, 0x000000FFu, 0xFFFFFF90u,
       { 0xFFFF00FFu, 0xFF5FFFFFu, 0x5FAFFFFFu }, 0xFFFFFF70u },
-    { "solarized", 0x002B36D0u, 0x268BD2A0u, 0xEEE8D570u, 0x93A1A160u, 0xEEE8D5FFu, 0x93A1A1FFu, 0x859900FFu, 0xD33682FFu,
+    { "solarized", 0x002B36D0u, 0x268BD2A0u, 0xEEE8D570u, 0x93A1A160u, 0xEEE8D5FFu, 0x93A1A1FFu, 0x859900FFu,
+      0xD33682FFu,
       0x2AA198FFu, 0x586E75FFu, 0x268BD2FFu, 0x002B36E8u, 0xDC322FFFu, 0xEEE8D5FFu, 0x073642D0u, 0x073642F0u,
       0x268BD2FFu, 0x002B36F0u, 0xB58900FFu, 0xB58900FFu, 0xB58900FFu, 0xCB4B16FFu, 0x002B36FFu, 0x93A1A180u,
       { 0xB58900FFu, 0x6C71C4FFu, 0x2AA198FFu }, 0x586E75A0u },
@@ -96,7 +98,8 @@ static const struct {
 } theme_color_names[] = {
 #define THEME_COLOR(json, field) { json, offsetof(struct theme, field) }
     THEME_COLOR("lineBackground", line_background), THEME_COLOR("selection", selection), THEME_COLOR("flash", flash),
-    THEME_COLOR("bracket", bracket), THEME_COLOR("cursor", cursor), THEME_COLOR("text", text), THEME_COLOR("keyword", keyword),
+    THEME_COLOR("bracket", bracket), THEME_COLOR("cursor", cursor), THEME_COLOR("text", text),
+    THEME_COLOR("keyword", keyword),
     THEME_COLOR("number", number), THEME_COLOR("string", string), THEME_COLOR("comment", comment),
     THEME_COLOR("function", function), THEME_COLOR("barBackground", bar_background), THEME_COLOR("error", error),
     THEME_COLOR("info", info), THEME_COLOR("toolbar", toolbar), THEME_COLOR("popupBackground", popup_background),
@@ -110,7 +113,8 @@ static const struct {
 // "#rrggbb" or "#rrggbbaa" as RGBA; false for other text.
 static bool parse_color(const char *text, uint32_t *color) {
     size_t length = strlen(text);
-    if (text[0] != '#' || (length != 7 && length != 9) || strspn(text + 1, "0123456789abcdefABCDEF") != length - 1) return false;
+    if (text[0] != '#' || (length != 7 && length != 9) || strspn(text + 1, "0123456789abcdefABCDEF") != length - 1)
+        return false;
     *color = (uint32_t)strtoul(text + 1, NULL, 16);
     if (length == 7) *color = *color << 8 | 0xFF;
     return true;
@@ -132,9 +136,11 @@ static void load_themes(const struct settings *settings, char *error, size_t siz
             uint32_t color, *target = NULL;
             if (!strcmp(pair->key, "brackets")) target = bracket < 3 ? &built->brackets[bracket++] : NULL;
             for (size_t n = 0; n < sizeof theme_color_names / sizeof theme_color_names[0] && !target; n++)
-                if (!strcmp(theme_color_names[n].name, pair->key)) target = (uint32_t *)((char *)built + theme_color_names[n].offset);
+                if (!strcmp(theme_color_names[n].name, pair->key))
+                    target = (uint32_t *)((char *)built + theme_color_names[n].offset);
             if (target && parse_color(pair->value, &color)) *target = color;
-            else if (!error[0]) snprintf(error, size, "theme %s: %s \"%s\" is no known color", custom->name, pair->key, pair->value);
+            else if (!error[0])
+                snprintf(error, size, "theme %s: %s \"%s\" is no known color", custom->name, pair->key, pair->value);
         }
         if (!find_theme(custom->name)) theme_count++;
         else if (!error[0]) snprintf(error, size, "theme %s: the name is taken", custom->name);
@@ -170,7 +176,8 @@ static const char *const share_confirmation[] = {
     "HYDRA SKETCH GALLERY",
     "///////////////////////////////////////",
     "\xF0\x9F\x8E\xA8 Add your sketch to the gallery of hydra sketches at https://botsin.space/@hydra.",
-    "\xE2\x9C\x8D\xEF\xB8\x8F Type your name, mastodon handle, or a short description below, and then press 'OK' to share.",
+    "\xE2\x9C\x8D\xEF\xB8\x8F Type your name, mastodon handle, or a short description below, and then press 'OK' to "
+        "share.",
     "\xE2\x80\xBC\xEF\xB8\x8F Make sure you are ready to share - there is no undo button!",
     "\xF0\x9F\x92\x96 Thank you for sharing! You are also warmly invited to join the the live coding server on the "
     "fediverse at https://social.toplap.org/.",
@@ -763,12 +770,15 @@ static enum receiver receiver_before(size_t dot) {
         while (name_end > 0 && isspace((unsigned char)text[name_end - 1])) name_end--;
         size_t name_start = name_end;
         while (name_start > 0 && is_identifier_char((unsigned char)text[name_start - 1])) name_start--;
-        const struct signature *called = signature_find(signatures, signature_count, text + name_start, name_end - name_start);
-        return called && (signature_is_source(called) || signature_is_chained(called)) ? RECEIVER_CHAIN : RECEIVER_OTHER;
+        const struct signature *called =
+            signature_find(signatures, signature_count, text + name_start, name_end - name_start);
+        return called &&
+            (signature_is_source(called) || signature_is_chained(called)) ? RECEIVER_CHAIN : RECEIVER_OTHER;
     }
     size_t start = end;
     while (start > 0 && is_identifier_char((unsigned char)text[start - 1])) start--;
-    if (end - start == 2 && text[start] == 's' && text[start + 1] >= '0' && text[start + 1] <= '3') return RECEIVER_SOURCE;
+    if (end - start == 2 && text[start] == 's' && text[start + 1] >= '0' && text[start + 1] <= '3')
+        return RECEIVER_SOURCE;
     if (end - start == 1 && text[start] == 'a') return RECEIVER_AUDIO;
     return RECEIVER_OTHER;
 }
@@ -825,8 +835,10 @@ static bool open_typed_completion(const char *prefix, size_t length, size_t star
         if (!starts_with(helper, prefix, length)) continue;
         char insert[MAX_SNIPPET];
         size_t helper_length = strlen(helper);
-        bool indexed = helper_length >= 2 && (!strcmp(helper + helper_length - 2, "[]") || !strcmp(helper + helper_length - 2, "()"));
-        snprintf(insert, sizeof insert, "%s%.*s%s%s", in_arrow ? "" : "() => ", (int)(indexed ? helper_length - 1 : helper_length),
+        bool indexed = helper_length >= 2 &&
+            (!strcmp(helper + helper_length - 2, "[]") || !strcmp(helper + helper_length - 2, "()"));
+        snprintf(insert, sizeof insert, "%s%.*s%s%s", in_arrow ? "" : "() => ",
+                 (int)(indexed ? helper_length - 1 : helper_length),
                  helper, indexed ? "${0}" : "", indexed ? helper + helper_length - 1 : "");
         add_completion(helper, helper_length, insert);
     }
@@ -853,7 +865,8 @@ static void open_completion(bool forced) {
         while (before > 0 && (editor.text[before - 1] == ' ' || editor.text[before - 1] == '\t')) before--;
         bool statement_start = before == 0 || strchr("\n;{}", editor.text[before - 1]) != NULL;
         char *names = after_dot ? NULL : host.call("__completionNames", "");
-        for (char *name = names ? strtok(names, "\n") : NULL; name && completion.count < completion.limit; name = strtok(NULL, "\n")) {
+        for (char *name = names ? strtok(names, "\n") : NULL; name &&
+             completion.count < completion.limit; name = strtok(NULL, "\n")) {
             const struct signature *named = signature_find(signatures, signature_count, name, strlen(name));
             if (statement_start && named && signature_is_chained(named)) continue;
             if (strlen(name) > length && !strncmp(name, prefix, length)) add_completion(name, strlen(name), NULL);
@@ -912,7 +925,9 @@ static void open_prompt(enum prompt_kind kind) {
 
 static void set_server(const char *url);
 
-static char *prompt_field(void) { return prompt.kind == PROMPT_REPLACE && prompt.field == 1 ? prompt.replacement : prompt.query; }
+static char *prompt_field(void) {
+    return prompt.kind == PROMPT_REPLACE && prompt.field == 1 ? prompt.replacement : prompt.query;
+}
 
 static bool find_open(void) { return prompt.kind == PROMPT_FIND || prompt.kind == PROMPT_REPLACE; }
 
@@ -969,7 +984,9 @@ static void accept_prompt(int direction) {
     case PROMPT_FIND: find(direction); break;
     case PROMPT_REPLACE:
         if (prompt.field == 0) find(direction);
-        else editor_replace_next(&editor, prompt.query, strlen(prompt.query), prompt.replacement, strlen(prompt.replacement), true);
+        else
+            editor_replace_next(&editor, prompt.query, strlen(prompt.query), prompt.replacement,
+                                strlen(prompt.replacement), true);
         break;
     case PROMPT_GO_TO_LINE: {
         long line = atol(prompt.query);
@@ -993,7 +1010,8 @@ static void accept_prompt(int direction) {
         break;
     case PROMPT_SHARE:
         prompt.kind = PROMPT_NONE;
-        if (!host.share(editor.text, prompt.query)) ui_show_message("no gallery server: choose one in the settings (Ctrl+,)", true);
+        if (!host.share(editor.text, prompt.query))
+            ui_show_message("no gallery server: choose one in the settings (Ctrl+,)", true);
         else ui_show_message("sharing with the gallery...", false);
         break;
     case PROMPT_PALETTE: {
@@ -1069,8 +1087,10 @@ static int code_background_percent(void) {
 // is below), with the alpha of the theme or of "codeBackgroundOpacity".
 static uint32_t code_background_color(void) {
     int opacity = settings.code_background_opacity;
-    uint32_t alpha = opacity == SETTINGS_THEME_OPACITY ? theme->line_background & 0xFFu : (uint32_t)(opacity * 255 + 50) / 100;
-    uint32_t rgb = settings.code_background_blend == CODE_BLEND_DIFFERENCE ? 0xFFFFFF00u : theme->line_background & 0xFFFFFF00u;
+    uint32_t alpha = opacity == SETTINGS_THEME_OPACITY ? theme->line_background & 0xFFu
+        : (uint32_t)(opacity * 255 + 50) / 100;
+    uint32_t rgb = settings.code_background_blend == CODE_BLEND_DIFFERENCE ? 0xFFFFFF00u
+        : theme->line_background & 0xFFFFFF00u;
     return rgb | alpha;
 }
 
@@ -1313,7 +1333,8 @@ static void prompt_backspace(void) {
 static void run_command_body(enum command command, bool extend);
 
 static bool is_completion_command(enum command command) {
-    return command == COMMAND_TRIGGER_COMPLETION || command == COMMAND_COMPLETION_NEXT || command == COMMAND_COMPLETION_PREVIOUS ||
+    return command == COMMAND_TRIGGER_COMPLETION || command == COMMAND_COMPLETION_NEXT ||
+        command == COMMAND_COMPLETION_PREVIOUS ||
            command == COMMAND_COMPLETION_ACCEPT;
 }
 
@@ -1440,7 +1461,8 @@ static void run_command_body(enum command command, bool extend) {
         return;
     case COMMAND_TOGGLE_AUTOCOMPLETE_TRIGGER:
         set_autocomplete(settings.autocomplete_style,
-                         settings.autocomplete_trigger == AUTOCOMPLETE_MANUAL ? AUTOCOMPLETE_TYPING : AUTOCOMPLETE_MANUAL);
+                         settings.autocomplete_trigger == AUTOCOMPLETE_MANUAL ? AUTOCOMPLETE_TYPING
+                         : AUTOCOMPLETE_MANUAL);
         return;
     case COMMAND_SELECT_NEXT_OCCURRENCE: editor_select_next_occurrence(&editor); break;
     case COMMAND_FIND: open_prompt(PROMPT_FIND); break;
@@ -1511,7 +1533,9 @@ static void run_command_body(enum command command, bool extend) {
         break;
     case COMMAND_TRIGGER_COMPLETION: open_completion(true); break;
     case COMMAND_COMPLETION_NEXT: completion.selected = (completion.selected + 1) % completion.count; return;
-    case COMMAND_COMPLETION_PREVIOUS: completion.selected = (completion.selected + completion.count - 1) % completion.count; return;
+    case COMMAND_COMPLETION_PREVIOUS:
+        completion.selected = (completion.selected + completion.count - 1) % completion.count;
+        return;
     case COMMAND_COMPLETION_ACCEPT: accept_completion(); break;
     case COMMAND_SIGNATURE_HELP: {
         struct call_context call;
@@ -1539,7 +1563,9 @@ static void run_command_body(enum command command, bool extend) {
     case COMMAND_PROMPT_DOWN: if (prompt.palette_index > 0) prompt.palette_index--; return;
     case COMMAND_PROMPT_BACKSPACE: prompt_backspace(); break;
     case COMMAND_REPLACE_ALL: {
-        size_t count = editor_replace_all(&editor, prompt.query, strlen(prompt.query), prompt.replacement, strlen(prompt.replacement), true);
+        size_t count =
+            editor_replace_all(&editor, prompt.query, strlen(prompt.query), prompt.replacement,
+                               strlen(prompt.replacement), true);
         char text[64];
         snprintf(text, sizeof text, "%zu replaced", count);
         ui_show_message(text, false);
@@ -1652,11 +1678,13 @@ struct toolbar_item {
 static const struct toolbar_item toolbar[] = {
     { "run", "toolbar.run", COMMAND_EVAL_ALL, COMMAND_EVAL_ALL, COMMAND_EVAL_ALL },
     { "clear", "toolbar.clear", COMMAND_CLEAR_ALL, COMMAND_CLEAR_ALL, COMMAND_CLEAR_ALL },
-    { "extensions", "toolbar.load-extension", COMMAND_TOGGLE_EXTENSIONS, COMMAND_TOGGLE_EXTENSIONS, COMMAND_TOGGLE_EXTENSIONS },
+    { "extensions", "toolbar.load-extension", COMMAND_TOGGLE_EXTENSIONS, COMMAND_TOGGLE_EXTENSIONS,
+      COMMAND_TOGGLE_EXTENSIONS },
     { "example", "toolbar.shuffle", COMMAND_SHOW_EXAMPLE, COMMAND_SHOW_EXAMPLE, COMMAND_SHOW_EXAMPLE },
     { "mutate", "toolbar.random", COMMAND_MUTATE, COMMAND_MUTATE_UNDO, COMMAND_MUTATE_TRANSFORM },
     { "share", "toolbar.upload", COMMAND_GALLERY_SHARE, COMMAND_GALLERY_SHARE, COMMAND_GALLERY_SHARE },
-    { "settings", NULL, COMMAND_TOGGLE_SETTINGS, COMMAND_TOGGLE_SETTINGS, COMMAND_TOGGLE_SETTINGS }, // not in the web editor
+    // not in the web editor
+    { "settings", NULL, COMMAND_TOGGLE_SETTINGS, COMMAND_TOGGLE_SETTINGS, COMMAND_TOGGLE_SETTINGS },
     { "?", "toolbar.show-info", COMMAND_TOGGLE_INFO, COMMAND_TOGGLE_HELP, COMMAND_TOGGLE_HELP },
 };
 #define TOOLBAR_COUNT (sizeof toolbar / sizeof toolbar[0])
@@ -1685,8 +1713,10 @@ static bool toolbar_click(float x, float y, SDL_Keymod modifiers) {
         float width, left = toolbar_x(i, &width);
         if (x < left || x > left + width) continue;
         const struct toolbar_item *item = &toolbar[i];
-        run_command(modifiers & SDL_KMOD_SHIFT ? item->with_shift : modifiers & SDL_KMOD_CTRL ? item->with_ctrl : item->command,
-                    false);
+        enum command command = item->command;
+        if (modifiers & SDL_KMOD_CTRL) command = item->with_ctrl;
+        if (modifiers & SDL_KMOD_SHIFT) command = item->with_shift;
+        run_command(command, false);
         return true;
     }
     return false;
@@ -1706,14 +1736,16 @@ static void draw_toolbar(void) {
         bool hover = pointer_y >= MARGIN && pointer_y <= MARGIN + overlay_line_height() && pointer_x >= x &&
                      pointer_x <= x + width;
         if (!hover) continue;
-        const char *title = toolbar[i].command == COMMAND_TOGGLE_INFO && info_visible ? "toolbar.hide-info" : toolbar[i].title;
+        const char *title = toolbar[i].command == COMMAND_TOGGLE_INFO &&
+            info_visible ? "toolbar.hide-info" : toolbar[i].title;
         char *text = title ? host.call("__translate", title) : strdup(command_description(toolbar[i].command));
         if (!text) continue;
         float tooltip_width = overlay_text_shaped_width(text, strlen(text), false);
         float left = x + width - tooltip_width;
         if (left < MARGIN) left = MARGIN;
         float top = MARGIN + overlay_line_height() + TEXT_PADDING;
-        overlay_rect(left - TEXT_PADDING, top, tooltip_width + 2 * TEXT_PADDING, overlay_line_height(), theme->popup_background);
+        overlay_rect(left - TEXT_PADDING, top, tooltip_width + 2 * TEXT_PADDING, overlay_line_height(),
+                     theme->popup_background);
         overlay_text_shaped(left, top, text, strlen(text), false, theme->text);
         free(text);
     }
@@ -1744,7 +1776,8 @@ static bool starts_wide(const char *text) {
 
 // Breaks a paragraph into lines of at most `width` pixels of shaped text: at spaces, and between characters of
 // scripts without spaces (Japanese, Chinese). Calls `line` for each line.
-static void wrap_shaped(const char *text, float width, bool rtl, void (*line)(const char *text, size_t length, void *data),
+static void wrap_shaped(const char *text, float width, bool rtl,
+                        void (*line)(const char *text, size_t length, void *data),
                         void *data) {
     size_t length = strlen(text), start = 0, end = 0;
     while (start < length) {
@@ -1856,7 +1889,8 @@ static void draw_extensions(void) {
     if (!panel) return;
     float x = left + char_width, y = top + line_height / 2;
     size_t entry = 0, row = 0, rows = (size_t)((height - 2 * line_height) / line_height);
-    float thumbnail_size = (EXTENSION_ROWS - 0.5f) * line_height, text_left = left + char_width + thumbnail_size + char_width;
+    float thumbnail_size = (EXTENSION_ROWS - 0.5f) * line_height,
+        text_left = left + char_width + thumbnail_size + char_width;
     size_t text_columns = (size_t)((left + width - text_left) / char_width) - 1;
     char *saveptr;
     for (char *line = strtok_r(panel, "\n", &saveptr); line; line = strtok_r(NULL, "\n", &saveptr)) {
@@ -1871,10 +1905,11 @@ static void draw_extensions(void) {
             x = panel_label(x, y, fields[1], fields[2][0] == '1', ACTION_EXTENSION_CATEGORY, (int)entry++, 0);
         } else if (!strcmp(fields[0], "state") && count >= 2) {
             entry = 0;
-            const char *state = !strcmp(fields[1], "loading") ? "loading the list from github..."
-                                : !strcmp(fields[1], "failed") ? "cannot load the list: hydra-native needs the network for it"
-                                                                : "";
-            overlay_text(left + char_width, y + 1.5f * line_height, state, strlen(state), 0, text_columns, NULL, theme->info);
+            const char *state = "";
+            if (!strcmp(fields[1], "loading")) state = "loading the list from github...";
+            if (!strcmp(fields[1], "failed")) state = "cannot load the list: hydra-native needs the network for it";
+            overlay_text(left + char_width, y + 1.5f * line_height, state, strlen(state), 0, text_columns, NULL,
+                         theme->info);
             row = 1;
         } else if (!strcmp(fields[0], "entry") && count >= 5) {
             int index = (int)entry++;
@@ -1886,7 +1921,8 @@ static void draw_extensions(void) {
             char title[512];
             snprintf(title, sizeof title, "%s - %s", fields[1], fields[2]);
             overlay_text(text_left, entry_top, title, strlen(title), 0, text_columns, NULL, theme->help_keys);
-            overlay_text(text_left, entry_top + line_height, fields[3], strlen(fields[3]), 0, text_columns, NULL, theme->text);
+            overlay_text(text_left, entry_top + line_height, fields[3], strlen(fields[3]), 0, text_columns, NULL,
+                         theme->text);
             float button_y = entry_top + 2 * line_height;
             float button_x = panel_label(text_left, button_y, "+", false, ACTION_EXTENSION_ADD, index, 0);
             button_x = panel_label(button_x, button_y, "docs", false, ACTION_EXTENSION_DOCS, index, 0);
@@ -1906,7 +1942,8 @@ static void draw_extensions(void) {
 static void run_extension_action(const struct panel_button *button) {
     char index[32];
     char *result = NULL;
-    if (button->action == ACTION_EXTENSION_EXAMPLE) snprintf(index, sizeof index, "%d %d", button->argument, button->second);
+    if (button->action == ACTION_EXTENSION_EXAMPLE)
+        snprintf(index, sizeof index, "%d %d", button->argument, button->second);
     else snprintf(index, sizeof index, "%d", button->argument);
     if (button->action == ACTION_EXTENSION_CATEGORY) {
         info_scroll = 0;
@@ -1980,7 +2017,8 @@ static void load_font_choices(void) {
         *file++ = '\0';
         const char *extension = strrchr(file, '.');
         if (strstr(line, "Emoji")) continue; // color glyphs only, no code font
-        if (!extension || (strcasecmp(extension, ".ttf") && strcasecmp(extension, ".otf") && strcasecmp(extension, ".ttc"))) continue;
+        if (!extension ||
+            (strcasecmp(extension, ".ttf") && strcasecmp(extension, ".otf") && strcasecmp(extension, ".ttc"))) continue;
         bool regular = !strcmp(style, "Regular") || !strcmp(style, "Book") || !strcmp(style, "Roman");
         size_t i = 0;
         while (i < font_choice_count && strcmp(font_choices[i].family, line)) i++;
@@ -2064,7 +2102,8 @@ static void flow_text_in(const struct panel_flow *flow, float x, const char *tex
         return;
     }
     overlay_text(x, flow_text_y(flow), "...", 3, 0, 3, NULL, color);
-    overlay_text(x + 3 * overlay_char_width(), flow_text_y(flow), text, length, text_columns - (columns - 3), columns - 3,
+    overlay_text(x + 3 * overlay_char_width(), flow_text_y(flow), text, length, text_columns - (columns - 3),
+                 columns - 3,
                  NULL, color);
 }
 
@@ -2083,7 +2122,8 @@ static float flow_place(struct panel_flow *flow, const char *text, size_t *colum
     return x;
 }
 
-static void flow_button(struct panel_flow *flow, const char *text, bool selected, enum panel_action action, int argument,
+static void flow_button(struct panel_flow *flow, const char *text, bool selected, enum panel_action action,
+                        int argument,
                         int second) {
     size_t columns;
     float x = flow_place(flow, text, &columns), width = (float)columns * overlay_char_width();
@@ -2093,12 +2133,14 @@ static void flow_button(struct panel_flow *flow, const char *text, bool selected
     add_panel_button(x, flow->y, width, flow->height, action, argument, second);
 }
 
-static void flow_label(struct panel_flow *flow, const char *text, bool selected, enum panel_action action, int argument) {
+static void flow_label(struct panel_flow *flow, const char *text, bool selected, enum panel_action action,
+                       int argument) {
     flow_button(flow, text, selected, action, argument, 0);
 }
 
 // The two choices of a switch.
-static void flow_switch(struct panel_flow *flow, const char *on, const char *off, bool value, enum panel_action action) {
+static void flow_switch(struct panel_flow *flow, const char *on, const char *off, bool value,
+                        enum panel_action action) {
     flow_label(flow, on, value, action, 1);
     flow_label(flow, off, !value, action, 0);
 }
@@ -2174,9 +2216,11 @@ static void draw_settings(void) {
         flow_label_disabled(&flow, "off", !settings.watch);
     }
     flow_row(&flow, label_x, "theme");
-    for (size_t i = 0; i < theme_count; i++) flow_label(&flow, themes[i].name, theme == &themes[i], ACTION_THEME, (int)i);
+    for (size_t i = 0; i < theme_count; i++)
+        flow_label(&flow, themes[i].name, theme == &themes[i], ACTION_THEME, (int)i);
     flow_row(&flow, label_x, "autocomplete");
-    flow_label(&flow, "list", settings.autocomplete_style == AUTOCOMPLETE_LIST, ACTION_AUTOCOMPLETE_STYLE, AUTOCOMPLETE_LIST);
+    flow_label(&flow, "list", settings.autocomplete_style == AUTOCOMPLETE_LIST, ACTION_AUTOCOMPLETE_STYLE,
+               AUTOCOMPLETE_LIST);
     flow_label(&flow, "ghost text", settings.autocomplete_style == AUTOCOMPLETE_GHOST, ACTION_AUTOCOMPLETE_STYLE,
                AUTOCOMPLETE_GHOST);
     flow_row(&flow, label_x, " \xE2\x94\x9C list opacity");
@@ -2189,16 +2233,20 @@ static void draw_settings(void) {
     flow_row(&flow, label_x, " \xE2\x94\x94 signatures");
     flow_label(&flow, "Ctrl+Shift+Space", settings.signature_help == SIGNATURE_HELP_MANUAL, ACTION_SIGNATURE_HELP,
                SIGNATURE_HELP_MANUAL);
-    flow_label(&flow, "on (", settings.signature_help == SIGNATURE_HELP_PAREN, ACTION_SIGNATURE_HELP, SIGNATURE_HELP_PAREN);
+    flow_label(&flow, "on (", settings.signature_help == SIGNATURE_HELP_PAREN, ACTION_SIGNATURE_HELP,
+               SIGNATURE_HELP_PAREN);
     flow_row(&flow, label_x, "code display");
     flow_row(&flow, label_x, " \xE2\x94\x9C background opacity");
     flow_number(&flow, NUMBER_OPACITY);
     flow_row(&flow, label_x, " \xE2\x94\x9C background blend");
-    flow_label(&flow, "normal", settings.code_background_blend == CODE_BLEND_NORMAL, ACTION_BACKGROUND_BLEND, CODE_BLEND_NORMAL);
-    flow_label(&flow, "difference", settings.code_background_blend == CODE_BLEND_DIFFERENCE, ACTION_BACKGROUND_BLEND, CODE_BLEND_DIFFERENCE);
+    flow_label(&flow, "normal", settings.code_background_blend == CODE_BLEND_NORMAL, ACTION_BACKGROUND_BLEND,
+               CODE_BLEND_NORMAL);
+    flow_label(&flow, "difference", settings.code_background_blend == CODE_BLEND_DIFFERENCE, ACTION_BACKGROUND_BLEND,
+               CODE_BLEND_DIFFERENCE);
     flow_row(&flow, label_x, " \xE2\x94\x94 text blend");
     flow_label(&flow, "normal", settings.code_text_blend == CODE_BLEND_NORMAL, ACTION_TEXT_BLEND, CODE_BLEND_NORMAL);
-    flow_label(&flow, "difference", settings.code_text_blend == CODE_BLEND_DIFFERENCE, ACTION_TEXT_BLEND, CODE_BLEND_DIFFERENCE);
+    flow_label(&flow, "difference", settings.code_text_blend == CODE_BLEND_DIFFERENCE, ACTION_TEXT_BLEND,
+               CODE_BLEND_DIFFERENCE);
     flow_row(&flow, label_x, "code at start");
     flow_switch(&flow, "shown", "hidden", settings.code_visible, ACTION_CODE_AT_START);
     flow_text(&flow, "(next start)", theme->help_keys);
@@ -2236,7 +2284,8 @@ static void draw_settings(void) {
     flow_number(&flow, NUMBER_AUDIO_GAIN);
     flow_row(&flow, label_x, "language");
     for (size_t i = 0; i < language_choice_count; i++)
-        flow_label(&flow, language_choices[i].name, !strcmp(selected_language, language_choices[i].code), ACTION_LANGUAGE,
+        flow_label(&flow, language_choices[i].name, !strcmp(selected_language, language_choices[i].code),
+                   ACTION_LANGUAGE,
                    (int)i);
     flow_label(&flow, settings.l10n_url[0] ? settings.l10n_url : "translation URL...", false, ACTION_L10N_URL, 0);
     flow_row(&flow, label_x, "font size");
@@ -2271,7 +2320,8 @@ static void run_settings_action(const struct panel_button *button) {
     int argument = button->argument;
     size_t index = (size_t)argument;
     if (button->action == ACTION_EDIT_NUMBER) {
-        if (!number_field.open || number_field.kind != (enum number_kind)argument) open_number_field((enum number_kind)argument);
+        if (!number_field.open || number_field.kind != (enum number_kind)argument)
+            open_number_field((enum number_kind)argument);
         return;
     }
     number_field.open = false; // a click on another button leaves the field without a change
@@ -2286,10 +2336,13 @@ static void run_settings_action(const struct panel_button *button) {
         host.choose_file(false);
         return;
     case ACTION_THEME: set_theme(&themes[index]); return;
-    case ACTION_AUTOCOMPLETE_STYLE: set_autocomplete((enum autocomplete_style)argument, settings.autocomplete_trigger); return;
-    case ACTION_AUTOCOMPLETE_TRIGGER: set_autocomplete(settings.autocomplete_style, (enum autocomplete_trigger)argument); return;
+    case ACTION_AUTOCOMPLETE_STYLE: set_autocomplete((enum autocomplete_style)argument,
+                                                     settings.autocomplete_trigger); return;
+    case ACTION_AUTOCOMPLETE_TRIGGER: set_autocomplete(settings.autocomplete_style,
+                                                       (enum autocomplete_trigger)argument); return;
     case ACTION_SIGNATURE_HELP: set_signature_help((enum signature_help)argument); return;
-    case ACTION_STEP_NUMBER: set_number((enum number_kind)argument, number_value((enum number_kind)argument) + button->second); return;
+    case ACTION_STEP_NUMBER: set_number((enum number_kind)argument,
+                                        number_value((enum number_kind)argument) + button->second); return;
     case ACTION_SERVER_OFF: set_server(""); return;
     case ACTION_SERVER_WEB_EDITOR: set_server(WEB_EDITOR_SERVER); return;
     case ACTION_SERVER_CUSTOM:
@@ -2350,7 +2403,9 @@ static bool settings_click(float x, float y) {
 static void draw_help(int width, int height) {
     overlay_rect(0, 0, (float)width, (float)height, theme->help_background);
     float line_height = overlay_line_height(), char_width = overlay_char_width();
-    const char *title = "hydra-native: live coding with hydra-synth. F1 or Escape closes this help. [name]: for \"keybindings\" in settings.json";
+    const char *title =
+        "hydra-native: live coding with hydra-synth. F1 or Escape closes this help. [name]: for \"keybindings\" in "
+            "settings.json";
     overlay_text(MARGIN, MARGIN, title, strlen(title), 0, visible_columns(), NULL, theme->text);
     size_t rows = (size_t)(((float)height - 3 * MARGIN - line_height) / line_height);
     if (rows == 0) rows = 1;
@@ -2543,17 +2598,20 @@ static void column_rect(float y, size_t from, size_t to, uint32_t color) {
 static size_t text_columns(const char *text) { return overlay_text_columns(text, strlen(text)); }
 
 // The bar at the bottom; the columns [selected_from, selected_to) of the text get the selection color.
-static void draw_bar(int width, int height, const char *text, uint32_t color, size_t selected_from, size_t selected_to) {
+static void draw_bar(int width, int height, const char *text, uint32_t color, size_t selected_from,
+                     size_t selected_to) {
     float y = (float)height - bar_height();
     overlay_rect(0, y, (float)width, bar_height(), theme->bar_background);
     if (selected_to > selected_from)
         overlay_rect(MARGIN + (float)selected_from * overlay_char_width(), y + BAR_PADDING,
-                     (float)(selected_to - selected_from) * overlay_char_width(), overlay_line_height(), theme->selection);
+                     (float)(selected_to - selected_from) * overlay_char_width(), overlay_line_height(),
+                     theme->selection);
     overlay_text(MARGIN, y + BAR_PADDING, text, strlen(text), 0, visible_columns(), NULL, color);
 }
 
 // editor.renderWhitespace of VS Code: whether the space or tab at `offset` shows.
-static bool whitespace_shown(size_t line_start, size_t line_end, size_t offset, const struct selection *selections, size_t selection_count) {
+static bool whitespace_shown(size_t line_start, size_t line_end, size_t offset, const struct selection *selections,
+                             size_t selection_count) {
     switch (settings.render_whitespace) {
     case WHITESPACE_NONE: return false;
     case WHITESPACE_ALL: return true;
@@ -2588,14 +2646,17 @@ static void draw_whitespace(size_t column, float y, bool tab) {
 }
 
 // Rectangles over the cells of a right-to-left row whose text starts in [start, end).
-static void cell_rects(float y, const struct editor_cell *cells, size_t count, size_t start, size_t end, uint32_t color) {
+static void cell_rects(float y, const struct editor_cell *cells, size_t count, size_t start, size_t end,
+                       uint32_t color) {
     for (size_t i = 0; i < count; i++)
-        if (cells[i].start >= start && cells[i].start < end) column_rect(y, cells[i].column, cells[i].column + cells[i].width, color);
+        if (cells[i].start >= start && cells[i].start < end)
+            column_rect(y, cells[i].column, cells[i].column + cells[i].width, color);
 }
 
 // A row with right-to-left text, drawn in the visual order of the full bidi algorithm, as the browser draws the
 // line of CodeMirror 5: left-to-right runs on the grid, right-to-left runs shaped (Arabic joins) in their cells.
-static void draw_bidi_row(size_t line, size_t row_start, size_t row_end, size_t indent, float y, const struct selection *selections,
+static void draw_bidi_row(size_t line, size_t row_start, size_t row_end, size_t indent, float y,
+                          const struct selection *selections,
                           size_t selection_count, long bracket, long bracket_self) {
     size_t line_start = editor_line_start(&editor, line);
     bool last_row = row_end == editor_line_end(&editor, line);
@@ -2611,10 +2672,12 @@ static void draw_bidi_row(size_t line, size_t row_start, size_t row_end, size_t 
         size_t start = selection_start(&selections[i]), end = selection_end(&selections[i]);
         if (start == end) continue;
         cell_rects(y, cells, count, start, end, theme->selection);
-        if (last_row && end > row_end && start <= row_end) column_rect(y, indent + row_columns, indent + row_columns + 1, theme->selection);
+        if (last_row && end > row_end && start <= row_end)
+            column_rect(y, indent + row_columns, indent + row_columns + 1, theme->selection);
     }
     for (size_t i = 0; i < match_count; i++)
-        cell_rects(y, cells, count, matches[i].start, matches[i].end, i == active_match ? theme->match_active : theme->match);
+        cell_rects(y, cells, count, matches[i].start, matches[i].end,
+                   i == active_match ? theme->match_active : theme->match);
     if (bracket >= 0)
         for (int k = 0; k < 2; k++) {
             size_t position = (size_t)(k ? bracket_self : bracket);
@@ -2622,7 +2685,8 @@ static void draw_bidi_row(size_t line, size_t row_start, size_t row_end, size_t 
         }
     for (size_t i = 0; i < count; i++) {
         char c = editor.text[cells[i].start];
-        if ((c == ' ' || c == '\t') && whitespace_shown(line_start, editor_line_end(&editor, line), cells[i].start, selections, selection_count))
+        if ((c == ' ' || c == '\t') &&
+            whitespace_shown(line_start, editor_line_end(&editor, line), cells[i].start, selections, selection_count))
             draw_whitespace(cells[i].column, y, c == '\t');
     }
     overlay_set_layer(OVERLAY_CODE_TEXT);
@@ -2637,9 +2701,11 @@ static void draw_bidi_row(size_t line, size_t row_start, size_t row_end, size_t 
         if (column >= scroll_column) {
             float x = MARGIN + (float)(column - scroll_column) * overlay_char_width();
             if (cells[i].level % 2)
-                overlay_text_fitted(x, y, editor.text + first, last - first, (float)width * overlay_char_width(), colors[first - line_start]);
+                overlay_text_fitted(x, y, editor.text + first, last - first, (float)width * overlay_char_width(),
+                                    colors[first - line_start]);
             else
-                overlay_text(x, y, editor.text + first, last - first, 0, width, colors + (first - line_start), theme->text);
+                overlay_text(x, y, editor.text + first, last - first, 0, width, colors + (first - line_start),
+                             theme->text);
         }
         i = end;
     }
@@ -2656,11 +2722,13 @@ static void draw_row(size_t line, size_t row_start, size_t row_end, size_t inden
     size_t row_columns = columns_between(row_start, row_end);
     bool last_row = row_end == editor_line_end(&editor, line);
     size_t limit = scroll_column + visible_columns();
-    size_t from = indent > scroll_column ? indent : scroll_column, to = indent + row_columns < limit ? indent + row_columns : limit;
+    size_t from = indent > scroll_column ? indent : scroll_column,
+        to = indent + row_columns < limit ? indent + row_columns : limit;
     overlay_set_layer(OVERLAY_CODE_BACKGROUND);
     if (row_columns > 0 && to > from) {
         float x = MARGIN + (float)(from - scroll_column) * overlay_char_width();
-        overlay_rect(x - TEXT_PADDING, y, (float)(to - from) * overlay_char_width() + 2 * TEXT_PADDING, overlay_line_height(),
+        overlay_rect(x - TEXT_PADDING, y, (float)(to - from) * overlay_char_width() + 2 * TEXT_PADDING,
+                     overlay_line_height(),
                      code_background_color());
     }
     overlay_set_layer(OVERLAY_CODE_MARKS);
@@ -2760,7 +2828,8 @@ static void draw_code(void) {
     // Bookmarks: a mark in the left margin of the first row of the line.
     for (size_t i = 0; i < editor.bookmark_count; i++) {
         size_t line = editor.bookmarks[i];
-        if (line >= layout.line_count || layout.first_row[line] < scroll_row || layout.first_row[line] >= scroll_row + rows)
+        if (line >= layout.line_count || layout.first_row[line] < scroll_row ||
+            layout.first_row[line] >= scroll_row + rows)
             continue;
         overlay_rect(MARGIN / 4, MARGIN + (float)(layout.first_row[line] - scroll_row) * line_height + line_height / 4,
                      MARGIN / 2, line_height / 2, theme->bookmark);
@@ -2790,7 +2859,8 @@ static void draw_completion_list(void) {
     for (size_t i = 0; i < completion.count; i++)
         if (strlen(completion.items[i]) > width) width = strlen(completion.items[i]);
     float box_width = (float)(width + 2) * char_width, box_height = (float)completion.count * line_height;
-    size_t word_column = x - scroll_column > completion.prefix_length ? x - scroll_column - completion.prefix_length : 0;
+    size_t word_column = x - scroll_column > completion.prefix_length ? x - scroll_column - completion.prefix_length
+        : 0;
     float left = MARGIN + (float)word_column * char_width - char_width; // the text starts one column into the box
     if (left < 0) left = 0;
     float top = MARGIN + (float)(row - scroll_row + 1) * line_height;
@@ -2799,9 +2869,11 @@ static void draw_completion_list(void) {
     overlay_rect(left, top, box_width, box_height, completion_color(COMPLETION_BOX_RGB, 0xFF));
     overlay_set_layer(OVERLAY_POPUP_TEXT);
     overlay_rect(left, top, box_width, box_height, completion_color(0, COMPLETION_SCRIM_ALPHA));
-    overlay_rect(left, top + (float)completion.selected * line_height, box_width, line_height, COMPLETION_SELECTED_COLOR);
+    overlay_rect(left, top + (float)completion.selected * line_height, box_width, line_height,
+                 COMPLETION_SELECTED_COLOR);
     for (size_t i = 0; i < completion.count; i++)
-        overlay_text(left + char_width, top + (float)i * line_height, completion.items[i], strlen(completion.items[i]), 0,
+        overlay_text(left + char_width, top + (float)i * line_height, completion.items[i], strlen(completion.items[i]),
+                     0,
                      width, NULL, COMPLETION_TEXT_COLOR);
     overlay_set_layer(OVERLAY_TOP);
 }
@@ -2810,9 +2882,11 @@ static void draw_completion_ghost(void) {
     size_t x, row = global_caret_row(editor.cursor, editor.sticky, &x);
     if (row < scroll_row || row >= scroll_row + visible_rows() || x < scroll_column) return;
     const char *rest = completion.items[completion.selected] + completion.prefix_length;
-    float left = MARGIN + (float)(x - scroll_column) * overlay_char_width(), top = MARGIN + (float)(row - scroll_row) * overlay_line_height();
+    float left = MARGIN + (float)(x - scroll_column) * overlay_char_width(),
+        top = MARGIN + (float)(row - scroll_row) * overlay_line_height();
     size_t columns = overlay_text_columns(rest, strlen(rest));
-    overlay_rect(left, top, (float)columns * overlay_char_width() + TEXT_PADDING, overlay_line_height(), theme->line_background);
+    overlay_rect(left, top, (float)columns * overlay_char_width() + TEXT_PADDING, overlay_line_height(),
+                 theme->line_background);
     overlay_text(left, top, rest, strlen(rest), 0, visible_columns() - (x - scroll_column), NULL, theme->ghost);
 }
 
@@ -2832,7 +2906,8 @@ static void draw_signature_help(void) {
     signature_label(signature, call.argument, label, sizeof label, &active_start, &active_end);
     if (call.argument < signature->input_count) {
         const struct signature_input *input = &signature->inputs[call.argument];
-        snprintf(detail, sizeof detail, "%s: %s%s%s%s", input->name, input->type, signature_input_is_texture(input) ? " (texture)" : "",
+        snprintf(detail, sizeof detail, "%s: %s%s%s%s", input->name, input->type,
+                 signature_input_is_texture(input) ? " (texture)" : "",
                  input->default_value[0] ? ", default " : "", input->default_value);
     } else {
         snprintf(detail, sizeof detail, "%s takes %zu arguments", signature->name, signature->input_count);
@@ -2855,7 +2930,8 @@ static void draw_signature_help(void) {
         overlay_rect(left, top, box_width, box_height, theme->line_background);
         overlay_text(text_left, top, label, strlen(label), 0, columns, NULL, theme->ghost);
         if (active_end > active_start)
-            overlay_text(active_left, top, label + active_start, active_end - active_start, 0, columns, NULL, theme->text);
+            overlay_text(active_left, top, label + active_start, active_end - active_start, 0, columns, NULL,
+                         theme->text);
         overlay_text(text_left, top + line_height, detail, strlen(detail), 0, columns, NULL, theme->ghost);
         return;
     }
@@ -2884,16 +2960,21 @@ static void draw_prompt(int width, int height) {
         if (!match_count) color = theme->error;
     }
     switch (prompt.kind) {
-    case PROMPT_FIND: snprintf(text, sizeof text, "find: %s%s   (Enter: next, Shift+Enter: previous)", prompt.query, count); break;
+    case PROMPT_FIND: snprintf(text, sizeof text, "find: %s%s   (Enter: next, Shift+Enter: previous)", prompt.query,
+                               count); break;
     case PROMPT_REPLACE:
-        snprintf(text, sizeof text, "find: %s%s%s   replace: %s%s   (Tab: field, Enter, Ctrl+Alt+Enter: all)", prompt.query,
+        snprintf(text, sizeof text, "find: %s%s%s   replace: %s%s   (Tab: field, Enter, Ctrl+Alt+Enter: all)",
+                 prompt.query,
                  prompt.field == 0 ? "_" : "", count, prompt.replacement, prompt.field == 1 ? "_" : "");
         break;
     case PROMPT_GO_TO_LINE: snprintf(text, sizeof text, "go to line: %s", prompt.query); break;
-    case PROMPT_SERVER: snprintf(text, sizeof text, "gallery and patch bay server URL: %s   (Enter: OK, empty: off)", prompt.query); break;
-    case PROMPT_FONT_PATH: snprintf(text, sizeof text, "font file (.ttf, .otf, .ttc): %s   (Enter: OK)", prompt.query); break;
+    case PROMPT_SERVER: snprintf(text, sizeof text, "gallery and patch bay server URL: %s   (Enter: OK, empty: off)",
+                                 prompt.query); break;
+    case PROMPT_FONT_PATH: snprintf(text, sizeof text, "font file (.ttf, .otf, .ttc): %s   (Enter: OK)",
+                                    prompt.query); break;
     case PROMPT_L10N_URL:
-        snprintf(text, sizeof text, "editor.json URL of the language: %s   (Enter: OK, empty: the l10n project)", prompt.query);
+        snprintf(text, sizeof text, "editor.json URL of the language: %s   (Enter: OK, empty: the l10n project)",
+                 prompt.query);
         break;
     case PROMPT_SHARE: {
         float line_height = overlay_line_height(), y = (float)height - bar_height();
@@ -2916,7 +2997,8 @@ static void draw_prompt(int width, int height) {
             command_keys((enum command)command, keys, sizeof keys);
             snprintf(row, sizeof row, "%-48s %s", command_description((enum command)command), keys);
             float row_y = y - (float)(shown + 1) * line_height;
-            overlay_rect(0, row_y, (float)width, line_height, shown == prompt.palette_index ? theme->popup_selected : theme->popup_background);
+            overlay_rect(0, row_y, (float)width, line_height,
+                         shown == prompt.palette_index ? theme->popup_selected : theme->popup_background);
             overlay_text(MARGIN, row_y, row, strlen(row), 0, visible_columns(), NULL, theme->text);
             shown++;
         }
@@ -3027,8 +3109,8 @@ bool ui_init(const struct settings *start_settings, const char *settings_path,
     // The "keybindings" of the settings file: command name to key, over the table of src/keymap.c.
     for (size_t i = 0; i < settings.keybinding_count; i++) {
         char problem[SETTINGS_TEXT];
-        if (!keymap_bind(settings.keybindings[i].key, settings.keybindings[i].value, problem, sizeof problem) && !error[0])
-            snprintf(error, sizeof error, "%s", problem);
+        bool bound = keymap_bind(settings.keybindings[i].key, settings.keybindings[i].value, problem, sizeof problem);
+        if (!bound && !error[0]) snprintf(error, sizeof error, "%s", problem);
     }
     if (error[0]) ui_show_message(error, true);
     wrap = settings.word_wrap;

@@ -17,7 +17,8 @@ static int failures;
 
 static void expect_text(const struct editor *editor, const char *expected, int line) {
     if (strcmp(editor->text, expected) != 0) {
-        fprintf(stderr, "%s:%d: text is\n---\n%s\n---\nexpected\n---\n%s\n---\n", __FILE__, line, editor->text, expected);
+        fprintf(stderr, "%s:%d: text is\n---\n%s\n---\nexpected\n---\n%s\n---\n", __FILE__, line, editor->text,
+                expected);
         failures++;
     }
 }
@@ -471,9 +472,27 @@ static void test_visual_motion(void) {
         struct { size_t offset; enum sticky sticky; } left[MAX_STOPS];
         size_t left_count;
     } cases[] = {
-    { "abc \xD7\x90" "\xD7\x91" "\xD7\x92" " 123 def", { { 1, STICKY_BEFORE }, { 2, STICKY_BEFORE }, { 3, STICKY_BEFORE }, { 4, STICKY_BEFORE }, { 12, STICKY_BEFORE }, { 13, STICKY_BEFORE }, { 14, STICKY_BEFORE }, { 10, STICKY_AFTER }, { 8, STICKY_AFTER }, { 6, STICKY_AFTER }, { 4, STICKY_AFTER }, { 15, STICKY_BEFORE }, { 16, STICKY_BEFORE }, { 17, STICKY_BEFORE }, { 18, STICKY_BEFORE } }, 15, { { 17, STICKY_AFTER }, { 16, STICKY_AFTER }, { 15, STICKY_AFTER }, { 14, STICKY_AFTER }, { 6, STICKY_BEFORE }, { 8, STICKY_BEFORE }, { 10, STICKY_BEFORE }, { 11, STICKY_BEFORE }, { 13, STICKY_AFTER }, { 12, STICKY_AFTER }, { 11, STICKY_AFTER }, { 3, STICKY_AFTER }, { 2, STICKY_AFTER }, { 1, STICKY_AFTER }, { 0, STICKY_AFTER } }, 15 },
-    { "x = '\xD9\x85" "\xD8\xB1" "\xD8\xAD" "\xD8\xA8" "\xD8\xA7" "' + 1", { { 1, STICKY_BEFORE }, { 2, STICKY_BEFORE }, { 3, STICKY_BEFORE }, { 4, STICKY_BEFORE }, { 5, STICKY_BEFORE }, { 20, STICKY_BEFORE }, { 18, STICKY_AFTER }, { 17, STICKY_AFTER }, { 16, STICKY_AFTER }, { 15, STICKY_AFTER }, { 13, STICKY_AFTER }, { 11, STICKY_AFTER }, { 9, STICKY_AFTER }, { 7, STICKY_AFTER }, { 5, STICKY_AFTER } }, 15, { { 19, STICKY_AFTER }, { 4, STICKY_AFTER }, { 3, STICKY_AFTER }, { 2, STICKY_AFTER }, { 1, STICKY_AFTER }, { 0, STICKY_AFTER } }, 6 },
-    { "\xD7\xA9" "\xD7\x9C" "\xD7\x95" "\xD7\x9D" " world", { { 9, STICKY_BEFORE }, { 10, STICKY_BEFORE }, { 11, STICKY_BEFORE }, { 12, STICKY_BEFORE }, { 13, STICKY_BEFORE }, { 14, STICKY_BEFORE } }, 6, { { 13, STICKY_AFTER }, { 12, STICKY_AFTER }, { 11, STICKY_AFTER }, { 10, STICKY_AFTER }, { 9, STICKY_AFTER }, { 8, STICKY_AFTER }, { 2, STICKY_BEFORE }, { 4, STICKY_BEFORE }, { 6, STICKY_BEFORE }, { 8, STICKY_BEFORE } }, 10 },
+    { "abc \xD7\x90" "\xD7\x91" "\xD7\x92" " 123 def",
+      { { 1, STICKY_BEFORE }, { 2, STICKY_BEFORE }, { 3, STICKY_BEFORE }, { 4, STICKY_BEFORE }, { 12, STICKY_BEFORE },
+        { 13, STICKY_BEFORE }, { 14, STICKY_BEFORE }, { 10, STICKY_AFTER }, { 8, STICKY_AFTER }, { 6, STICKY_AFTER },
+        { 4, STICKY_AFTER }, { 15, STICKY_BEFORE }, { 16, STICKY_BEFORE }, { 17, STICKY_BEFORE },
+        { 18, STICKY_BEFORE } }, 15,
+        { { 17, STICKY_AFTER }, { 16, STICKY_AFTER }, { 15, STICKY_AFTER }, { 14, STICKY_AFTER }, { 6, STICKY_BEFORE },
+          { 8, STICKY_BEFORE }, { 10, STICKY_BEFORE }, { 11, STICKY_BEFORE }, { 13, STICKY_AFTER },
+          { 12, STICKY_AFTER }, { 11, STICKY_AFTER }, { 3, STICKY_AFTER }, { 2, STICKY_AFTER }, { 1, STICKY_AFTER },
+          { 0, STICKY_AFTER } }, 15 },
+    { "x = '\xD9\x85" "\xD8\xB1" "\xD8\xAD" "\xD8\xA8" "\xD8\xA7" "' + 1",
+      { { 1, STICKY_BEFORE }, { 2, STICKY_BEFORE }, { 3, STICKY_BEFORE }, { 4, STICKY_BEFORE }, { 5, STICKY_BEFORE },
+        { 20, STICKY_BEFORE }, { 18, STICKY_AFTER }, { 17, STICKY_AFTER }, { 16, STICKY_AFTER }, { 15, STICKY_AFTER },
+        { 13, STICKY_AFTER }, { 11, STICKY_AFTER }, { 9, STICKY_AFTER }, { 7, STICKY_AFTER }, { 5, STICKY_AFTER } }, 15,
+        { { 19, STICKY_AFTER }, { 4, STICKY_AFTER }, { 3, STICKY_AFTER }, { 2, STICKY_AFTER }, { 1, STICKY_AFTER },
+          { 0, STICKY_AFTER } }, 6 },
+    { "\xD7\xA9" "\xD7\x9C" "\xD7\x95" "\xD7\x9D" " world",
+      { { 9, STICKY_BEFORE }, { 10, STICKY_BEFORE }, { 11, STICKY_BEFORE }, { 12, STICKY_BEFORE },
+        { 13, STICKY_BEFORE }, { 14, STICKY_BEFORE } }, 6,
+        { { 13, STICKY_AFTER }, { 12, STICKY_AFTER }, { 11, STICKY_AFTER }, { 10, STICKY_AFTER }, { 9, STICKY_AFTER },
+          { 8, STICKY_AFTER }, { 2, STICKY_BEFORE }, { 4, STICKY_BEFORE }, { 6, STICKY_BEFORE }, { 8, STICKY_BEFORE } },
+          10 },
     };
     struct editor editor;
     editor_init(&editor);
@@ -531,7 +550,8 @@ static void test_enter_indentation(void) {
     load(&editor, "  osc(10, noise(3), '(',");
     editor_move(&editor, MOTION_DOCUMENT_END, false);
     editor_insert_newline(&editor);
-    EXPECT_TEXT(&editor, "  osc(10, noise(3), '(',\n      "); // noise( is closed, the bracket in the string does not count
+    // noise( is closed, the bracket in the string does not count
+    EXPECT_TEXT(&editor, "  osc(10, noise(3), '(',\n      ");
 
     load(&editor, "  shape([])");
     editor_set_cursor(&editor, strlen("  shape(["), false);

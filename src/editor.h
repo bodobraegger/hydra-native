@@ -123,7 +123,8 @@ size_t editor_line_of(const struct editor *editor, size_t offset);
 size_t editor_line_start(const struct editor *editor, size_t line);
 size_t editor_line_end(const struct editor *editor, size_t line); // offset of the newline or of the end
 size_t editor_cluster_end(const struct editor *editor, size_t offset); // the end of the grapheme cluster (UAX #29)
-size_t editor_columns_between(const struct editor *editor, size_t start, size_t end); // grid columns, start inside a line
+// grid columns, start inside a line
+size_t editor_columns_between(const struct editor *editor, size_t start, size_t end);
 size_t editor_column_of(const struct editor *editor, size_t offset); // in the grid: tabs and clusters counted
 size_t editor_offset_at(const struct editor *editor, size_t line, size_t column);
 
@@ -210,7 +211,8 @@ bool editor_replace_next(struct editor *editor, const char *needle, size_t needl
 
 // Words for autocomplete: the identifier before the primary cursor, and the identifiers of the text.
 size_t editor_word_before_cursor(const struct editor *editor, size_t *start);
-size_t editor_words(const struct editor *editor, const char *prefix, size_t prefix_length, char ***words); // caller frees
+// caller frees
+size_t editor_words(const struct editor *editor, const char *prefix, size_t prefix_length, char ***words);
 
 // Soft wrap: visual rows of a line with editor->wrap_columns columns and the hanging indent.
 size_t editor_wrap_rows(const struct editor *editor, size_t line, size_t *row_starts, size_t capacity);

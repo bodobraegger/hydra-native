@@ -135,7 +135,8 @@ void signature_label(const struct signature *signature, size_t active, char *lab
         if (i > 0) used += (size_t)snprintf(label + used, size - used, ", ");
         if (used >= size) break;
         if (i == active) *active_start = used;
-        if (input->default_value[0]) used += (size_t)snprintf(label + used, size - used, "%s = %s", input->name, input->default_value);
+        if (input->default_value[0])
+            used += (size_t)snprintf(label + used, size - used, "%s = %s", input->name, input->default_value);
         else used += (size_t)snprintf(label + used, size - used, "%s", input->name);
         if (i == active) *active_end = used < size ? used : size - 1;
     }
@@ -146,7 +147,8 @@ void signature_snippet(const struct signature *signature, char *snippet, size_t 
     size_t used = (size_t)snprintf(snippet, size, "%s(", signature->name);
     for (size_t i = 0; i < signature->input_count && used < size; i++) {
         const struct signature_input *input = &signature->inputs[i];
-        const char *value = signature_input_is_texture(input) ? "o0" : input->default_value[0] ? input->default_value : "0";
+        const char *value = input->default_value[0] ? input->default_value : "0";
+        if (signature_input_is_texture(input)) value = "o0";
         used += (size_t)snprintf(snippet + used, size - used, "%s${%s}", i > 0 ? ", " : "", value);
     }
     if (used < size) snprintf(snippet + used, size - used, ")");

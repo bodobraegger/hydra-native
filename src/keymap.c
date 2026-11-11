@@ -205,7 +205,8 @@ const char *command_name(enum command command) {
     };
     if (command >= COMMAND_COUNT) return "";
     if (!names[command][0])
-        for (size_t i = 0; upper[command][i] && i + 1 < sizeof names[0]; i++) names[command][i] = (char)tolower((unsigned char)upper[command][i]);
+        for (size_t i = 0; upper[command][i] && i + 1 < sizeof names[0]; i++)
+            names[command][i] = (char)tolower((unsigned char)upper[command][i]);
     return names[command];
 }
 
@@ -323,7 +324,8 @@ void command_keys(enum command command, char *text, size_t size) {
         char chord[32] = "";
         if (binding->prefix) snprintf(chord, sizeof chord, "Ctrl+%s ", key_name(binding->prefix));
         int written = snprintf(text + used, size - used, "%s%s%s%s%s%s%s", used ? ", " : "", chord,
-                               binding->modifiers & KEY_CTRL ? "Ctrl+" : "", binding->modifiers & KEY_SHIFT ? "Shift+" : "",
+                               binding->modifiers & KEY_CTRL ? "Ctrl+" : "",
+                               binding->modifiers & KEY_SHIFT ? "Shift+" : "",
                                binding->modifiers & KEY_ALT ? "Alt+" : "", key_name(binding->key),
                                binding->shift_extends ? " (+Shift)" : "");
         if (written < 0) break;

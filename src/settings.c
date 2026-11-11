@@ -117,7 +117,8 @@ static void read_number(JSContext *ctx, JSValueConst object, const char *key, do
 }
 
 // The index of the value of `key` in `names`, or `current` without such a value.
-static int read_choice(JSContext *ctx, JSValueConst object, const char *key, const char *const *names, size_t count, int current) {
+static int read_choice(JSContext *ctx, JSValueConst object, const char *key, const char *const *names, size_t count,
+                       int current) {
     char text[SETTINGS_NAME] = "";
     read_string(ctx, object, key, text, sizeof text);
     for (size_t i = 0; i < count; i++)
@@ -133,10 +134,12 @@ static void read_percent(JSContext *ctx, JSValueConst object, const char *key, i
 }
 
 // Calls `pair` for each property of an object whose value is a string (or, for arrays of strings, each item).
-static void read_pairs(JSContext *ctx, JSValueConst object, void (*pair)(void *data, const char *key, const char *value), void *data) {
+static void read_pairs(JSContext *ctx, JSValueConst object,
+                       void (*pair)(void *data, const char *key, const char *value), void *data) {
     JSPropertyEnum *properties;
     uint32_t count;
-    if (!JS_IsObject(object) || JS_GetOwnPropertyNames(ctx, &properties, &count, object, JS_GPN_STRING_MASK | JS_GPN_ENUM_ONLY) < 0)
+    if (!JS_IsObject(object) ||
+        JS_GetOwnPropertyNames(ctx, &properties, &count, object, JS_GPN_STRING_MASK | JS_GPN_ENUM_ONLY) < 0)
         return;
     for (uint32_t i = 0; i < count; i++) {
         const char *key = JS_AtomToCString(ctx, properties[i].atom);
@@ -187,7 +190,8 @@ static void read_themes(JSContext *ctx, JSValueConst root, struct settings *sett
     JSValue themes = JS_GetPropertyStr(ctx, root, "themes");
     JSPropertyEnum *properties;
     uint32_t count;
-    if (JS_IsObject(themes) && JS_GetOwnPropertyNames(ctx, &properties, &count, themes, JS_GPN_STRING_MASK | JS_GPN_ENUM_ONLY) >= 0) {
+    if (JS_IsObject(themes) &&
+        JS_GetOwnPropertyNames(ctx, &properties, &count, themes, JS_GPN_STRING_MASK | JS_GPN_ENUM_ONLY) >= 0) {
         for (uint32_t i = 0; i < count; i++) {
             if (settings->theme_count < MAX_CUSTOM_THEMES) {
                 struct custom_theme *theme = &settings->themes[settings->theme_count++];
@@ -219,7 +223,8 @@ bool settings_load(struct settings *settings, const char *path, char *error, siz
     }
     if (ok) {
 #define READ_CHOICE(key, names, field) \
-    settings->field = (typeof(settings->field))read_choice(ctx, root, key, names, sizeof names / sizeof names[0], (int)settings->field)
+    settings->field = (typeof(settings->field))read_choice(ctx, root, key, names, sizeof names / sizeof names[0], \
+                                                           (int)settings->field)
         double number;
         read_string(ctx, root, "font", settings->font, sizeof settings->font);
         number = settings->font_size;

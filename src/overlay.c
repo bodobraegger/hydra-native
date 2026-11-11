@@ -174,7 +174,8 @@ static GLuint link_program(const char *fragment) {
 
 static hb_font_t *shaper(struct font *font) {
     if (!font->shaper) {
-        hb_blob_t *blob = hb_blob_create((const char *)font->data, (unsigned)font->size, HB_MEMORY_MODE_READONLY, NULL, NULL);
+        hb_blob_t *blob =
+            hb_blob_create((const char *)font->data, (unsigned)font->size, HB_MEMORY_MODE_READONLY, NULL, NULL);
         hb_face_t *face = hb_face_create(blob, (unsigned)font->index);
         font->shaper = hb_font_create(face);
         hb_face_destroy(face);
@@ -258,7 +259,8 @@ static struct font *find_fallback_font(int codepoint) {
     *separator = '\0';
     int index = atoi(separator + 1);
     for (int i = 0; i < font_count; i++)
-        if (!strcmp(fonts[i].path, answer) && fonts[i].index == index) return glyph_index(&fonts[i], codepoint) ? &fonts[i] : NULL;
+        if (!strcmp(fonts[i].path, answer) && fonts[i].index == index)
+            return glyph_index(&fonts[i], codepoint) ? &fonts[i] : NULL;
     if (!load_font(&fonts[font_count], answer, index)) return NULL;
     struct font *font = &fonts[font_count++];
     return glyph_index(font, codepoint) ? font : NULL;
@@ -326,7 +328,8 @@ static unsigned char *color_glyph_bitmap(struct font *font, int glyph, int width
             }
             float count = (float)((sx1 - sx0) * (sy1 - sy0)), alpha = sum[3] / count;
             unsigned char *out = bitmap + ((size_t)y * width + x) * 4;
-            for (int c = 0; c < 3; c++) out[c] = alpha > 0 ? (unsigned char)(sum[c] / count * 255.0f / alpha + 0.5f) : 0;
+            for (int c = 0; c < 3; c++)
+                out[c] = alpha > 0 ? (unsigned char)(sum[c] / count * 255.0f / alpha + 0.5f) : 0;
             out[3] = (unsigned char)(alpha + 0.5f);
         }
     }
@@ -348,7 +351,8 @@ static unsigned char *glyph_bitmap(struct font *font, int glyph, int *x0, int *y
     stbtt_GetGlyphBitmapBox(&font->info, glyph, font->scale, font->scale, x0, y0, x1, y1);
     int width = *x1 - *x0, height = *y1 - *y0;
     if (width <= 0 || height <= 0) return NULL;
-    unsigned char *alpha = calloc((size_t)width * (size_t)height, 1), *bitmap = malloc((size_t)width * (size_t)height * 4);
+    unsigned char *alpha = calloc((size_t)width * (size_t)height, 1),
+        *bitmap = malloc((size_t)width * (size_t)height * 4);
     stbtt_MakeGlyphBitmap(&font->info, alpha, width, height, width, font->scale, font->scale, glyph);
     for (size_t i = 0; i < (size_t)width * (size_t)height; i++) {
         bitmap[i * 4] = bitmap[i * 4 + 1] = bitmap[i * 4 + 2] = 0xFF;
@@ -446,7 +450,8 @@ bool overlay_init(const char *font_path, const char *emoji_font_path, float font
         if (!fgets(color_path, sizeof color_path, pipe)) color_path[0] = '\0';
         pclose(pipe);
     }
-    if (color_path[0] && load_font(&fonts[font_count], color_path, 0) && fonts[font_count].color) color_emoji_font = font_count++;
+    if (color_path[0] && load_font(&fonts[font_count], color_path, 0) && fonts[font_count].color)
+        color_emoji_font = font_count++;
     if (emoji_font_path && load_font(&fonts[font_count], emoji_font_path, 0)) emoji_font = font_count++;
     program = link_program(fragment_source);
     screen_location = glGetUniformLocation(program, "screen");
@@ -461,7 +466,8 @@ bool overlay_init(const char *font_path, const char *emoji_font_path, float font
     glEnableVertexAttribArray(2);
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(struct vertex), (void *)offsetof(struct vertex, x));
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(struct vertex), (void *)offsetof(struct vertex, u));
-    glVertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(struct vertex), (void *)offsetof(struct vertex, color));
+    glVertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(struct vertex),
+                          (void *)offsetof(struct vertex, color));
     glBindVertexArray(0);
     return overlay_set_font_size(font_size);
 }
@@ -508,9 +514,14 @@ static void push_quad(float x0, float y0, float x1, float y1, float u0, float v0
 }
 
 // Color glyphs keep their colors and take only the alpha of the text color.
-static uint32_t glyph_color(const struct glyph *glyph, uint32_t color) { return glyph->color ? 0xFFFFFF00u | (color & 0xFF) : color; }
+static uint32_t glyph_color(const struct glyph *glyph, uint32_t color) {
+    return glyph->color ? 0xFFFFFF00u | (color & 0xFF) : color;
+}
 
-const char *overlay_difference_method(void) { return difference.checked ? (difference.advanced ? "KHR_blend_equation_advanced" : "shader") : "none"; }
+const char *overlay_difference_method(void) {
+    if (!difference.checked) return "none";
+    return difference.advanced ? "KHR_blend_equation_advanced" : "shader";
+}
 
 static void check_difference_support(void) {
     difference.checked = true;
@@ -591,7 +602,8 @@ static void draw_difference_layer(size_t first, size_t end, int width, int heigh
 
     // The quad of the layer rectangle; v counts from the bottom, as the rows of the textures do.
     size_t quad = vertex_count;
-    push_quad(x0, y0, x1, y1, x0 / (float)width, 1 - y0 / (float)height, x1 / (float)width, 1 - y1 / (float)height, 0xFFFFFFFFu);
+    push_quad(x0, y0, x1, y1, x0 / (float)width, 1 - y0 / (float)height, x1 / (float)width, 1 - y1 / (float)height,
+              0xFFFFFFFFu);
     glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(vertex_count * sizeof *vertices), vertices, GL_STREAM_DRAW);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, difference.texture);
@@ -607,7 +619,8 @@ static void draw_difference_layer(size_t first, size_t end, int width, int heigh
         int copy_width = (int)x1 - left, copy_height = (height - (int)y0) - bottom;
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, difference.below);
-        if (copy_width > 0 && copy_height > 0) glCopyTexSubImage2D(GL_TEXTURE_2D, 0, left, bottom, left, bottom, copy_width, copy_height);
+        if (copy_width > 0 && copy_height > 0)
+            glCopyTexSubImage2D(GL_TEXTURE_2D, 0, left, bottom, left, bottom, copy_width, copy_height);
         glDisable(GL_BLEND);
         glDrawArrays(GL_TRIANGLES, (GLint)quad, 6);
         glActiveTexture(GL_TEXTURE0);
@@ -655,7 +668,8 @@ struct shaped_glyph {
 
 // Shapes `text` into glyphs in visual order and returns their count; `paragraph` is 1 for right-to-left text.
 // `forced` (or NULL) is the font for all of the text, as for an emoji sequence.
-static int shape_with(const char *text, size_t length, int paragraph, struct shaped_glyph *glyphs, int capacity, struct font *forced) {
+static int shape_with(const char *text, size_t length, int paragraph, struct shaped_glyph *glyphs, int capacity,
+                      struct font *forced) {
     int codepoints[MAX_SHAPED], count = 0;
     for (size_t offset = 0; offset < length && count < MAX_SHAPED;) {
         size_t consumed;
@@ -675,8 +689,10 @@ static int shape_with(const char *text, size_t length, int paragraph, struct sha
         int end = i + 1;
         // A run keeps its font for spaces and for the joiners, marks and modifiers of an emoji sequence.
         while (end < count && levels[end] == levels[i] &&
-               (forced || font_for(codepoints[end]) == font || codepoints[end] == ' ' || unicode_break_class(codepoints[end]) == BREAK_EXTEND ||
-                codepoints[end] == 0x200D || (codepoints[end - 1] == 0x200D && color_emoji_font >= 0 && font == &fonts[color_emoji_font])))
+               (forced || font_for(codepoints[end]) == font || codepoints[end] == ' ' ||
+                unicode_break_class(codepoints[end]) == BREAK_EXTEND ||
+                codepoints[end] == 0x200D ||
+                (codepoints[end - 1] == 0x200D && color_emoji_font >= 0 && font == &fonts[color_emoji_font])))
             end++;
         hb_buffer_t *buffer = hb_buffer_create();
         hb_buffer_add_codepoints(buffer, (const hb_codepoint_t *)codepoints, count, (unsigned)i, end - i);
@@ -691,8 +707,10 @@ static int shape_with(const char *text, size_t length, int paragraph, struct sha
         run_levels[run_count] = levels[i];
         runs[run_count].first_glyph = glyph_count;
         for (unsigned g = 0; g < shaped_count && glyph_count < MAX_SHAPED; g++)
-            logical[glyph_count++] = (struct shaped_glyph){ font, info[g].codepoint, positions[g].x_advance * font->scale,
-                                                            positions[g].x_offset * font->scale, positions[g].y_offset * font->scale };
+            logical[glyph_count++] =
+            (struct shaped_glyph){ font, info[g].codepoint, positions[g].x_advance * font->scale,
+                                                            positions[g].x_offset * font->scale,
+                                                            positions[g].y_offset * font->scale };
         runs[run_count].glyph_count = glyph_count - runs[run_count].first_glyph;
         run_count++;
         hb_buffer_destroy(buffer);
@@ -733,7 +751,8 @@ static float draw_glyphs(float x, float y, const struct shaped_glyph *list, int 
         }
         if (glyph) {
             float gx = pen_x + shaped->x_offset * scale, gy = y + ascent - shaped->y_offset * scale;
-            push_quad(gx + glyph->x0 * scale, gy + glyph->y0 * scale, gx + glyph->x1 * scale, gy + glyph->y1 * scale, glyph->s0,
+            push_quad(gx + glyph->x0 * scale, gy + glyph->y0 * scale, gx + glyph->x1 * scale, gy + glyph->y1 * scale,
+                      glyph->s0,
                       glyph->t0, glyph->s1, glyph->t1, glyph_color(glyph, color));
         } else {
             atlas_full = true;
@@ -792,8 +811,10 @@ void overlay_text(float x, float y, const char *text, size_t length, size_t firs
                 // A color emoji that is wider than its columns shrinks to fit the grid.
                 float cell = (float)columns * char_width, glyph_width = glyph->x1 - glyph->x0;
                 float fit = glyph->color && glyph_width > cell ? cell / glyph_width : 1.0f;
-                push_quad(pen_x + glyph->x0 * fit, pen_y + glyph->y0 * fit, pen_x + glyph->x1 * fit, pen_y + glyph->y1 * fit,
-                          glyph->s0, glyph->t0, glyph->s1, glyph->t1, glyph_color(glyph, colors ? colors[offset] : color));
+                push_quad(pen_x + glyph->x0 * fit, pen_y + glyph->y0 * fit, pen_x + glyph->x1 * fit,
+                          pen_y + glyph->y1 * fit,
+                          glyph->s0, glyph->t0, glyph->s1, glyph->t1,
+                          glyph_color(glyph, colors ? colors[offset] : color));
             } else {
                 atlas_full = true;
             }
@@ -895,7 +916,8 @@ static void draw_images(void) {
     if (image_count) {
         size_t first = vertex_count;
         for (int i = 0; i < image_count; i++)
-            push_quad(images[i].x, images[i].y, images[i].x + images[i].width, images[i].y + images[i].height, 0, 0, 1, 1,
+            push_quad(images[i].x, images[i].y, images[i].x + images[i].width, images[i].y + images[i].height, 0, 0, 1,
+                      1,
                       0xFFFFFFFFu);
         glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(vertex_count * sizeof *vertices), vertices, GL_STREAM_DRAW);
         for (int i = 0; i < image_count; i++) {
