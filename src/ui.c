@@ -3012,7 +3012,7 @@ void ui_set_code(const char *code) { editor_set_text(&editor, code, strlen(code)
 const char *ui_code(void) { return editor.text; }
 
 bool ui_init(const struct settings *start_settings, const char *settings_path,
-             const char *emoji_font_path, const char *path, const struct ui_host *ui_host) {
+             const char *path, const struct ui_host *ui_host) {
     // A second call (ui_test starts again without a file) replaces the state of the first.
     free(settings_file);
     free(file_path);
@@ -3045,5 +3045,5 @@ bool ui_init(const struct settings *start_settings, const char *settings_path,
         free(text);
         show_title(NULL);
     }
-    return overlay_init(settings.font, emoji_font_path, settings.font_size);
+    return overlay_init(settings.font, settings.font_size);
 }

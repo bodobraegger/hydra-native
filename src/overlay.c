@@ -33,7 +33,6 @@ struct font {
     float scale;
 };
 
-static int emoji_font = -1; // the vendored monochrome emoji font
 
 // A glyph in the atlas, rendered on the first use.
 struct glyph {
@@ -199,11 +198,12 @@ static struct font *fallback_font(int codepoint) {
     return font;
 }
 
-// Asks fontconfig for a font with the code point and adds it to the fallback fonts.
+// Asks fontconfig for a font with outlines that has the code point (a color emoji font has only pictures, which
+// stb_truetype does not read) and adds it to the fallback fonts.
 static struct font *find_fallback_font(int codepoint) {
     if (font_count == MAX_FONTS) return NULL;
     char command[128], answer[MAX_FONT_PATH + 16] = "";
-    snprintf(command, sizeof command, "fc-match -f '%%{file}|%%{index}' ':charset=%x'", codepoint);
+    snprintf(command, sizeof command, "fc-match -f '%%{file}|%%{index}' ':charset=%x:color=false'", codepoint);
     FILE *pipe = popen(command, "r");
     if (!pipe) return NULL;
     if (!fgets(answer, sizeof answer, pipe)) answer[0] = '\0';
@@ -230,18 +230,10 @@ static void clear_glyphs(void) {
     free(pixels);
 }
 
-static bool is_emoji(int codepoint) {
-    return (codepoint >= 0x1F000 && codepoint <= 0x1FAFF) || (codepoint >= 0x2600 && codepoint <= 0x27BF) ||
-           (codepoint >= 0x2B00 && codepoint <= 0x2BFF) || codepoint == 0x203C || codepoint == 0x2049;
-}
-
-// The font for a code point: an emoji from the emoji font, the code font, else a fallback font.
+// The font for a code point: the code font, else a fallback font.
 static struct font *font_for(int codepoint) {
-    if (is_emoji(codepoint) && emoji_font >= 0 && glyph_index(&fonts[emoji_font], codepoint))
-        return &fonts[emoji_font];
-    if (glyph_index(&fonts[0], codepoint)) return &fonts[0];
-    for (int i = 1; i < font_count; i++)
-        if (i != emoji_font && glyph_index(&fonts[i], codepoint)) return &fonts[i];
+    for (int i = 0; i < font_count; i++)
+        if (glyph_index(&fonts[i], codepoint)) return &fonts[i];
     return fallback_font(codepoint);
 }
 
@@ -321,14 +313,13 @@ bool overlay_set_font(const char *font_path) {
     return overlay_set_font_size(current_font_size); // new metrics and an empty atlas
 }
 
-bool overlay_init(const char *font_path, const char *emoji_font_path, float font_size) {
+bool overlay_init(const char *font_path, float font_size) {
     current_font_size = font_size;
     if (!load_font(&fonts[0], font_path, 0)) {
         fprintf(stderr, "overlay: cannot use the font %s\n", font_path);
         return false;
     }
     font_count = 1;
-    if (emoji_font_path && load_font(&fonts[font_count], emoji_font_path, 0)) emoji_font = font_count++;
     program = link_program(fragment_source);
     screen_location = glGetUniformLocation(program, "screen");
 

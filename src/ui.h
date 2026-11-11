@@ -41,7 +41,7 @@ const struct settings *ui_settings(void);
 // `file_path` may be NULL (no file) or a path that does not exist yet (Ctrl+S creates it).
 // `settings` is the content of the settings file at `settings_file` (NULL: none); the settings menu saves there.
 bool ui_init(const struct settings *settings, const char *settings_file,
-             const char *emoji_font_path, const char *file_path, const struct ui_host *host);
+             const char *file_path, const struct ui_host *host);
 bool ui_key(const SDL_KeyboardEvent *event); // true when the overlay used the key
 void ui_text_input(const char *text);
 void ui_text_editing(const char *text); // an IME composition that is not committed yet

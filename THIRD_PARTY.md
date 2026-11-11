@@ -74,10 +74,7 @@ layout rules and the function srcRelMask of the text sources in js/text.js.
 
 ## Fonts
 
-The code overlay and the text sources use the fonts of the system.
-`make` downloads one font: Noto Emoji (monochrome), SIL Open Font License 1.1, from
-https://github.com/google/fonts (ofl/notoemoji, commit 8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5), into
-vendor/fonts with its OFL.txt. It draws emoji in the overlay when the system has no color emoji font.
+The code overlay and the text sources use the fonts of the system. hydra-native contains no font.
 
 ## Algorithms from specifications
 

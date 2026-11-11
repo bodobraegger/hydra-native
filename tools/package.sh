@@ -8,9 +8,9 @@
 # CI runs the Linux and the macOS branch. The Windows branch is not tested: the program does not build there yet
 # (PORTING.md).
 #
-# The program finds its files relative to its own path: the bundle next to it, and tools/, vendor/fonts/ and
-# assets/ one directory up (src/main.c). bin/ keeps that layout, so the unpacked folder runs from any place. In
-# the macOS app, Contents/MacOS is that folder, and Contents/ holds tools/, vendor/ and assets/.
+# The program finds its files relative to its own path: the bundle next to it, and tools/ and assets/ one
+# directory up (src/main.c). bin/ keeps that layout, so the unpacked folder runs from any place. In the macOS
+# app, Contents/MacOS is that folder, and Contents/ holds tools/ and assets/.
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -26,14 +26,14 @@ name=hydra-native-$version-$system
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
 target=$stage/$name
-contents=$target # the folder with the program folder, tools/, vendor/ and assets/
+contents=$target # the folder with the program folder, tools/ and assets/
 bin=$target/bin
 if [ "$system" = macos-arm64 ]; then
 	contents=$target/hydra-native.app/Contents
 	bin=$contents/MacOS
 fi
 
-mkdir -p "$bin" "$contents/tools" "$contents/vendor/fonts" "$contents/assets" "$contents/node_modules/@roamhq" \
+mkdir -p "$bin" "$contents/tools" "$contents/assets" "$contents/node_modules/@roamhq" \
 	"$target/licenses/node" "$target/source"
 
 case $system in
@@ -76,7 +76,6 @@ windows-x64)
 	;;
 esac
 cp "$build/hydra-bundle.js" "$bin/"
-cp "$root/vendor/fonts/NotoEmoji.ttf" "$contents/vendor/fonts/"
 
 # The patch bay helper as one file, so that only the native WebRTC module comes from node_modules.
 # Its require() (for wrtc.node) resolves from tools/, like the require of Node.js in the repo.
@@ -97,7 +96,6 @@ if [ "$system" != linux-x86_64 ]; then # libremidi in the program, ANGLE and SDL
 	echo "SDL3 (zlib license): https://github.com/libsdl-org/SDL/blob/main/LICENSE.txt" > "$licenses/sdl3.txt"
 fi
 sed -n '/^This software is available under 2 licenses/,$p' "$root/vendor/stb/stb_truetype.h" > "$licenses/stb.txt"
-cp "$root/vendor/fonts/NotoEmoji-OFL.txt" "$licenses/noto-emoji.txt"
 # The npm packages in the archive: those that esbuild bundled (its metafiles), plus the WebRTC module,
 # which is copied as files.
 WRTC=$wrtc node -e '

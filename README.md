@@ -87,7 +87,8 @@ Thus sketches that use `P5` or draw on a canvas of their own do not run: `getCon
 
 The editor draws one glyph for each code point, from left to right. It has no right-to-left text (Arabic,
 Hebrew), and it does not join the parts of an emoji sequence or place combining marks, because that needed two
-dependencies (HarfBuzz and SheenBidi) and the only C++ of the Linux build. Emoji show in one color.
+dependencies (HarfBuzz and SheenBidi) and the only C++ of the Linux build. An emoji shows in one color, and only
+when an installed font has its outline; a color emoji font has pictures only.
 
 ## Release
 

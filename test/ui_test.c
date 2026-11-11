@@ -46,7 +46,7 @@ static float copy_x, copy_y; // where the "copy" button of the settings panel sh
 
 // ---------------------------------------------------------------- stubs
 
-bool overlay_init(const char *font_path, const char *emoji_font_path, float font_size) { return true; }
+bool overlay_init(const char *font_path, float font_size) { return true; }
 static float font_size = 20; // clamped like src/overlay.c
 bool overlay_set_font_size(float size) {
     font_size = size;
@@ -436,7 +436,7 @@ static void test_files(const char *settings_file) {
     static const struct ui_host host = { evaluate, toggle_fullscreen, is_fullscreen, nothing, call, nothing, share,
                                          set_title, set_vsync, audio_devices, set_audio, set_audio_gain, choose_file,
                                          set_server };
-    ui_init(&defaults, settings_file, NULL, NULL, &host);
+    ui_init(&defaults, settings_file, NULL, &host);
     EXPECT(ui_file_path() == NULL);
     key(SDLK_COMMA, SDL_KMOD_LCTRL);
     ui_draw(800, 900, 0);
@@ -723,7 +723,7 @@ int main(void) {
     static const struct ui_host host = { evaluate, toggle_fullscreen, is_fullscreen, nothing, call, nothing, share,
                                          set_title, set_vsync, audio_devices, set_audio, set_audio_gain, choose_file,
                                          set_server };
-    ui_init(&loaded, settings_file, NULL, path, &host);
+    ui_init(&loaded, settings_file, path, &host);
     ui_draw(800, 600, 0);
 
     key(SDLK_RETURN, SDL_KMOD_LALT); // the block around the cursor (line 0)

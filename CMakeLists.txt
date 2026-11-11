@@ -4,7 +4,7 @@ project(hydra-native VERSION 0.1.0 LANGUAGES C)
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE RelWithDebInfo)
 endif()
-# The program finds its bundle next to itself and its tools, fonts and icon one directory up, so every
+# The program finds its bundle next to itself and its tools and icon one directory up, so every
 # build directory is a direct child of the source directory (build/, build-clean/).
 # The generator expression keeps Visual Studio from adding a Release/ or Debug/ folder.
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY $<1:${CMAKE_BINARY_DIR}>)
@@ -12,11 +12,10 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY $<1:${CMAKE_BINARY_DIR}>)
 
 # ---------------------------------------------------------------- downloaded sources, pinned by hash
 
-set(VENDOR ${CMAKE_SOURCE_DIR}/vendor CACHE PATH "Downloaded sources; the program finds its emoji font in vendor/fonts")
+set(VENDOR ${CMAKE_SOURCE_DIR}/vendor CACHE PATH "Downloaded sources")
 set(QUICKJS_VERSION 2026-06-04)
 set(STB_COMMIT 4e9b368bfc071e97206ea5c6adba68dd0cbf8897)
 set(LIBREMIDI_VERSION 5.4.3)
-set(EMOJI_FONT_COMMIT 8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5)
 set(GITHUB_RAW https://raw.githubusercontent.com)
 
 # Downloads `url` to `path` in up to 3 attempts; sets `result` to TRUE when the file has the hash.
@@ -83,9 +82,6 @@ set(STB_stb_truetype_SHA256 ecd30b05e0dd4fea3a13c26810dd9e1992dc379049482c393d5a
 foreach(header stb_image stb_image_write stb_truetype)
   vendor_file(stb/${header}.h ${GITHUB_RAW}/nothings/stb/${STB_COMMIT}/${header}.h ${STB_${header}_SHA256})
 endforeach()
-set(EMOJI_FONT_URL ${GITHUB_RAW}/google/fonts/${EMOJI_FONT_COMMIT}/ofl/notoemoji)
-vendor_file(fonts/NotoEmoji.ttf ${EMOJI_FONT_URL}/NotoEmoji%5Bwght%5D.ttf de6c18832938afc99caf132b39d6a30a19bac7f2e812e28db2535b4608d27551)
-vendor_file(fonts/NotoEmoji-OFL.txt ${EMOJI_FONT_URL}/OFL.txt 500bb1ccf43df7bbb522112f9133a52b16e1c35e809632f5d8609b179152de5b)
 
 # ---------------------------------------------------------------- window and OpenGL ES
 

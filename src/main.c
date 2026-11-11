@@ -455,9 +455,7 @@ int main(int argc, char **argv) {
         .choose_file = choose_file,
         .set_server = share_set_server,
     };
-    char emoji_font[PATH_MAX + 64];
-    snprintf(emoji_font, sizeof emoji_font, "%s/../vendor/fonts/NotoEmoji.ttf", directory);
-    if (!ui_init(&settings, settings_file[0] ? settings_file : NULL, emoji_font, sketch, &host)) return 1;
+    if (!ui_init(&settings, settings_file[0] ? settings_file : NULL, sketch, &host)) return 1;
     if (settings_error[0]) ui_show_message(settings_error, true); // the defaults apply, and the file stays as it is
     if (url_code) {
         ui_set_code(url_code);
