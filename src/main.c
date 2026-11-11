@@ -25,8 +25,6 @@
 #include "stb_image_write.h"
 #include "stb_image.h"
 
-#include "canvas2d.h"
-#include "webgl.h"
 #include "window.h"
 #include "midi.h"
 #include "native.h"
@@ -322,7 +320,6 @@ static JSValue js_create_framebuffer(JSContext *ctx, JSValueConst this, int argc
 }
 
 static JSValue js_bind_framebuffer(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
-    webgl_release();
     glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)to_int(ctx, argv[0]));
     glViewport(0, 0, to_int(ctx, argv[1]), to_int(ctx, argv[2]));
     return JS_UNDEFINED;
@@ -378,7 +375,7 @@ static JSValue js_read_pixel(JSContext *ctx, JSValueConst this, int argc, JSValu
 // The sandbox: shared code (a sketch URL, a sketch of the gallery, an extension, a remote script) turns it on with
 // native.sandbox(). It stays on until the program ends, because shared code can leave timers and changed globals
 // behind. In the sandbox, a sketch cannot run shell commands or open local media files, and readFile and writeFile
-// work only in the program directory and the cache directory, so that shared code gets the access of a web page.
+// work only in the cache directory, so that shared code gets the access of a web page.
 static bool sandboxed;
 #define SANDBOX_REASON "shared code ran in this session (restart hydra-native to use it)"
 #define CACHE_DIRECTORY "/.cache/hydra-native/"
@@ -401,7 +398,7 @@ static bool sandbox_allows_path(const char *path, bool write) {
     char cache[PATH_MAX];
     const char *home = getenv("HOME");
     snprintf(cache, sizeof cache, "%s" CACHE_DIRECTORY, home ? home : "/tmp");
-    return in_directory(path, cache) || (!write && in_directory(path, executable_path_directory));
+    return in_directory(path, cache);
 }
 
 // `text` as one word of the shell of process_start_shell (malloc'd): in single quotes for /bin/sh, in double quotes
@@ -513,6 +510,33 @@ static JSValue js_capture_open(JSContext *ctx, JSValueConst this, int argc, JSVa
     int handle = program_word ? video_open(command, to_int(ctx, argv[argc - 2]), to_int(ctx, argv[argc - 1])) : -1;
     if (handle < 0) return JS_ThrowInternalError(ctx, "cannot start the screen capture");
     return JS_NewInt32(ctx, handle);
+}
+
+// textWidth(family, bold, italic, line)
+static JSValue js_text_width(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    const char *family = JS_ToCString(ctx, argv[0]), *line = JS_ToCString(ctx, argv[3]);
+    double width = family && line ? text_width(family, JS_ToBool(ctx, argv[1]), JS_ToBool(ctx, argv[2]), line) : 0;
+    JS_FreeCString(ctx, family);
+    JS_FreeCString(ctx, line);
+    return JS_NewFloat64(ctx, width);
+}
+
+// textTexture(texture, text, family, bold, italic, width, height, size, x, align, fill, stroke, lineWidth, passes):
+// the arguments are the fields of struct text_options.
+static JSValue js_text_texture(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    const char *text = JS_ToCString(ctx, argv[1]), *family = JS_ToCString(ctx, argv[2]);
+    struct text_options options = {
+        .text = text, .family = family, .bold = JS_ToBool(ctx, argv[3]), .italic = JS_ToBool(ctx, argv[4]),
+        .width = to_int(ctx, argv[5]), .height = to_int(ctx, argv[6]), .size = to_float(ctx, argv[7]),
+        .x = to_float(ctx, argv[8]), .align = to_int(ctx, argv[9]), .line_width = to_float(ctx, argv[12]),
+        .passes = to_int(ctx, argv[13]),
+    };
+    JS_ToUint32(ctx, &options.fill, argv[10]);
+    JS_ToUint32(ctx, &options.stroke, argv[11]);
+    bool ok = text && family && text_draw((GLuint)to_int(ctx, argv[0]), &options);
+    JS_FreeCString(ctx, text);
+    JS_FreeCString(ctx, family);
+    return JS_NewBool(ctx, ok);
 }
 
 static JSValue js_video_upload(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
@@ -738,8 +762,8 @@ static void continue_share(int width, int height) {
 }
 
 static void fetch_done(int id, bool ok, const char *data, size_t length) {
-    if (thumbnails_fetch_done(id, ok, data, length) || canvas2d_fetch_done(id, ok, data, length)) return;
-    // The text for scripts and JSON, the bytes for binary files such as the fonts of p5.js loadFont.
+    if (thumbnails_fetch_done(id, ok, data, length)) return;
+    // The text for scripts and JSON, the bytes for binary files.
     JSValue arguments[4] = { JS_NewInt32(js, id), JS_NewBool(js, ok), JS_NewStringLen(js, data, length),
                              JS_NewArrayBufferCopy(js, (const uint8_t *)data, length) };
     call_global("__fetchDone", 4, arguments);
@@ -951,6 +975,8 @@ static const JSCFunctionListEntry native_functions[] = {
     JS_CFUNC_DEF("clear", 4, js_clear),
     JS_CFUNC_DEF("fillRects", 1, js_fill_rects),
     JS_CFUNC_DEF("readPixel", 3, js_read_pixel),
+    JS_CFUNC_DEF("textWidth", 4, js_text_width),
+    JS_CFUNC_DEF("textTexture", 14, js_text_texture),
     JS_CFUNC_DEF("videoOpen", 3, js_video_open),
     JS_CFUNC_DEF("mediaOpen", 4, js_media_open),
     JS_CFUNC_DEF("captureOpen", 3, js_capture_open),
@@ -1268,7 +1294,7 @@ static void set_window_icon(const char *directory) {
     stbi_image_free(pixels);
 }
 
-// The folder of the program, which holds the bundle, p5.js and the capture tool. In a macOS app, SDL_GetBasePath
+// The folder of the program, which holds the bundle and the capture tool. In a macOS app, SDL_GetBasePath
 // gives Contents/Resources, so macOS asks dyld for the program itself (Contents/MacOS).
 static bool executable_directory(char *directory, size_t size) {
 #if defined(__APPLE__)
@@ -1516,8 +1542,6 @@ int main(int argc, char **argv) {
     JSValue global = JS_GetGlobalObject(js);
     JSValue native = JS_NewObject(js);
     JS_SetPropertyFunctionList(js, native, native_functions, sizeof native_functions / sizeof native_functions[0]);
-    canvas2d_install(js, native);
-    webgl_install(js, native);
     char directory[PATH_MAX];
     if (!executable_directory(directory, sizeof directory)) return 1;
     snprintf(executable_path_directory, sizeof executable_path_directory, "%s", directory);
@@ -1627,7 +1651,6 @@ int main(int argc, char **argv) {
         run_pending_jobs();
         check_pending_evaluations();
         double after_js = now_ms();
-        webgl_release();
         int drawable_width, drawable_height;
         SDL_GetWindowSizeInPixels(window, &drawable_width, &drawable_height);
         recorder_frame(now);

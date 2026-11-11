@@ -14,7 +14,6 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY $<1:${CMAKE_BINARY_DIR}>)
 
 set(VENDOR ${CMAKE_SOURCE_DIR}/vendor CACHE PATH "Downloaded sources; the program finds its emoji font in vendor/fonts")
 set(QUICKJS_VERSION 2026-06-04)
-set(PLUTOVG_VERSION 1.3.3)
 set(HARFBUZZ_VERSION 14.6.0)
 set(SHEENBIDI_VERSION 2.9.0)
 set(STB_COMMIT 4e9b368bfc071e97206ea5c6adba68dd0cbf8897)
@@ -80,8 +79,6 @@ endfunction()
 
 vendor_archive(quickjs https://bellard.org/quickjs/quickjs-${QUICKJS_VERSION}.tar.xz
   b376e839b322978313d929fd20663b11ba58b75df5a46c126dd19ea2fa70ad2a quickjs.c)
-vendor_archive(plutovg https://github.com/sammycage/plutovg/archive/refs/tags/v${PLUTOVG_VERSION}.tar.gz
-  2b0d17a6e016f47b86f9c00e2cb82600041b1ea1f7d2a00c2d46ae542cbfed3c include/plutovg.h)
 vendor_archive(harfbuzz
   https://github.com/harfbuzz/harfbuzz/releases/download/${HARFBUZZ_VERSION}/harfbuzz-${HARFBUZZ_VERSION}.tar.xz
   d07a007327277708a2a73ae437887cdbaf282937f6d03ca5467723e9099af586 src/harfbuzz.cc)
@@ -153,15 +150,6 @@ target_compile_definitions(quickjs PRIVATE _GNU_SOURCE CONFIG_VERSION="${QUICKJS
 target_compile_options(quickjs PRIVATE ${QUIET})
 target_include_directories(quickjs PUBLIC ${VENDOR}/quickjs)
 endif()
-
-add_library(plutovg STATIC)
-foreach(source blend canvas font ft-math ft-raster ft-stroker matrix paint path rasterize surface)
-  target_sources(plutovg PRIVATE ${VENDOR}/plutovg/source/plutovg-${source}.c)
-endforeach()
-target_compile_definitions(plutovg PRIVATE PLUTOVG_BUILD PLUTOVG_DISABLE_FONT_FACE_CACHE_LOAD
-  PUBLIC PLUTOVG_BUILD_STATIC)
-target_compile_options(plutovg PRIVATE ${QUIET})
-target_include_directories(plutovg PUBLIC ${VENDOR}/plutovg/include)
 
 add_library(harfbuzz STATIC ${VENDOR}/harfbuzz/src/harfbuzz.cc)
 target_compile_options(harfbuzz PRIVATE ${QUIET} $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-fno-exceptions -fno-rtti>)
@@ -265,13 +253,13 @@ endif()
 
 # ---------------------------------------------------------------- programs (Linux and macOS)
 
-add_executable(hydra-native src/main.c src/canvas2d.c src/svg_filter.c src/webgl.c src/video.c src/fetch.c
+add_executable(hydra-native src/main.c src/text.c src/video.c src/fetch.c
   src/thumbnails.c src/recorder.c src/patch_bay.c src/editor.c src/bidi.c src/ui.c src/settings.c src/overlay.c
   src/keymap.c src/programs.c src/signature.c src/window.c ${PROCESS_SOURCE})
 target_compile_options(hydra-native PRIVATE ${WARNINGS})
 target_compile_definitions(hydra-native PRIVATE HYDRA_NATIVE_VERSION="${PROJECT_VERSION}")
 target_include_directories(hydra-native PRIVATE ${VENDOR}/stb)
-target_link_libraries(hydra-native PRIVATE quickjs plutovg harfbuzz sheenbidi hydra-audio-midi SDL3::SDL3 gles
+target_link_libraries(hydra-native PRIVATE quickjs harfbuzz sheenbidi hydra-audio-midi SDL3::SDL3 gles
   m dl pthread)
 # harfbuzz is C++, so the C++ driver links the program.
 set_target_properties(hydra-native PROPERTIES LINKER_LANGUAGE CXX)
@@ -297,10 +285,7 @@ add_custom_command(OUTPUT ${CMAKE_BINARY_DIR}/hydra-bundle.js ${CMAKE_BINARY_DIR
     --alias:regl=./js/regl-shim.js --alias:raf-loop=./js/raf-loop-shim.js --alias:meyda=./js/meyda-shim.js
   DEPENDS ${JS_SOURCES} ${NODE_MODULES}/.modules.yaml
   WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
-add_custom_command(OUTPUT ${CMAKE_BINARY_DIR}/p5.min.js
-  COMMAND ${CMAKE_COMMAND} -E copy ${NODE_MODULES}/p5/lib/p5.min.js ${CMAKE_BINARY_DIR}/p5.min.js
-  DEPENDS ${NODE_MODULES}/.modules.yaml)
-add_custom_target(javascript ALL DEPENDS ${CMAKE_BINARY_DIR}/hydra-bundle.js ${CMAKE_BINARY_DIR}/p5.min.js)
+add_custom_target(javascript ALL DEPENDS ${CMAKE_BINARY_DIR}/hydra-bundle.js)
 
 # ---------------------------------------------------------------- tests
 

@@ -1,6 +1,5 @@
-import { CanvasElement, CanvasGradient, CanvasPattern, ImageData, ImageElement, Path2D, parseColor } from './canvas.js'
+import { parseColor } from './color.js'
 import { Element, EventTarget } from './element.js'
-import { WebGLRenderingContext } from './webgl.js'
 
 // The browser globals that hydra-synth, its lib/audio.js and the user's sketches use,
 // backed by the `native` object that src/main.c installs.
@@ -68,13 +67,7 @@ window.requestAnimationFrame = (callback) => {
   return id
 }
 window.cancelAnimationFrame = (id) => { frameCallbacks = frameCallbacks.filter((item) => item.id !== id) }
-// The native Promise: core-js in p5.js schedules its own promises with queueMicrotask.
-const NativePromise = Promise
-window.queueMicrotask = (callback) => { NativePromise.resolve().then(callback) }
-// Browsers have this event; without it, core-js in p5.js replaces the native Promise.
-window.PromiseRejectionEvent = class PromiseRejectionEvent {
-  constructor (type, init = {}) { Object.assign(this, { type, promise: init.promise, reason: init.reason }) }
-}
+window.queueMicrotask = (callback) => { Promise.resolve().then(callback) }
 
 export function onAfterFrame (callback) {
   afterFrameCallbacks.push(callback)
@@ -117,7 +110,7 @@ const WHITE = [1, 1, 1, 1]
 
 // Records the fillRect calls and the horizontal strokes that the hydra audio meter draws.
 // The overlay code in main.js draws them with native.fillRects.
-export class RecordingContext2D {
+class RecordingContext2D {
   constructor (canvas) {
     this.canvas = canvas
     this.fillStyle = '#fff'
@@ -141,6 +134,21 @@ export class RecordingContext2D {
   }
 }
 
+// The canvas APIs of the browser are not emulated (README.md, "What hydra-native leaves out"): a canvas has no
+// context. Only the canvas of the audio meter, which hydra-synth creates at its start, gets the recording context.
+let recordsCanvases = true
+export function endCanvasRecording () { recordsCanvases = false }
+
+class CanvasElement extends Element {
+  constructor () {
+    super('canvas')
+    Object.assign(this, { width: 300, height: 150 })
+  }
+
+  getContext (type) { return type === '2d' && recordsCanvases ? new RecordingContext2D(this) : null }
+  toDataURL () { return '' }
+}
+
 const documentElement = new Element('html')
 window.document = {
   readyState: 'complete',
@@ -148,8 +156,7 @@ window.document = {
   body: documentElement.appendChild(new Element('body')),
   head: documentElement.appendChild(new Element('head')),
   createElement: (tagName) => {
-    const name = String(tagName).toLowerCase()
-    return name === 'canvas' ? new CanvasElement() : name === 'img' ? new ImageElement() : new Element(tagName)
+    return String(tagName).toLowerCase() === 'canvas' ? new CanvasElement() : new Element(tagName)
   },
   createElementNS: (namespace, tagName) => window.document.createElement(tagName),
   createTextNode: (text) => ({ nodeType: 3, textContent: String(text) }),
@@ -182,13 +189,6 @@ window.navigator = {
     enumerateDevices: () => Promise.resolve([])
   }
 }
-
-window.Path2D = Path2D
-window.WebGLRenderingContext = WebGLRenderingContext
-window.Image = ImageElement
-window.ImageData = ImageData
-window.CanvasGradient = CanvasGradient
-window.CanvasPattern = CanvasPattern
 
 window.AudioContext = class AudioContext {
   createMediaStreamSource () { return {} }

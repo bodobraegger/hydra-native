@@ -49,7 +49,7 @@ jobs:
         if: matrix.port
         run: ctest --test-dir build -C Release -R "^window$" --verbose
 
-      # The program on ANGLE: two outputs and the 2D canvas, read back (test/check.js), and the unit tests.
+      # The program on ANGLE: two outputs and a text source, read back (test/check.js), and the unit tests.
       - name: Run the program check and the unit tests
         if: matrix.port && runner.os == 'macOS'
         run: |

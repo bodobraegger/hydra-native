@@ -1,6 +1,6 @@
 import { EventTarget } from './element.js'
 
-// fetch() and XMLHttpRequest for sketches and libraries (p5.js loadFont, loadJSON): http(s) requests go through
+// fetch() and XMLHttpRequest for sketches and libraries: http(s) requests go through
 // curl (src/fetch.c) with method, headers and body, and give the status and headers of the response. The CORS and
 // mixed-content rules of a web page do not apply. Other URLs are files relative to the working directory.
 

@@ -2,6 +2,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <GLES3/gl3.h>
 
 #define BARK_BAND_COUNT 24
@@ -42,6 +43,23 @@ int http_start(const char *url, const char *method, const char *const *headers, 
                size_t body_length);
 void fetch_stop_all(void); // at exit, without output of the stopped processes
 void fetch_poll(void (*done)(int id, bool ok, const char *data, size_t length));
+
+// The text sources of js/text.js. text_width gives the width of `line` in pixels at a font size of 1 pixel.
+// text_draw fills `texture` with the lines of `text` (separated by "\n"); false when no font was found.
+#define TEXT_PASS_COUNT 3 // bits of `passes`, drawn in this order: fill, outline, fill
+struct text_options {
+    const char *text, *family; // a CSS family or generic name, such as "serif"
+    bool bold, italic;
+    int width, height; // of the texture
+    float size; // of the font, in pixels
+    float x; // of the left end, the middle or the right end of each line, as `align` says
+    int align; // 0 left, 1 center, 2 right
+    uint32_t fill, stroke; // 0xRRGGBBAA
+    float line_width; // of the outline; its line join is always round
+    int passes;
+};
+float text_width(const char *family, bool bold, bool italic, const char *line);
+bool text_draw(unsigned texture, const struct text_options *options);
 
 // Recording of the hydra output to a WebM file through ffmpeg (vidRecorder).
 #define RECORD_FPS 25 // captureStream(25) in hydra-synth

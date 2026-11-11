@@ -2,7 +2,7 @@
 // src/ui.c. out, render and setResolution come from types/index.d.ts of hydra-synth pull request #169 (by the
 // author of hydra-native), written as there; `out` takes an output such as o1 instead of the number of that file.
 // The others are in the same notation: the methods of hydra-synth that the file lacks, and the sources of
-// hydra-native (initMonitor, initArea, initWindow, initCommand). Each entry is "kind name(parameters)".
+// hydra-native (initMonitor, initArea, initWindow, initCommand, and the text sources of js/text.js). Each entry is "kind name(parameters)".
 const API_SIGNATURES = [
   'output out(output?: HydraOutput)',
   'synth render(source?: HydraSource)',
@@ -11,12 +11,15 @@ const API_SIGNATURES = [
   'synth loadScript(url: string)',
   'synth setFunction(definition: object)',
   'synth screencap()',
+  'src text(str: string, config?: object)',
+  'src strokeText(str: string, config?: object)',
+  'src fillStrokeText(str: string, config?: object)',
+  'src strokeFillText(str: string, config?: object)',
   'source initCam(index?: number, params?: object)',
   'source initScreen(index?: number, params?: object)',
   'source initVideo(url: string, params?: object)',
   'source initImage(url: string, params?: object)',
   'source initStream(streamName: string, params?: object)',
-  'source initCanvas(width?: number, height?: number)',
   'source initMonitor(index?: number, params?: object)',
   'source initArea(x: number, y: number, areaWidth: number, areaHeight: number, params?: object)',
   'source initWindow(delay?: number, params?: object)',

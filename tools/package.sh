@@ -75,7 +75,7 @@ windows-x64)
 	cp "$build/hydra-native.exe" "$build/hydra-native-capture.exe" "$build"/*.dll "$bin/"
 	;;
 esac
-cp "$build/hydra-bundle.js" "$build/p5.min.js" "$bin/"
+cp "$build/hydra-bundle.js" "$bin/"
 cp "$root/vendor/fonts/NotoEmoji.ttf" "$contents/vendor/fonts/"
 
 # The patch bay helper as one file, so that only the native WebRTC module comes from node_modules.
@@ -91,8 +91,6 @@ cp "$root/node_modules/hydra-synth/LICENSE" "$target/LICENSE"
 cp "$root/THIRD_PARTY.md" "$target/"
 licenses=$target/licenses
 cp "$root/vendor/quickjs/LICENSE" "$licenses/quickjs.txt"
-cp "$root/vendor/plutovg/LICENSE" "$licenses/plutovg.txt"
-cp "$root/vendor/plutovg/source/FTL.TXT" "$licenses/plutovg-freetype.txt"
 cp "$root/vendor/harfbuzz/COPYING" "$licenses/harfbuzz.txt"
 cp "$root/vendor/sheenbidi/LICENSE" "$licenses/sheenbidi.txt"
 if [ "$system" != linux-x86_64 ]; then # libremidi in the program, ANGLE and SDL3 in the program folder (their archives hold no license file)
@@ -102,13 +100,13 @@ if [ "$system" != linux-x86_64 ]; then # libremidi in the program, ANGLE and SDL
 fi
 sed -n '/^This software is available under 2 licenses/,$p' "$root/vendor/stb/stb_truetype.h" > "$licenses/stb.txt"
 cp "$root/vendor/fonts/NotoEmoji-OFL.txt" "$licenses/noto-emoji.txt"
-# The npm packages in the archive: those that esbuild bundled (its metafiles), plus p5 and the WebRTC module,
-# which are copied as files.
+# The npm packages in the archive: those that esbuild bundled (its metafiles), plus the WebRTC module,
+# which is copied as files.
 WRTC=$wrtc node -e '
 const fs = require("fs"), path = require("path")
 const [root, target, ...metafiles] = process.argv.slice(1)
 const wrtc = fs.realpathSync(path.join(root, "node_modules/@roamhq/wrtc"))
-const directories = new Set([fs.realpathSync(path.join(root, "node_modules/p5")), wrtc, path.join(wrtc, "../" + process.env.WRTC)])
+const directories = new Set([wrtc, path.join(wrtc, "../" + process.env.WRTC)])
 for (const metafile of metafiles)
   for (const input of Object.keys(JSON.parse(fs.readFileSync(metafile, "utf8")).inputs)) {
     const match = input.match(/^(.*node_modules\/(?:@[^/]+\/)?[^/]+)\//)

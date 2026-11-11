@@ -438,6 +438,7 @@ bool overlay_init(const char *font_path, const char *emoji_font_path, float font
 }
 
 float overlay_font_size(void) { return current_font_size; }
+const char *overlay_font_path(void) { return fonts[0].path; }
 float overlay_char_width(void) { return char_width; }
 float overlay_line_height(void) { return line_height; }
 

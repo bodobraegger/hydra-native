@@ -1,13 +1,13 @@
 // Entry of build/hydra-bundle.js: runs the unchanged hydra-synth renderer on the native shims.
-import { onAfterFrame, RecordingContext2D } from './dom-shim.js'
+import { endCanvasRecording, onAfterFrame } from './dom-shim.js'
 import { pendingFetches } from './network.js'
 import { apiSignatureLines } from './api-signatures.js'
 import { PatchBay } from './patch-bay.js'
 import Hydra from 'hydra-synth'
 import { installSources } from './sources.js'
+import { installText } from './text.js'
 import './editor-actions.js'
 import './midi.js'
-import './p5.js'
 import './l10n.js'
 import './extensions.js'
 
@@ -16,6 +16,7 @@ const canvas = document.createElement('canvas')
 document.body.appendChild(canvas)
 
 const hydra = new Hydra({ canvas, enableStreamCapture: false })
+endCanvasRecording()
 
 // As in the web editor (src/views/Hydra.js): with a server, pb joins the room 'iclc' and publishes the output,
 // and hydra-synth uses it for initStream; without one, pb is undefined. The settings menu changes the server
@@ -35,13 +36,10 @@ window.__setPatchBayServer = (server) => {
 // The stream id for the settings panel and Ctrl+Alt+I; others connect with s0.initStream('<stream id>').
 window.__patchBayStreamId = () => patchBay && patchBay.streamId ? patchBay.streamId : ''
 if (native.galleryServer) window.__setPatchBayServer(native.galleryServer)
-// The audio meter of lib/audio.js draws its bars into this recording context, see the overlay code below.
-if (hydra.synth.a) {
-  hydra.synth.a.ctx = Object.assign(new RecordingContext2D(hydra.synth.a.canvas), { fillStyle: '#DFFFFF', strokeStyle: '#0ff' })
-}
 // hydra-editor exposes the renderer as hydraSynth; the hydra-extensions look for it there.
 window.hydraSynth = hydra
 installSources(hydra.s[0].constructor.prototype)
+installText(hydra)
 
 // hydra-synth replaces the pass of an output at once (Output.render). Here the old pass keeps drawing until the
 // driver has compiled the new one (src/programs.c), so that an eval does not stop the frames. The newest pass wins.
@@ -106,7 +104,8 @@ window.addEventListener('resize', () => {
   if (width !== canvas.width || height !== canvas.height) hydra.setResolution(width, height)
 })
 
-// Draws the audio meter of `a.show()` (lib/audio.js draws into a 2D canvas) in the bottom right corner.
+// Draws the audio meter of `a.show()` in the bottom right corner: lib/audio.js draws its bars into the recording
+// context of js/dom-shim.js.
 onAfterFrame(() => {
   const audio = hydra.synth.a
   if (!audio || !audio.isDrawing || !audio.ctx) return
@@ -119,8 +118,8 @@ onAfterFrame(() => {
 // Names for the autocomplete of src/ui.c: hydra sources, transforms (also those of setFunction and
 // extensions) and the globals of hydra-synth, one per line.
 const HYDRA_GLOBALS = ['hush', 'render', 'speed', 'bpm', 'time', 'mouse', 'update', 'afterUpdate', 'setResolution',
-  'loadScript', 'screencap', 'vidRecorder', 'P5', 'width', 'height', 'fps', 'setFunction', 'src', 'o0', 'o1', 'o2', 'o3', 's0', 's1', 's2',
-  's3', 'a', 'initCam', 'initScreen', 'initVideo', 'initImage', 'initCanvas', 'initArea', 'initWindow', 'initMonitor', 'out',
+  'loadScript', 'screencap', 'vidRecorder', 'text', 'strokeText', 'fillStrokeText', 'strokeFillText', 'width', 'height', 'fps', 'setFunction', 'src', 'o0', 'o1', 'o2', 'o3', 's0', 's1', 's2',
+  's3', 'a', 'initCam', 'initScreen', 'initVideo', 'initImage', 'initArea', 'initWindow', 'initMonitor', 'out',
   'smooth', 'fast', 'ease', 'offset', 'fit', 'setBins', 'setSmooth', 'setScale', 'setCutoff', 'show', 'hide', 'fft']
 window.__completionNames = () => [...new Set([...Object.keys(hydra.generator.glslTransforms), ...HYDRA_GLOBALS])].join('\n')
 

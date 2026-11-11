@@ -1,5 +1,5 @@
-// A small DOM element for the shims: enough of the node, attribute, class and style API for hydra-synth,
-// its extensions and p5.js. Nothing is shown; the 2D canvas subclass in js/canvas.js draws for real.
+// A small DOM element for the shims: enough of the node, attribute, class and style API for hydra-synth and
+// its extensions. Nothing is shown.
 
 // addEventListener and dispatchEvent for elements, XMLHttpRequest and MIDI inputs; dispatchEvent first runs the
 // handler property of the event, such as `onload`.
@@ -22,34 +22,10 @@ export class EventTarget {
   }
 }
 
-const MARKUP_TOKEN = /<!--[\s\S]*?-->|<\/([\w:-]+)\s*>|<([\w:-]+)((?:\s+[\w:.-]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?)*)\s*(\/?)>|[^<]+/g
-const MARKUP_ATTRIBUTE = /([\w:.-]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g
-
-// Elements of an HTML or SVG fragment (innerHTML, insertAdjacentHTML), for SVG <filter> definitions; text is
-// left out.
-function parseMarkup (markup) {
-  const root = new Element('template'), stack = [root]
-  for (const [token, closing, name, attributes, selfClosing] of String(markup).matchAll(MARKUP_TOKEN)) {
-    if (closing) {
-      while (stack.length > 1 && stack.pop().localName !== closing) {}
-    } else if (name) {
-      const element = new Element(name)
-      for (const [, key, double, single, bare] of attributes.matchAll(MARKUP_ATTRIBUTE)) {
-        element.setAttribute(key, double ?? single ?? bare ?? '')
-      }
-      stack[stack.length - 1].appendChild(element)
-      if (!selfClosing) stack.push(element)
-    } else if (token.startsWith('<!--')) {
-      continue
-    }
-  }
-  return root.children.slice()
-}
-
 export class Element extends EventTarget {
   constructor (tagName) {
     super()
-    this.localName = String(tagName) // keeps the case, as SVG names such as feGaussianBlur need it
+    this.localName = String(tagName)
     this.tagName = String(tagName).toUpperCase()
     this.nodeName = this.tagName
     this.nodeType = 1
@@ -96,20 +72,8 @@ export class Element extends EventTarget {
   remove () { if (this.parentNode) this.parentNode.removeChild(this) }
 
   get innerHTML () { return '' }
-  set innerHTML (markup) {
-    for (const child of this.children.slice()) this.removeChild(child)
-    for (const child of parseMarkup(markup)) this.appendChild(child)
-  }
-
-  insertAdjacentHTML (position, markup) {
-    const elements = parseMarkup(markup), where = String(position).toLowerCase()
-    if (where === 'beforeend') for (const element of elements) this.appendChild(element)
-    else if (where === 'afterbegin') for (const element of elements.reverse()) this.insertBefore(element, this.children[0])
-    else if (this.parentNode) {
-      const reference = where === 'beforebegin' ? this : this.parentNode.children[this.parentNode.children.indexOf(this) + 1]
-      for (const element of elements) this.parentNode.insertBefore(element, reference)
-    }
-  }
+  set innerHTML (markup) { for (const child of this.children.slice()) this.removeChild(child) }
+  insertAdjacentHTML () {}
   setAttribute (name, value) { this.attributes[name] = String(value); if (name === 'id' || name === 'class') this[name === 'class' ? 'className' : 'id'] = String(value) }
   getAttribute (name) { return name in this.attributes ? this.attributes[name] : null }
   hasAttribute (name) { return name in this.attributes }
