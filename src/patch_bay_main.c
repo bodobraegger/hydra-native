@@ -357,7 +357,8 @@ static void request_video(struct peer *peer, gpointer data) {
 // An offer or an answer of webrtcbin: it becomes the local description and goes to the peer.
 static void on_description_created(GstPromise *promise, gpointer data) {
     struct peer *peer = data;
-    const GstStructure *reply = gst_promise_get_reply(promise);
+    bool replied = gst_promise_wait(promise) == GST_PROMISE_RESULT_REPLIED;
+    const GstStructure *reply = replied ? gst_promise_get_reply(promise) : NULL;
     const char *field = reply && gst_structure_has_field(reply, "offer") ? "offer" : "answer";
     GstWebRTCSessionDescription *description = NULL;
     if (reply) gst_structure_get(reply, field, GST_TYPE_WEBRTC_SESSION_DESCRIPTION, &description, NULL);
@@ -623,8 +624,9 @@ static int vp8_payload_type(const GstSDPMessage *sdp) {
 }
 
 static void on_remote_offer_set(GstPromise *promise, gpointer peer) {
-    const GstStructure *reply = gst_promise_get_reply(promise);
-    bool failed = reply && gst_structure_has_field(reply, "error");
+    bool replied = gst_promise_wait(promise) == GST_PROMISE_RESULT_REPLIED;
+    const GstStructure *reply = replied ? gst_promise_get_reply(promise) : NULL;
+    bool failed = !replied || (reply && gst_structure_has_field(reply, "error"));
     gst_promise_unref(promise);
     if (failed) log_text(true, "webrtcbin refused the offer of the peer");
     else g_signal_emit_by_name(((struct peer *)peer)->webrtc, "create-answer", NULL, description_promise(peer));
