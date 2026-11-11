@@ -38,8 +38,8 @@ mkdir -p "$bin" "$contents/tools" "$contents/vendor/fonts" "$contents/assets" "$
 
 case $system in
 linux-x86_64)
-	cp "$build/hydra-native" "$build/hydra-native-capture" "$build/libhydra-webrtc-apm.so" "$bin/"
-	strip --strip-debug "$bin/hydra-native" "$bin/hydra-native-capture" "$bin/libhydra-webrtc-apm.so"
+	cp "$build/hydra-native" "$build/hydra-native-capture" "$bin/"
+	strip --strip-debug "$bin/hydra-native" "$bin/hydra-native-capture"
 	cp -r "$root/assets/icon" "$root/assets/hydra-native.desktop" "$contents/assets/"
 	;;
 macos-arm64)
@@ -95,10 +95,7 @@ cp "$root/vendor/plutovg/LICENSE" "$licenses/plutovg.txt"
 cp "$root/vendor/plutovg/source/FTL.TXT" "$licenses/plutovg-freetype.txt"
 cp "$root/vendor/harfbuzz/COPYING" "$licenses/harfbuzz.txt"
 cp "$root/vendor/sheenbidi/LICENSE" "$licenses/sheenbidi.txt"
-if [ "$system" = linux-x86_64 ]; then # the audio processing of the system, through the shim
-	cp "$root/vendor/abseil-cpp/LICENSE" "$licenses/abseil.txt"
-	cp "$root/vendor/webrtc-audio-processing/COPYING" "$licenses/webrtc-audio-processing.txt"
-else # libremidi in the program, ANGLE and SDL3 in the program folder (their archives hold no license file)
+if [ "$system" != linux-x86_64 ]; then # libremidi in the program, ANGLE and SDL3 in the program folder (their archives hold no license file)
 	cp "$root/vendor/libremidi/LICENSE.md" "$licenses/libremidi.txt"
 	echo "ANGLE (BSD-3-Clause): https://chromium.googlesource.com/angle/angle/+/refs/heads/main/LICENSE" > "$licenses/angle.txt"
 	echo "SDL3 (zlib license): https://github.com/libsdl-org/SDL/blob/main/LICENSE.txt" > "$licenses/sdl3.txt"

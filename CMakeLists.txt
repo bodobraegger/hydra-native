@@ -17,8 +17,6 @@ set(QUICKJS_VERSION 2026-06-04)
 set(PLUTOVG_VERSION 1.3.3)
 set(HARFBUZZ_VERSION 14.6.0)
 set(SHEENBIDI_VERSION 2.9.0)
-set(WEBRTC_APM_VERSION 1.3)
-set(ABSEIL_VERSION 20230125.1)
 set(STB_COMMIT 4e9b368bfc071e97206ea5c6adba68dd0cbf8897)
 set(LIBREMIDI_VERSION 5.4.3)
 set(EMOJI_FONT_COMMIT 8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5)
@@ -46,21 +44,15 @@ function(download_verified url path sha256 result)
 endfunction()
 
 # Extracts the archive at `url` into vendor/<name>, unless vendor/<name>/<marker> is there already.
-# Further arguments are fallback pairs `url sha256` of an archive with the same content.
 function(vendor_archive name url sha256 marker)
   if(EXISTS ${VENDOR}/${name}/${marker})
     return()
   endif()
-  set(sources ${url} ${sha256} ${ARGN})
-  set(downloaded FALSE)
-  while(sources AND NOT downloaded)
-    list(POP_FRONT sources source_url source_sha256)
-    get_filename_component(archive ${source_url} NAME)
-    set(download ${CMAKE_BINARY_DIR}/downloads/${archive})
-    download_verified(${source_url} ${download} ${source_sha256} downloaded)
-  endwhile()
+  get_filename_component(archive ${url} NAME)
+  set(download ${CMAKE_BINARY_DIR}/downloads/${archive})
+  download_verified(${url} ${download} ${sha256} downloaded)
   if(NOT downloaded)
-    message(FATAL_ERROR "Cannot download ${name} from any source")
+    message(FATAL_ERROR "Cannot download ${url}")
   endif()
   set(extract ${VENDOR}/.extract-${name}) # on the file system of vendor/, for the rename
   file(REMOVE_RECURSE ${extract})
@@ -76,7 +68,6 @@ function(vendor_archive name url sha256 marker)
   endif()
 endfunction()
 
-# Downloads `url` to vendor/<path>, unless it is there already.
 function(vendor_file path url sha256)
   if(EXISTS ${VENDOR}/${path})
     return()
@@ -132,7 +123,6 @@ else()
       b5be74ac235ff45b60c03f6bd1434df1dfbcf82fcc0742e92124a7e35fd30283 lib/libGLESv2.lib)
     file(GLOB ANGLE_RUNTIME ${VENDOR}/angle/bin/*.dll)
     set(ANGLE_GLES ${VENDOR}/angle/lib/libGLESv2.lib)
-    # The development package of the SDL project for Visual C++, with its CMake configuration.
     vendor_archive(sdl3-vc https://github.com/libsdl-org/SDL/releases/download/release-${SDL3_VERSION}/SDL3-devel-${SDL3_VERSION}-VC.zip
       fd4c60400634df13a86b69432b22b32f23bccd6a2f4c6a34b42b471c65eb4fd2 cmake/SDL3Config.cmake)
     find_package(SDL3 REQUIRED CONFIG PATHS ${VENDOR}/sdl3-vc/cmake NO_DEFAULT_PATH)
@@ -188,7 +178,6 @@ else()
   set(WARNINGS -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers)
 endif()
 
-# Child processes and streams (src/process.h).
 if(WIN32)
   set(PROCESS_SOURCE src/process_windows.c)
 else()
@@ -220,32 +209,6 @@ else()
   target_link_libraries(hydra-native-capture PRIVATE PkgConfig::GIO)
 endif()
 target_compile_options(hydra-native-capture PRIVATE ${WARNINGS})
-
-# The audio processing of Chrome in build/libhydra-webrtc-apm.so, which src/audio.c loads at run time: the system
-# library of PipeWire on Linux (not downloaded; only its headers come from upstream). macOS and Windows have none
-# and use src/audio_processing.c. C++17 makes absl::optional the std::optional that the system library uses.
-if(HYDRA_LINUX)
-  find_library(WEBRTC_APM_LIBRARY NAMES libwebrtc-audio-processing-1.so.3)
-endif()
-if(WEBRTC_APM_LIBRARY)
-  vendor_archive(webrtc-audio-processing
-    https://freedesktop.org/software/pulseaudio/webrtc-audio-processing/webrtc-audio-processing-${WEBRTC_APM_VERSION}.tar.xz
-    2365e93e778d7b61b5d6e02d21c47d97222e9c7deff9e1d0838ad6ec2e86f1b9 webrtc/modules/audio_processing/include/audio_processing.h
-    # Debian's copy of the same release, for when freedesktop.org fails (seen on GitHub runners)
-    https://deb.debian.org/debian/pool/main/w/webrtc-audio-processing/webrtc-audio-processing_${WEBRTC_APM_VERSION}.orig.tar.gz
-    95552fc17faa0202133707bbb3727e8c2cf64d4266fe31bfdb2298d769c1db75)
-  vendor_archive(abseil-cpp https://github.com/abseil/abseil-cpp/archive/${ABSEIL_VERSION}.tar.gz
-    81311c17599b3712069ded20cca09a62ab0bf2a89dfa16993786c8782b7ed145 absl/types/optional.h)
-  add_library(hydra-webrtc-apm SHARED src/webrtc_apm.cc)
-  set_target_properties(hydra-webrtc-apm PROPERTIES CXX_STANDARD 17)
-  target_compile_definitions(hydra-webrtc-apm PRIVATE WEBRTC_POSIX WEBRTC_LINUX)
-  target_include_directories(hydra-webrtc-apm PRIVATE ${VENDOR}/webrtc-audio-processing/webrtc ${VENDOR}/abseil-cpp)
-  target_link_libraries(hydra-webrtc-apm PRIVATE ${WEBRTC_APM_LIBRARY})
-  target_compile_options(hydra-webrtc-apm PRIVATE ${QUIET})
-  set(WEBRTC_APM_FILE $<TARGET_FILE:hydra-webrtc-apm>)
-elseif(HYDRA_LINUX)
-  message(STATUS "libwebrtc-audio-processing-1 is not installed: the audio input has no echo and noise filters")
-endif()
 
 # ---------------------------------------------------------------- audio input and MIDI
 
@@ -288,12 +251,8 @@ else()
   target_link_libraries(hydra-audio-midi PUBLIC libremidi)
 endif()
 target_compile_options(hydra-audio-midi PRIVATE ${WARNINGS})
-target_compile_definitions(hydra-audio-midi PRIVATE $<$<C_COMPILER_ID:MSVC>:_USE_MATH_DEFINES>
-  WEBRTC_APM_LIBRARY_NAME="$<$<BOOL:${HYDRA_LINUX}>:libhydra-webrtc-apm.so>")
+target_compile_definitions(hydra-audio-midi PRIVATE $<$<C_COMPILER_ID:MSVC>:_USE_MATH_DEFINES>)
 target_link_libraries(hydra-audio-midi PUBLIC SDL3::SDL3 gles)
-if(TARGET hydra-webrtc-apm)
-  add_dependencies(hydra-audio-midi hydra-webrtc-apm)
-endif()
 
 if(WIN32)
   # No program on Windows yet: QuickJS does not build with MSVC (quickjs-ng replaces it, PORTING.md), and the
@@ -355,10 +314,8 @@ add_executable(audio-test EXCLUDE_FROM_ALL test/audio_test.c src/audio_processin
 add_executable(process-test EXCLUDE_FROM_ALL test/process_test.c ${PROCESS_SOURCE})
 target_link_libraries(editor-test PRIVATE sheenbidi)
 target_link_libraries(ui-test PRIVATE sheenbidi quickjs SDL3::SDL3 m dl pthread)
-target_link_libraries(audio-test PRIVATE SDL3::SDL3 m)
-target_compile_definitions(audio-test PRIVATE WEBRTC_APM_FILE="${WEBRTC_APM_FILE}")
+target_link_libraries(audio-test PRIVATE m)
 set(UNIT_TESTS editor-test ui-test audio-test process-test)
-# The MIDI test is for Linux (ALSA).
 if(HYDRA_LINUX)
 # midi-test sends through the ALSA sequencer; with HYDRA_SDL_AUDIO_LIBREMIDI it tests src/midi_libremidi.cc.
 add_executable(midi-test EXCLUDE_FROM_ALL test/midi_test.c)
@@ -381,7 +338,7 @@ endforeach()
 add_custom_target(unit-tests DEPENDS ${UNIT_TESTS} hydra-native-capture)
 add_test(NAME mutator COMMAND node ${CMAKE_SOURCE_DIR}/test/mutator_test.mjs)
 set_tests_properties(mutator PROPERTIES LABELS unit)
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+if(HYDRA_LINUX)
   add_test(NAME portal COMMAND python3 ${CMAKE_SOURCE_DIR}/test/portal_test.py)
   set_tests_properties(portal PROPERTIES LABELS unit)
   add_test(NAME portal-stop COMMAND python3 ${CMAKE_SOURCE_DIR}/test/portal_stop_test.py)
