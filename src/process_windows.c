@@ -266,6 +266,15 @@ long stream_read_ready(int stream, void *buffer, size_t size) {
     return (long)count;
 }
 
+// PIPE_NOWAIT makes WriteFile return at once with the bytes that fit, 0 for a full pipe.
+long stream_write_ready(int stream, const void *buffer, size_t size) {
+    HANDLE handle = stream_handle(stream);
+    DWORD mode = PIPE_NOWAIT, count = 0, wanted = (DWORD)(size < MAX_IO_BYTES ? size : MAX_IO_BYTES);
+    SetNamedPipeHandleState(handle, &mode, NULL, NULL);
+    if (!WriteFile(handle, buffer, wanted, &count, NULL)) return -1;
+    return (long)count;
+}
+
 // CancelIoEx also cancels a synchronous ReadFile of another thread of this process. A read that starts after
 // the call still waits for data, so the reader must check its own stop condition between reads.
 void stream_shutdown(int stream) { CancelIoEx(stream_handle(stream), NULL); }
