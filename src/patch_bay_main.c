@@ -99,10 +99,12 @@ static SoupWebsocketConnection *signaller;
 static bool connected; // to the socket.io namespace
 static GPtrArray *unsent; // event packets before the connection, which socket.io-client also buffers
 
+// The frames of the output come through a GDataInputStream, which reads in a thread of the GLib pool. So each read
+// has a buffer of its own, and a new output cancels the read of the old one instead of closing its socket under it.
 static struct {
     GSocketConnection *connection;
     GDataInputStream *input;
-    guint8 *frame;
+    GCancellable *cancellable;
     gsize frame_size;
     GstCaps *caps; // of the newest output, also for the peers that start later
 } output;
@@ -827,23 +829,30 @@ static bool connect_signalling(void) {
 // ---------------------------------------------------------------- the local socket
 
 static void stop_output(void) {
-    close_connection(&output.connection);
+    if (output.cancellable) g_cancellable_cancel(output.cancellable);
+    g_clear_object(&output.cancellable);
+    g_clear_object(&output.connection);
     g_clear_object(&output.input);
 }
 
 static void on_output_frame(GObject *source, GAsyncResult *result, gpointer data);
 
 static void read_output_frame(void) {
-    g_input_stream_read_all_async(G_INPUT_STREAM(output.input), output.frame, output.frame_size, G_PRIORITY_DEFAULT,
-                                  NULL, on_output_frame, NULL);
+    guint8 *frame = g_malloc(output.frame_size);
+    g_input_stream_read_all_async(G_INPUT_STREAM(output.input), frame, output.frame_size, G_PRIORITY_DEFAULT,
+                                  output.cancellable, on_output_frame, frame);
 }
 
 static void on_output_frame(GObject *source, GAsyncResult *result, gpointer data) {
     gsize count = 0;
     bool read = g_input_stream_read_all_finish(G_INPUT_STREAM(source), result, &count, NULL);
-    if (source != G_OBJECT(output.input)) return; // the stream of a closed output
-    if (!read || count < output.frame_size) return stop_output();
-    GstBuffer *buffer = gst_buffer_new_memdup(output.frame, output.frame_size);
+    guint8 *frame = data;
+    if (source != G_OBJECT(output.input)) return g_free(frame); // the stream of a closed output
+    if (!read || count < output.frame_size) {
+        g_free(frame);
+        return stop_output();
+    }
+    GstBuffer *buffer = gst_buffer_new_wrapped(frame, output.frame_size);
     GHashTableIter iterator;
     struct peer *peer;
     g_hash_table_iter_init(&iterator, peers);
@@ -865,8 +874,8 @@ static void start_output(GSocketConnection *connection, GDataInputStream *stream
     stop_output();
     output.connection = connection;
     output.input = stream;
+    output.cancellable = g_cancellable_new();
     output.frame_size = (gsize)width * height * RGBA_BYTES;
-    output.frame = g_realloc(output.frame, output.frame_size);
     if (output.caps) gst_caps_unref(output.caps);
     output.caps = gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, "RGBA", "width", G_TYPE_INT, width,
                                       "height", G_TYPE_INT, height, "framerate", GST_TYPE_FRACTION, 0, 1, NULL);
