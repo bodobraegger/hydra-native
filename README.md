@@ -3,7 +3,7 @@
 hydra-native runs [Hydra](https://hydra.ojack.xyz) sketches in a native window, without a browser.
 It has the features of the web editor: the code over the visuals, live evaluation, the gallery, extensions,
 cameras, screen capture, audio, MIDI and the patch bay. [docs/manual.md](docs/manual.md) describes all of them.
-[What hydra-native leaves out](#what-hydra-native-leaves-out) lists the differences.
+It leaves out some browser features, see [below](#what-hydra-native-leaves-out).
 
 ## Install
 
@@ -73,30 +73,24 @@ At the first build, CMake downloads the C libraries of [THIRD_PARTY.md](THIRD_PA
 their SHA-256 hashes.
 
 `make test` runs the unit tests. `make check` also runs the checks in hidden windows, which need a GPU.
-`tools/package.sh VERSION` packs the release archive of this system into dist/.
 
 ## What hydra-native leaves out
 
-hydra-native does not emulate P5 and the canvas APIs of the browser: the 2D canvas, WebGL contexts for sketches
-and SVG filters. An earlier version did. That emulation was about 3,800 lines of code and two dependencies
-(the vector graphics library plutovg and p5.js), for a feature that few sketches use. Each of these lines could
-differ from the browser in a small way, and all of them needed maintenance on three systems.
+hydra-native does not emulate `P5` and the canvas APIs of the browser (the 2D canvas, WebGL contexts for sketches,
+SVG filters). That emulation was about 3,800 lines of code and two dependencies (plutovg and p5.js) for a feature
+that few sketches use, and each line could differ from the browser. The main use of the canvas in sketches is
+text, so `text()`, `strokeText()`, `fillStrokeText()` and `strokeFillText()` are built in with the interface of
+the hydra-text extension (see [Text](docs/manual.md#text)). They need about 400 lines and no dependency.
 
-The main use of the canvas in hydra sketches is text. Thus `text()`, `strokeText()`, `fillStrokeText()` and
-`strokeFillText()` are built in, with the interface of the hydra-text extension (see
-[Text](docs/manual.md#text)). They need about 400 lines and no new dependency, because the code overlay
-already draws text.
+Thus sketches that use `P5` or draw on a canvas of their own do not run: `getContext()` gives `null`.
+`fetch()` does not apply the CORS rules of a web page.
 
-As a result, these sketches do not run:
+## Release
 
-- sketches that use `P5`;
-- sketches that draw on a canvas of their own (`getContext('2d')`, `getContext('webgl')`, `s0.initCanvas()`,
-  `s0.init({ src: canvas })`).
-
-In such a sketch, `getContext()` gives `null`, and the error bar shows the error of the first drawing call.
-
-hydra-native also does not apply the CORS rules of a web page to `fetch()`, and settings have no command line
-flags: the settings menu and settings.json are the one place for them.
+1. Run `make check` on a machine with a GPU, and `tools/release-tests.sh` in a desktop session.
+2. Push a tag such as `v0.1.0` on a commit of main. The workflow `build` attaches the Linux archive and the
+   macOS app to a draft release.
+3. Write the notes into the draft and publish it.
 
 ## License
 

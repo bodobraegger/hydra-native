@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The manual tests before a release (RELEASE.md), with the build of `make`: each stage starts hydra-native with a
+# The manual tests before a release (README.md), with the build of `make`: each stage starts hydra-native with a
 # sketch, says what to do, and asks for pass or fail. The results go to build/release-test-results.env; a second
 # run offers them as defaults.
 set -euo pipefail
