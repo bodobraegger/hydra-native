@@ -49,6 +49,7 @@
 #define MAX_CONNECTIONS 16 // peer connections at the same time, each a pipeline with threads of its own
 #define RGBA_BYTES 4
 #define DEFAULT_PAYLOAD_TYPE 96
+#define MAX_PAYLOAD_TYPE 127 // RTP has 7 bits for it
 #define NO_VIDEO (-1)
 #define STUN_SERVER "stun://stun.l.google.com:19302" // the first STUN server of the defaults of simple-peer
 #define DATA_CHANNEL_LABEL "hydra-native"
@@ -606,7 +607,8 @@ static int vp8_payload_type(const GstSDPMessage *sdp) {
             int payload_type;
             char encoding[16];
             if (!g_strcmp0(map->key, "rtpmap") && map->value &&
-                sscanf(map->value, "%d %15[^/]", &payload_type, encoding) == 2 && !g_ascii_strcasecmp(encoding, "VP8"))
+                sscanf(map->value, "%d %15[^/]", &payload_type, encoding) == 2 && payload_type >= 0 &&
+                payload_type <= MAX_PAYLOAD_TYPE && !g_ascii_strcasecmp(encoding, "VP8"))
                 return payload_type;
         }
     }
