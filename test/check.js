@@ -133,7 +133,20 @@ async function arrowChecks () {
   return first === second ? [`arrow function of time: the pixel stays ${first}`] : []
 }
 
-const checks = Promise.all([networkChecks(), pendingPassChecks()
+// Top-level const of sketch code can be evaluated again (js/declarations.js). src/engine.c evaluated this file with
+// its const as var, which is a property of the global object; loadScript does the same rewrite.
+async function redeclarationChecks () {
+  const failures = []
+  if (!Object.hasOwn(globalThis, 'CHECK_DELAY_MS')) failures.push('the top-level const of the sketch stayed a const')
+  const path = native.directory + '/check-redeclared.js'
+  native.writeFile(path, 'const redeclared = 1\nredeclaredRuns = (globalThis.redeclaredRuns || 0) + 1')
+  await loadScript(path)
+  await loadScript(path)
+  if (globalThis.redeclaredRuns !== 2) failures.push(`const redeclared = 1: ${globalThis.redeclaredRuns} of 2 runs`)
+  return failures
+}
+
+const checks = Promise.all([networkChecks(), redeclarationChecks(), pendingPassChecks()
   .then(async (failures) => [...failures, ...await textChecks(), ...await programChecks(),
     ...await arrowChecks()])])
 

@@ -15,6 +15,10 @@ Ctrl+, opens the settings menu, which saves to settings.json. `hydra-native --he
 for scripts and tests; `--socket PATH` sets the code socket for one run.
 
 The program evaluates the files in the given order, in the global scope, like the browser console.
+Top-level `const`, `let` and `class` declarations of sketch code become `var` before each evaluation. Thus the same
+code can run again without a redeclaration error, and later evaluations see the names. Declarations in blocks and
+functions stay as they are. Error messages keep their line numbers, and also their columns, except on the line of
+a `class` declaration.
 Without a file, it starts like the web editor: with a random example and the info panel.
 The last file opens in the code overlay, and Ctrl+S saves the overlay text to it.
 If the file does not exist yet, the overlay starts empty and Ctrl+S creates the file.

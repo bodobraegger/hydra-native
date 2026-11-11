@@ -2,6 +2,7 @@
 import { endCanvasRecording, onAfterFrame } from './dom-shim.js'
 import { pendingFetches } from './network.js'
 import { apiSignatureLines } from './api-signatures.js'
+import { rewriteDeclarations } from './declarations.js'
 import { PatchBay } from './patch-bay.js'
 import Hydra from 'hydra-synth'
 import { installSources } from './sources.js'
@@ -73,10 +74,12 @@ hydra.synth.screencap = window.screencap = () => native.screencap()
 hydra.synth.vidRecorder = window.vidRecorder = { start: () => native.recordStart(), stop: () => native.recordStop() }
 
 const URL_PATTERN = /^https?:\/\//
+// src/engine.c passes the sketch code through it before the evaluation (js/declarations.js).
+window.__rewriteDeclarations = rewriteDeclarations
 
 function runScript (code, url) {
   try {
-    globalThis.eval(code)
+    globalThis.eval(rewriteDeclarations(code))
     console.log(`loaded script ${url}`)
   } catch (error) {
     console.error(`error loading script ${url}:`, error, error.stack || '')

@@ -67,7 +67,7 @@ static char *error_message(JSValue error) {
 static JSValue pending_evaluations[MAX_PENDING_EVALUATIONS];
 static int pending_evaluation_count;
 
-char *engine_evaluate(const char *code, size_t length, const char *name) {
+static char *evaluate(const char *code, size_t length, const char *name) {
     JSValue result = JS_Eval(js, code, length, name, JS_EVAL_TYPE_GLOBAL | JS_EVAL_FLAG_ASYNC);
     char *message = NULL;
     if (JS_IsException(result)) {
@@ -95,6 +95,31 @@ char *engine_evaluate(const char *code, size_t length, const char *name) {
     default: break;
     }
     JS_FreeValue(js, result);
+    return message;
+}
+
+// Sketch code goes through __rewriteDeclarations of js/declarations.js first, so that its top-level const, let and
+// class can be evaluated again. The bundle defines that function, so the bundle itself runs as it is.
+char *engine_evaluate(const char *code, size_t length, const char *name) {
+    JSValue global = JS_GetGlobalObject(js);
+    JSValue rewrite = JS_GetPropertyStr(js, global, "__rewriteDeclarations");
+    JSValue source = JS_NewStringLen(js, code, length);
+    if (JS_IsFunction(js, rewrite)) {
+        JSValue rewritten = JS_Call(js, rewrite, global, 1, &source);
+        if (JS_IsException(rewritten)) {
+            js_std_dump_error(js); // the code runs as it is
+        } else {
+            JS_FreeValue(js, source);
+            source = rewritten;
+        }
+    }
+    size_t rewritten_length;
+    const char *text = JS_ToCStringLen(js, &rewritten_length, source);
+    char *message = text ? evaluate(text, rewritten_length, name) : evaluate(code, length, name);
+    JS_FreeCString(js, text);
+    JS_FreeValue(js, source);
+    JS_FreeValue(js, rewrite);
+    JS_FreeValue(js, global);
     return message;
 }
 
