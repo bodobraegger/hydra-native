@@ -324,6 +324,14 @@ static void store_selections(struct editor *editor, struct selection *list, size
 
 typedef void (*selection_function)(struct editor *editor, void *data);
 
+// An offset of a later selection after the edits of the earlier ones. An edit that removed the text around it (such
+// as "delete to the line end" with two cursors on one line) leaves it at `floor`, the end of the selection before.
+static size_t shifted_offset(const struct editor *editor, size_t offset, long delta, size_t floor) {
+    long shifted = (long)offset + delta;
+    if (shifted < (long)floor) return floor;
+    return (size_t)shifted > editor->length ? editor->length : (size_t)shifted;
+}
+
 // Runs `function` once per selection, from the first to the last, with that selection as the primary one.
 // Offsets of the later selections shift by the length change of the earlier edits.
 static void for_each_selection(struct editor *editor, selection_function function, void *data) {
@@ -331,8 +339,9 @@ static void for_each_selection(struct editor *editor, selection_function functio
     size_t count = editor_selections(editor, &list);
     long delta = 0;
     for (size_t i = 0; i < count; i++) {
-        editor->cursor = (size_t)((long)list[i].cursor + delta);
-        editor->anchor = (size_t)((long)list[i].anchor + delta);
+        size_t floor = i > 0 ? selection_end(&list[i - 1]) : 0;
+        editor->cursor = shifted_offset(editor, list[i].cursor, delta, floor);
+        editor->anchor = shifted_offset(editor, list[i].anchor, delta, floor);
         editor->goal_column = list[i].goal_column;
         editor->has_goal_column = list[i].has_goal_column;
         editor->sticky = list[i].sticky;
