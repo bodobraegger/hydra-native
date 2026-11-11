@@ -12,7 +12,9 @@ const AsyncFunction = (async () => {}).constructor
 // After these words a "/" starts a regular expression, and a "[" starts an array.
 const EXPRESSION_KEYWORDS = new Set(['return', 'typeof', 'instanceof', 'in', 'of', 'new', 'delete', 'void', 'throw',
   'case', 'do', 'else', 'yield', 'await'])
-const NUMBER = /0[xX][\da-fA-F_]+n?|0[bB][01_]+n?|0[oO][0-7_]+n?|(?:\d[\d_]*\.?[\d_]*|\.\d[\d_]*)(?:[eE][+-]?\d[\d_]*)?n?/y
+const PREFIXED_NUMBER = /0[xX][\da-fA-F_]+n?|0[bB][01_]+n?|0[oO][0-7_]+n?/
+const DECIMAL_NUMBER = /(?:\d[\d_]*\.?[\d_]*|\.\d[\d_]*)(?:[eE][+-]?\d[\d_]*)?n?/
+const NUMBER = new RegExp(`${PREFIXED_NUMBER.source}|${DECIMAL_NUMBER.source}`, 'y')
 const NAME = /[A-Za-z_$\u00a0-\uffff][\w$\u00a0-\uffff]*/y
 
 // The tokens of `text` that the mutator needs: numbers, names and single punctuation characters, with their
@@ -45,7 +47,10 @@ function tokenize (text) {
     const start = i
     if (/\s/.test(c)) i++
     else if (c === '/' && text[i + 1] === '/') while (i < text.length && text[i] !== '\n') i++
-    else if (c === '/' && text[i + 1] === '*') i = text.indexOf('*/', i + 2) < 0 ? text.length : text.indexOf('*/', i + 2) + 2
+    else if (c === '/' && text[i + 1] === '*') {
+      const end = text.indexOf('*/', i + 2)
+      i = end < 0 ? text.length : end + 2
+    }
     else if (c === '"' || c === "'") {
       for (i++; i < text.length && text[i] !== c && text[i] !== '\n'; i++) if (text[i] === '\\') i++
       i++

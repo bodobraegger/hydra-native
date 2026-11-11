@@ -27,7 +27,8 @@ window.location = {
 
 const windowEvents = new EventTarget()
 const addEventListener = window.addEventListener = (type, listener) => windowEvents.addEventListener(type, listener)
-const removeEventListener = window.removeEventListener = (type, listener) => windowEvents.removeEventListener(type, listener)
+const removeEventListener = window.removeEventListener =
+  (type, listener) => windowEvents.removeEventListener(type, listener)
 
 function updateWindowSize () {
   [window.innerWidth, window.innerHeight] = native.drawableSize()
@@ -135,8 +136,8 @@ class RecordingContext2D {
   stroke () {
     for (let i = 1; i < this.path.length; i++) {
       const [[x0, y0], [x1, y1]] = [this.path[i - 1], this.path[i]]
-      this.rects.push([Math.min(x0, x1), Math.min(y0, y1), Math.max(Math.abs(x1 - x0), 1), Math.max(Math.abs(y1 - y0), 1),
-        ...(parseColor(this.strokeStyle) || WHITE)])
+      const size = [Math.max(Math.abs(x1 - x0), 1), Math.max(Math.abs(y1 - y0), 1)]
+      this.rects.push([Math.min(x0, x1), Math.min(y0, y1), ...size, ...(parseColor(this.strokeStyle) || WHITE)])
     }
   }
 }

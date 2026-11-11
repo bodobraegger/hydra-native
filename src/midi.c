@@ -67,7 +67,8 @@ bool midi_start(void) {
     own_client = snd_seq_client_id(sequencer);
     own_port = snd_seq_create_simple_port(sequencer, "input", SND_SEQ_PORT_CAP_WRITE | SND_SEQ_PORT_CAP_SUBS_WRITE,
                                           SND_SEQ_PORT_TYPE_MIDI_GENERIC | SND_SEQ_PORT_TYPE_APPLICATION);
-    own_output_port = snd_seq_create_simple_port(sequencer, "output", SND_SEQ_PORT_CAP_READ | SND_SEQ_PORT_CAP_SUBS_READ,
+    own_output_port = snd_seq_create_simple_port(sequencer, "output",
+                                                 SND_SEQ_PORT_CAP_READ | SND_SEQ_PORT_CAP_SUBS_READ,
                                                  SND_SEQ_PORT_TYPE_MIDI_GENERIC | SND_SEQ_PORT_TYPE_APPLICATION);
     queue = snd_seq_alloc_named_queue(sequencer, "hydra-native");
     snd_seq_port_info_t *port_info;

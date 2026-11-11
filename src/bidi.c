@@ -37,8 +37,8 @@ static bool is_rtl_trigger(int codepoint) {
 // \s of JavaScript.
 static bool is_js_space(int codepoint) {
     return codepoint == ' ' || (codepoint >= 0x9 && codepoint <= 0xD) || codepoint == 0xA0 || codepoint == 0x1680 ||
-           (codepoint >= 0x2000 && codepoint <= 0x200A) || codepoint == 0x2028 || codepoint == 0x2029 || codepoint == 0x202F ||
-           codepoint == 0x205F || codepoint == 0x3000 || codepoint == 0xFEFF;
+           (codepoint >= 0x2000 && codepoint <= 0x200A) || codepoint == 0x2028 || codepoint == 0x2029 ||
+           codepoint == 0x202F || codepoint == 0x205F || codepoint == 0x3000 || codepoint == 0xFEFF;
 }
 
 bool bidi_line_has_rtl(const char *text, size_t length) {
@@ -129,21 +129,26 @@ size_t bidi_codemirror_order(const char *text, size_t length, struct bidi_span *
         for (++i; i < count && types[i] != 'L'; ++i) {}
         for (size_t j = position; j < i;) {
             if (counts_as_number(types[j])) {
-                if (position < j) insert_span(spans, &span_count, capacity, at, (struct bidi_span){ 1, offsets[position], offsets[j] });
+                struct bidi_span before = { 1, offsets[position], offsets[j] };
+                if (position < j) insert_span(spans, &span_count, capacity, at, before);
                 size_t number_start = j;
                 for (++j; j < i && counts_as_number(types[j]); ++j) {}
-                insert_span(spans, &span_count, capacity, at, (struct bidi_span){ 2, offsets[number_start], offsets[j] });
+                struct bidi_span number = { 2, offsets[number_start], offsets[j] };
+                insert_span(spans, &span_count, capacity, at, number);
                 position = j;
             } else {
                 ++j;
             }
         }
-        if (position < i) insert_span(spans, &span_count, capacity, at, (struct bidi_span){ 1, offsets[position], offsets[i] });
+        struct bidi_span rest = { 1, offsets[position], offsets[i] };
+        if (position < i) insert_span(spans, &span_count, capacity, at, rest);
     }
     // Leading and trailing white space of a line that starts or ends right-to-left stays left-to-right.
     if (span_count && spans[0].level == 1) {
         size_t space = 0;
-        while (space < length && is_js_space(unicode_decode((const unsigned char *)text + space, length - space, &size))) space += size;
+        while (space < length &&
+               is_js_space(unicode_decode((const unsigned char *)text + space, length - space, &size)))
+            space += size;
         if (space) {
             spans[0].from = space;
             insert_span(spans, &span_count, capacity, 0, (struct bidi_span){ 0, 0, space });

@@ -66,13 +66,15 @@ static inline enum unicode_break unicode_break_class(int codepoint) {
 static inline size_t unicode_cluster_end(const unsigned char *text, size_t length, size_t offset) {
     if (offset >= length) return length;
     // ASCII before ASCII never joins, except CR LF.
-    if (text[offset] < 0x80 && text[offset] != '\r' && (offset + 1 >= length || text[offset + 1] < 0x80)) return offset + 1;
+    bool ascii_follows = offset + 1 >= length || text[offset + 1] < 0x80;
+    if (text[offset] < 0x80 && text[offset] != '\r' && ascii_follows) return offset + 1;
     size_t size, position = offset;
     int codepoint = unicode_decode(text + position, length - position, &size);
     position += size;
     enum unicode_break previous = unicode_break_class(codepoint);
     // GB11: an Extended_Pictographic, Extend*, then ZWJ joins the next Extended_Pictographic.
-    enum { EMOJI_NONE, EMOJI_SEEN, EMOJI_JOINED } emoji = UNICODE_LOOKUP(extended_pictographic_ranges, codepoint) ? EMOJI_SEEN : EMOJI_NONE;
+    enum { EMOJI_NONE, EMOJI_SEEN, EMOJI_JOINED } emoji = EMOJI_NONE;
+    if (UNICODE_LOOKUP(extended_pictographic_ranges, codepoint)) emoji = EMOJI_SEEN;
     int regional_indicators = previous == BREAK_REGIONAL_INDICATOR;
     while (position < length) {
         codepoint = unicode_decode(text + position, length - position, &size);
@@ -82,12 +84,15 @@ static inline size_t unicode_cluster_end(const unsigned char *text, size_t lengt
         if (previous == BREAK_CR && next == BREAK_LF) join = true;
         else if (previous == BREAK_CR || previous == BREAK_LF || previous == BREAK_CONTROL) join = false;
         else if (next == BREAK_CR || next == BREAK_LF || next == BREAK_CONTROL) join = false;
-        else if (previous == BREAK_L && (next == BREAK_L || next == BREAK_V || next == BREAK_LV || next == BREAK_LVT)) join = true;
+        else if (previous == BREAK_L && (next == BREAK_L || next == BREAK_V || next == BREAK_LV || next == BREAK_LVT))
+            join = true;
         else if ((previous == BREAK_LV || previous == BREAK_V) && (next == BREAK_V || next == BREAK_T)) join = true;
         else if ((previous == BREAK_LVT || previous == BREAK_T) && next == BREAK_T) join = true;
-        else if (next == BREAK_EXTEND || next == BREAK_ZWJ || next == BREAK_SPACING_MARK || previous == BREAK_PREPEND) join = true;
+        else if (next == BREAK_EXTEND || next == BREAK_ZWJ || next == BREAK_SPACING_MARK || previous == BREAK_PREPEND)
+            join = true;
         else if (previous == BREAK_ZWJ && emoji == EMOJI_JOINED && pictographic) join = true;
-        else if (previous == BREAK_REGIONAL_INDICATOR && next == BREAK_REGIONAL_INDICATOR) join = regional_indicators % 2 == 1;
+        else if (previous == BREAK_REGIONAL_INDICATOR && next == BREAK_REGIONAL_INDICATOR)
+            join = regional_indicators % 2 == 1;
         else join = false;
         if (!join) break;
         if (pictographic) emoji = EMOJI_SEEN;

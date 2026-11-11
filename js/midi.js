@@ -12,7 +12,8 @@ class MIDIInput extends EventTarget {
   close () { return Promise.resolve(this) }
 
   receive (bytes, timeStamp) {
-    this.dispatchEvent({ data: Uint8Array.from(bytes), timeStamp, target: this, currentTarget: this, type: 'midimessage' })
+    const data = Uint8Array.from(bytes)
+    this.dispatchEvent({ data, timeStamp, target: this, currentTarget: this, type: 'midimessage' })
   }
 }
 

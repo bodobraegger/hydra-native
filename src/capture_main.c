@@ -29,7 +29,10 @@ int main(int argc, char **argv) {
         return 1;
 #endif
     }
-    int needed = !strcmp(mode, "picker") ? 4 : !strcmp(mode, "monitor") || !strcmp(mode, "window") ? 5 : !strcmp(mode, "area") ? 8 : 0;
+    int needed = 0; // the count of words for the mode
+    if (!strcmp(mode, "picker")) needed = 4;
+    else if (!strcmp(mode, "monitor") || !strcmp(mode, "window")) needed = 5;
+    else if (!strcmp(mode, "area")) needed = 8;
     if (!needed || count != needed) {
         fputs(usage, stderr);
         return 2;

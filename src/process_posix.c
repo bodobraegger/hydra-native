@@ -216,7 +216,8 @@ void stream_local_address(char *address, size_t size, const char *name) {
     if (!folder) folder = getenv("TMPDIR");
     if (!folder) folder = "/tmp";
     size_t length = strlen(folder);
-    snprintf(address, size, "%s%s%s-%d.sock", folder, length && folder[length - 1] == '/' ? "" : "/", name, (int)getpid());
+    const char *separator = length && folder[length - 1] == '/' ? "" : "/";
+    snprintf(address, size, "%s%s%s-%d.sock", folder, separator, name, (int)getpid());
 }
 
 int stream_connect(const char *address) {

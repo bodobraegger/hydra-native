@@ -63,7 +63,8 @@ static float frame_power(const float *power) {
     return 2.0f * (sum + power[0] / 2.0f) / ((float)AUDIO_BUFFER_SIZE * AUDIO_BUFFER_SIZE * hann_mean_square);
 }
 
-void audio_analyze(struct audio_processor *processor, const float samples[AUDIO_BUFFER_SIZE], float magnitude[SPECTRUM_SIZE]) {
+void audio_analyze(struct audio_processor *processor, const float samples[AUDIO_BUFFER_SIZE],
+                   float magnitude[SPECTRUM_SIZE]) {
     float real[AUDIO_BUFFER_SIZE], imaginary[AUDIO_BUFFER_SIZE], peak = 0.0f;
     for (int i = 0; i < AUDIO_BUFFER_SIZE; i++) {
         real[i] = samples[i] * (0.5f - 0.5f * cosf(2.0f * (float)M_PI * (float)i / (AUDIO_BUFFER_SIZE - 1)));
@@ -78,7 +79,8 @@ void audio_analyze(struct audio_processor *processor, const float samples[AUDIO_
     }
     if (!processor->started) {
         for (int bin = 0; bin < SPECTRUM_SIZE; bin++) {
-            processor->noise[bin] = processor->smoothed_power[bin] = processor->previous_clean[bin] = power[bin] + SILENCE;
+            float initial_power = power[bin] + SILENCE;
+            processor->noise[bin] = processor->smoothed_power[bin] = processor->previous_clean[bin] = initial_power;
         }
         processor->speech_level_db = TARGET_LEVEL_DBFS - INITIAL_GAIN_DB;
         processor->gain_db = INITIAL_GAIN_DB;

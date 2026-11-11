@@ -19,4 +19,5 @@ struct audio_processor {
 };
 
 // The amplitude spectrum of the Hann-windowed frame, with noise suppression and gain. Start with a zeroed processor.
-void audio_analyze(struct audio_processor *processor, const float samples[AUDIO_BUFFER_SIZE], float magnitude[SPECTRUM_SIZE]);
+void audio_analyze(struct audio_processor *processor, const float samples[AUDIO_BUFFER_SIZE],
+                   float magnitude[SPECTRUM_SIZE]);

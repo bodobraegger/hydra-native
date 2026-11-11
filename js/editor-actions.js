@@ -79,8 +79,8 @@ window.__shareSketch = (server, code, image, name) => {
       const sketchId = answer.trim()
       const url = `${WEB_EDITOR_URL}?${query([['sketch_id', sketchId], ['code', base64]])}`
       const boundary = `hydra-native-${Date.now().toString(16)}`
-      const head = asciiBytes(`--${boundary}\r\nContent-Disposition: form-data; name="previewImage"; filename="blob"\r\n` +
-        'Content-Type: image/png\r\n\r\n')
+      const head = asciiBytes(`--${boundary}\r\n` +
+        'Content-Disposition: form-data; name="previewImage"; filename="blob"\r\nContent-Type: image/png\r\n\r\n')
       const tail = asciiBytes(`\r\n--${boundary}--\r\n`)
       const body = new Uint8Array(head.length + image.byteLength + tail.length)
       body.set(head)
@@ -126,7 +126,8 @@ window.__codeFromUrl = (url) => {
   const sketch = example || (sketchId && sketchFromServer(sketchId))
   const base64 = sketch ? sketch.code : queryParameter(query, 'code')
   if (!base64) throw new Error(`no code in ${url}`)
-  if (!example) native.sandbox() // the code of the URL or of the gallery is shared code; the examples come with the program
+  // The code of the URL or of the gallery is shared code; the examples come with the program.
+  if (!example) native.sandbox()
   let code = decodeURIComponent(decodeBase64(base64))
   if (sketch && !code.includes(GALLERY_LICENSE)) code = `${GALLERY_LICENSE}\n${code}\n`
   const showCode = queryParameter(query, 'showCode') || queryParameter(query, 'show-code')

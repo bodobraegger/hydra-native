@@ -146,11 +146,14 @@ channels.set('output', (input, rest, size) => {
     while (frameBytes > 0 && pending.length >= frameBytes) {
       // glReadPixels gives the rows from the bottom.
       const rgba = new Uint8ClampedArray(frameBytes), row = frameWidth * 4
-      for (let y = 0; y < frameHeight; y++) rgba.set(pending.subarray((frameHeight - 1 - y) * row, (frameHeight - y) * row), y * row)
+      for (let y = 0; y < frameHeight; y++) {
+        rgba.set(pending.subarray((frameHeight - 1 - y) * row, (frameHeight - y) * row), y * row)
+      }
       pending = pending.subarray(frameBytes)
       const i420 = new Uint8ClampedArray(frameWidth * frameHeight * 3 / 2)
-      rgbaToI420({ width: frameWidth, height: frameHeight, data: rgba }, { width: frameWidth, height: frameHeight, data: i420 })
-      source.onFrame({ width: frameWidth, height: frameHeight, data: i420 })
+      const size = { width: frameWidth, height: frameHeight }
+      rgbaToI420({ ...size, data: rgba }, { ...size, data: i420 })
+      source.onFrame({ ...size, data: i420 })
     }
   }
   if (rest.length) receive(rest)

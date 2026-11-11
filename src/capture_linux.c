@@ -49,8 +49,9 @@ static bool stopping;
 static gboolean quit_loop(gpointer data) {
     stopping = true;
     if (bus && request_path[0]) {
-        GVariant *reply = g_dbus_connection_call_sync(bus, PORTAL_BUS_NAME, request_path, PORTAL_REQUEST_INTERFACE, "Close",
-                                                      NULL, NULL, G_DBUS_CALL_FLAGS_NONE, PORTAL_CLOSE_TIMEOUT_MS, NULL, NULL);
+        GVariant *reply = g_dbus_connection_call_sync(bus, PORTAL_BUS_NAME, request_path, PORTAL_REQUEST_INTERFACE,
+                                                      "Close", NULL, NULL, G_DBUS_CALL_FLAGS_NONE,
+                                                      PORTAL_CLOSE_TIMEOUT_MS, NULL, NULL);
         if (reply) g_variant_unref(reply);
     }
     if (request_loop) g_main_loop_quit(request_loop);
@@ -77,8 +78,8 @@ static bool start_pipeline(int output, int fd, uint32_t node, int width, int hei
     snprintf(path, sizeof path, "path=%u", node);
     snprintf(caps, sizeof caps, "video/x-raw,format=RGBA,width=%d,height=%d", width, height);
     snprintf(sink, sizeof sink, "fd=%d", output);
-    const char *argv[] = { "gst-launch-1.0", "-q", "pipewiresrc", path, "always-copy=true", "!", "videoconvert", "!", "videoscale", "!",
-                           caps, "!", "fdsink", sink, "sync=false", NULL, NULL };
+    const char *argv[] = { "gst-launch-1.0", "-q", "pipewiresrc", path, "always-copy=true", "!", "videoconvert", "!",
+                           "videoscale", "!", caps, "!", "fdsink", sink, "sync=false", NULL, NULL };
     if (fd >= 0) { // the fd goes right after pipewiresrc
         memmove(argv + 4, argv + 3, sizeof(char *) * 13); // the words from pipewiresrc on, with the NULL
         argv[3] = fd_argument;
@@ -114,12 +115,12 @@ static void stop_pipeline(void) {
     pipeline = 0;
 }
 
-static GVariant *call(const char *name, const char *path, const char *interface, const char *method, GVariant *arguments,
-                      const char *reply_type) {
+static GVariant *call(const char *name, const char *path, const char *interface, const char *method,
+                      GVariant *arguments, const char *reply_type) {
     GError *error = NULL;
     GVariant *reply = g_dbus_connection_call_sync(bus, name, path, interface, method, arguments,
-                                                  reply_type ? G_VARIANT_TYPE(reply_type) : NULL, G_DBUS_CALL_FLAGS_NONE, -1, NULL,
-                                                  &error);
+                                                  reply_type ? G_VARIANT_TYPE(reply_type) : NULL,
+                                                  G_DBUS_CALL_FLAGS_NONE, -1, NULL, &error);
     if (!reply) {
         fprintf(stderr, "capture: %s: %s\n", method, error->message);
         g_error_free(error);
@@ -133,8 +134,8 @@ static struct {
     int output, width, height;
 } mutter;
 
-static void mutter_stream_added(GDBusConnection *connection, const char *sender, const char *path, const char *interface,
-                                const char *signal, GVariant *parameters, gpointer data) {
+static void mutter_stream_added(GDBusConnection *connection, const char *sender, const char *path,
+                                const char *interface, const char *signal, GVariant *parameters, gpointer data) {
     uint32_t node;
     g_variant_get(parameters, "(u)", &node);
     fprintf(stderr, "capture: pipewire node %u\n", node);
@@ -149,7 +150,8 @@ static void mutter_closed(GDBusConnection *connection, const char *sender, const
 
 // GetCurrentState of DisplayConfig; NULL without such a monitor.
 static char *monitor_connector(int index) {
-    GVariant *state = call(DISPLAY_CONFIG_BUS_NAME, DISPLAY_CONFIG_PATH, "org.gnome.Mutter.DisplayConfig", "GetCurrentState", NULL, NULL);
+    GVariant *state = call(DISPLAY_CONFIG_BUS_NAME, DISPLAY_CONFIG_PATH, "org.gnome.Mutter.DisplayConfig",
+                           "GetCurrentState", NULL, NULL);
     if (!state) return NULL;
     GVariant *monitors = g_variant_get_child_value(state, 1);
     char *connector = NULL;
@@ -178,7 +180,8 @@ static int run_mutter(const struct capture_request *request, int output) {
     mutter.output = output;
     mutter.width = request->width;
     mutter.height = request->height;
-    GVariant *reply = call(MUTTER_BUS_NAME, MUTTER_PATH, MUTTER_INTERFACE, "CreateSession", g_variant_new("(a{sv})", NULL), "(o)");
+    GVariant *reply = call(MUTTER_BUS_NAME, MUTTER_PATH, MUTTER_INTERFACE, "CreateSession",
+                           g_variant_new("(a{sv})", NULL), "(o)");
     if (!reply) return 1;
     char *session;
     g_variant_get(reply, "(o)", &session);
@@ -192,12 +195,13 @@ static int run_mutter(const struct capture_request *request, int output) {
         g_free(connector);
     } else if (request->source == CAPTURE_AREA) {
         reply = call(MUTTER_BUS_NAME, session, MUTTER_SESSION_INTERFACE, "RecordArea",
-                     g_variant_new("(iiii@a{sv})", request->x, request->y, request->area_width, request->area_height, mutter_properties()),
+                     g_variant_new("(iiii@a{sv})", request->x, request->y, request->area_width, request->area_height,
+                                   mutter_properties()),
                      "(o)");
     } else {
         g_usleep((gulong)(request->delay_seconds * G_USEC_PER_SEC));
-        reply = call(MUTTER_BUS_NAME, session, MUTTER_SESSION_INTERFACE, "RecordWindow", g_variant_new("(@a{sv})", mutter_properties()),
-                     "(o)");
+        reply = call(MUTTER_BUS_NAME, session, MUTTER_SESSION_INTERFACE, "RecordWindow",
+                     g_variant_new("(@a{sv})", mutter_properties()), "(o)");
     }
     if (!reply) {
         g_free(session);
@@ -206,8 +210,8 @@ static int run_mutter(const struct capture_request *request, int output) {
     char *stream;
     g_variant_get(reply, "(o)", &stream);
     g_variant_unref(reply);
-    g_dbus_connection_signal_subscribe(bus, MUTTER_BUS_NAME, MUTTER_STREAM_INTERFACE, "PipeWireStreamAdded", stream, NULL,
-                                       G_DBUS_SIGNAL_FLAGS_NONE, mutter_stream_added, NULL, NULL);
+    g_dbus_connection_signal_subscribe(bus, MUTTER_BUS_NAME, MUTTER_STREAM_INTERFACE, "PipeWireStreamAdded", stream,
+                                       NULL, G_DBUS_SIGNAL_FLAGS_NONE, mutter_stream_added, NULL, NULL);
     g_dbus_connection_signal_subscribe(bus, MUTTER_BUS_NAME, MUTTER_SESSION_INTERFACE, "Closed", session, NULL,
                                        G_DBUS_SIGNAL_FLAGS_NONE, mutter_closed, NULL, NULL);
     reply = call(MUTTER_BUS_NAME, session, MUTTER_SESSION_INTERFACE, "Start", NULL, NULL);
@@ -240,7 +244,8 @@ static void portal_response(GDBusConnection *connection, const char *sender, con
 
 // A portal method that answers through the Response signal of its Request object. `options` is the last argument
 // (a{sv}, with the handle token added), after the session handle if there is one.
-static uint32_t portal_request(const char *method, const char *session, GVariantBuilder *options, bool dry_run, GVariant **results) {
+static uint32_t portal_request(const char *method, const char *session, GVariantBuilder *options, bool dry_run,
+                               GVariant **results) {
     static unsigned counter;
     char token[64], path[256];
     snprintf(token, sizeof token, "hydra_native_%d_%u", (int)getpid(), ++counter);
@@ -257,7 +262,8 @@ static uint32_t portal_request(const char *method, const char *session, GVariant
         GVariantBuilder answer;
         g_variant_builder_init(&answer, G_VARIANT_TYPE("a{sv}"));
         if (!strcmp(method, "CreateSession"))
-            g_variant_builder_add(&answer, "{sv}", "session_handle", g_variant_new_string(PORTAL_PATH "/session/dry/run"));
+            g_variant_builder_add(&answer, "{sv}", "session_handle",
+                                  g_variant_new_string(PORTAL_PATH "/session/dry/run"));
         if (!strcmp(method, "Start")) {
             GVariantBuilder properties;
             g_variant_builder_init(&properties, G_VARIANT_TYPE("a{sv}"));
@@ -275,9 +281,11 @@ static uint32_t portal_request(const char *method, const char *session, GVariant
     g_free(sender);
     // Subscribe before the call, so that a fast response does not get lost.
     struct portal_answer answer = { g_main_loop_new(NULL, FALSE), 1, NULL };
-    guint subscription = g_dbus_connection_signal_subscribe(bus, PORTAL_BUS_NAME, PORTAL_REQUEST_INTERFACE, "Response", path, NULL,
-                                                            G_DBUS_SIGNAL_FLAGS_NONE, portal_response, &answer, NULL);
-    GVariant *reply = stopping ? NULL : call(PORTAL_BUS_NAME, PORTAL_PATH, PORTAL_SCREENCAST_INTERFACE, method, arguments, "(o)");
+    guint subscription = g_dbus_connection_signal_subscribe(bus, PORTAL_BUS_NAME, PORTAL_REQUEST_INTERFACE, "Response",
+                                                            path, NULL, G_DBUS_SIGNAL_FLAGS_NONE, portal_response,
+                                                            &answer, NULL);
+    GVariant *reply = NULL;
+    if (!stopping) reply = call(PORTAL_BUS_NAME, PORTAL_PATH, PORTAL_SCREENCAST_INTERFACE, method, arguments, "(o)");
     g_variant_unref(arguments);
     if (reply) {
         g_variant_unref(reply);
@@ -300,10 +308,10 @@ static int open_pipewire_remote(const char *session, bool dry_run) {
     }
     GUnixFDList *fds = NULL;
     GError *error = NULL;
-    GVariant *reply = g_dbus_connection_call_with_unix_fd_list_sync(bus, PORTAL_BUS_NAME, PORTAL_PATH, PORTAL_SCREENCAST_INTERFACE,
-                                                                     "OpenPipeWireRemote", g_variant_new("(oa{sv})", session, NULL),
-                                                                     G_VARIANT_TYPE("(h)"), G_DBUS_CALL_FLAGS_NONE, -1, NULL, &fds,
-                                                                     NULL, &error);
+    GVariant *reply = g_dbus_connection_call_with_unix_fd_list_sync(
+        bus, PORTAL_BUS_NAME, PORTAL_PATH, PORTAL_SCREENCAST_INTERFACE, "OpenPipeWireRemote",
+        g_variant_new("(oa{sv})", session, NULL), G_VARIANT_TYPE("(h)"), G_DBUS_CALL_FLAGS_NONE, -1, NULL, &fds, NULL,
+        &error);
     if (!reply) {
         fprintf(stderr, "capture: OpenPipeWireRemote: %s\n", error->message);
         g_error_free(error);

@@ -42,8 +42,9 @@ class Headers {
 }
 
 class Response {
-  constructor (url, readText, readBuffer, { status = STATUS_OK, statusText = 'OK', headers = new Headers(), redirected = false,
-    type = 'basic' } = {}) {
+  constructor (url, readText, readBuffer, options = {}) {
+    const { status = STATUS_OK, statusText = 'OK', headers = new Headers(), redirected = false } = options
+    const { type = 'basic' } = options
     Object.assign(this, { url, status, statusText, headers, redirected, ok: status >= 200 && status < 300, type })
     this.readText = readText
     this.readBuffer = readBuffer
@@ -73,12 +74,16 @@ function parseResponse (url, text, buffer, redirected) {
     const match = /^HTTP\/[\d.]+ (\d+) ?(.*)$/.exec(statusLine)
     status = match ? Number(match[1]) : 0
     statusText = match ? match[2] : ''
-    headers = new Headers(lines.map((line) => [line.slice(0, line.indexOf(':')), line.slice(line.indexOf(':') + 1).trim()]))
+    headers = new Headers(lines.map((line) => {
+      const colon = line.indexOf(':')
+      return [line.slice(0, colon), line.slice(colon + 1).trim()]
+    }))
     offset = end + HEADER_END.length
     blocks++
   }
   const body = buffer.slice(offset)
-  return new Response(url, () => text.slice(offset), () => body.slice(0), { status, statusText, headers, redirected: redirected || blocks > 1 })
+  const options = { status, statusText, headers, redirected: redirected || blocks > 1 }
+  return new Response(url, () => text.slice(offset), () => body.slice(0), options)
 }
 
 const waitingRequests = []
@@ -117,7 +122,9 @@ function request (url, method, headerInit, body) {
     : typeof body === 'string' || body instanceof ArrayBuffer || ArrayBuffer.isView(body) ? body : String(body)
   const headers = new Headers(headerInit)
   // The content type of the browser: text for a string, none for bytes ("Content-Type:" removes the one of curl).
-  if (data !== null && !headers.has('content-type')) headers.set('content-type', typeof data === 'string' ? 'text/plain;charset=UTF-8' : '')
+  if (data !== null && !headers.has('content-type')) {
+    headers.set('content-type', typeof data === 'string' ? 'text/plain;charset=UTF-8' : '')
+  }
   return send(url, method, headers, data)
 }
 
@@ -154,7 +161,8 @@ function parseJson (text) {
 class XMLHttpRequest extends EventTarget {
   constructor () {
     super()
-    Object.assign(this, { readyState: READY_STATES.UNSENT, responseType: '', response: null, responseText: '', responseURL: '' })
+    Object.assign(this, { readyState: READY_STATES.UNSENT, responseType: '', response: null, responseText: '' })
+    this.responseURL = ''
     Object.assign(this, { status: 0, statusText: '', timeout: 0, withCredentials: false, upload: new EventTarget() })
   }
 
