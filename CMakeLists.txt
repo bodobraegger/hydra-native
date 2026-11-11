@@ -253,7 +253,8 @@ endif()
 
 # ---------------------------------------------------------------- programs (Linux and macOS)
 
-add_executable(hydra-native src/main.c src/text.c src/video.c src/fetch.c
+add_executable(hydra-native src/main.c src/engine.c src/bindings.c src/sandbox.c src/snapshot.c src/code_socket.c
+  src/text.c src/video.c src/fetch.c
   src/thumbnails.c src/recorder.c src/patch_bay.c src/editor.c src/bidi.c src/ui.c src/settings.c src/overlay.c
   src/keymap.c src/programs.c src/signature.c src/window.c ${PROCESS_SOURCE})
 target_compile_options(hydra-native PRIVATE ${WARNINGS})
