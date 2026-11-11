@@ -55,7 +55,7 @@
 struct options {
     const char *files[32];
     int file_count;
-    int width, height; // of the window
+    int width, height;
     const char *screenshot_path;
     double bench_seconds;
     bool hidden;
@@ -205,7 +205,6 @@ static char *evaluate_file(const char *path) {
     return message;
 }
 
-// Calls a global JS function by name, used for the frame callback and input events.
 static void call_global(const char *name, int argc, JSValue *argv) {
     JSValue global = JS_GetGlobalObject(js);
     JSValue function = JS_GetPropertyStr(js, global, name);
@@ -628,8 +627,7 @@ static JSValue js_http_request(JSContext *ctx, JSValueConst this, int argc, JSVa
 
 // ---------------------------------------------------------------- webRTC patch bay (tools/patch-bay.mjs)
 
-static const char *gallery_server; // NULL: no gallery and no patch bay
-static char gallery_server_url[SETTINGS_TEXT];
+static char gallery_server_url[SETTINGS_TEXT]; // "": no gallery and no patch bay
 
 static JSValue js_patch_bay_start(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
     const char *server = JS_ToCString(ctx, argv[0]), *room = JS_ToCString(ctx, argv[1]);
@@ -650,7 +648,6 @@ static JSValue js_patch_bay_stop(JSContext *ctx, JSValueConst this, int argc, JS
 static JSValue js_set_gallery_server(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
     const char *url = JS_IsString(argv[0]) ? JS_ToCString(ctx, argv[0]) : NULL;
     snprintf(gallery_server_url, sizeof gallery_server_url, "%s", url ? url : "");
-    gallery_server = gallery_server_url[0] ? gallery_server_url : NULL;
     JS_FreeCString(ctx, url);
     return JS_UNDEFINED;
 }
@@ -693,7 +690,7 @@ static struct {
 } share;
 
 static bool start_share(const char *code, const char *name) {
-    if (!gallery_server || share.sending || share.waiting_for_frame) return false;
+    if (!gallery_server_url[0] || share.sending || share.waiting_for_frame) return false;
     free(share.code);
     share.code = strdup(code);
     snprintf(share.name, sizeof share.name, "%s", name);
@@ -716,48 +713,28 @@ static void set_window_title(const char *url) { SDL_SetWindowTitle(window, url);
 // Tells the input method where the cursor is, so that its candidate window opens there, as in the browser.
 static void update_text_input_rect(int drawable_width) {
     static SDL_Rect last;
-    static int last_cursor;
     int x, y, width, height, window_width, window_height;
     if (!ui_text_input_rect(&x, &y, &width, &height)) return;
     SDL_GetWindowSize(window, &window_width, &window_height);
     float scale = drawable_width > 0 ? (float)window_width / (float)drawable_width : 1;
     SDL_Rect rect = { (int)((float)x * scale), (int)((float)y * scale), (int)((float)width * scale), (int)((float)height * scale) };
-    if (rect.x == last.x && rect.y == last.y && rect.w == last.w && rect.h == last.h && last_cursor == rect.w) return;
+    if (rect.x == last.x && rect.y == last.y && rect.w == last.w && rect.h == last.h) return;
     last = rect;
-    last_cursor = rect.w;
     SDL_SetTextInputArea(window, &rect, rect.w);
-}
-
-struct png_buffer {
-    unsigned char *data;
-    size_t length, capacity;
-};
-
-static void append_png(void *context, void *data, int size) {
-    struct png_buffer *buffer = context;
-    if (buffer->length + (size_t)size > buffer->capacity) {
-        buffer->capacity = (buffer->length + (size_t)size) * 2;
-        buffer->data = realloc(buffer->data, buffer->capacity);
-    }
-    memcpy(buffer->data + buffer->length, data, (size_t)size);
-    buffer->length += (size_t)size;
 }
 
 static void continue_share(int width, int height) {
     share.waiting_for_frame = false;
     unsigned char *pixels = read_window_pixels(width, height);
     stbi_flip_vertically_on_write(1);
-    struct png_buffer png = { 0 };
-    bool ok = stbi_write_png_to_func(append_png, &png, width, height, 4, pixels, width * 4) != 0;
+    int length;
+    unsigned char *png = stbi_write_png_to_mem(pixels, width * 4, width, height, 4, &length);
     free(pixels);
-    if (!ok) {
-        free(png.data);
-        return ui_share_done(false, "cannot encode the screenshot");
-    }
+    if (!png) return ui_share_done(false, "cannot encode the screenshot");
     share.sending = true;
-    JSValue arguments[4] = { JS_NewString(js, gallery_server), JS_NewString(js, share.code),
-                             JS_NewArrayBufferCopy(js, png.data, png.length), JS_NewString(js, share.name) };
-    free(png.data);
+    JSValue arguments[4] = { JS_NewString(js, gallery_server_url), JS_NewString(js, share.code),
+                             JS_NewArrayBufferCopy(js, png, (size_t)length), JS_NewString(js, share.name) };
+    free(png);
     call_global("__shareSketch", 4, arguments);
 }
 
@@ -1347,7 +1324,6 @@ static bool load_bundle(const char *directory) {
     return true;
 }
 
-// Writes the default framebuffer as PNG (rows flipped, because GL starts at the bottom).
 // The window as opaque RGBA rows from the bottom (malloc'd), as glReadPixels gives them.
 static unsigned char *read_window_pixels(int width, int height) {
     unsigned char *pixels = malloc((size_t)width * (size_t)height * 4);
@@ -1457,7 +1433,6 @@ static bool is_sketch_url(const char *argument) {
     return url && (strstr(argument, "code=") || strstr(argument, "sketch_id="));
 }
 
-
 static double run_timers(void) {
     JSValue global = JS_GetGlobalObject(js);
     JSValue function = JS_GetPropertyStr(js, global, "__runTimers");
@@ -1472,8 +1447,6 @@ static double run_timers(void) {
     run_pending_jobs();
     return next;
 }
-
-static void serve_client(int listener);
 
 // Waits until `deadline` (ms of now_ms()), runs each timer at its time, and handles input and socket code meanwhile.
 static void wait_for_frame(double deadline, int listener) {
@@ -1527,10 +1500,7 @@ static void take_chosen_file(void) {
     else if (ready) ui_open_file(path);
 }
 
-
 static void toggle_fullscreen(void) { SDL_SetWindowFullscreen(window, !is_fullscreen()); }
-
-
 
 static void request_quit(void) { quit_requested = true; }
 
@@ -1562,7 +1532,6 @@ int main(int argc, char **argv) {
     audio_device_option = settings->audio_source[0] ? settings->audio_source : NULL;
     audio_set_gain(settings->audio_gain);
     snprintf(gallery_server_url, sizeof gallery_server_url, "%.*s", (int)sizeof gallery_server_url - 1, settings->gallery_server);
-    gallery_server = gallery_server_url[0] ? gallery_server_url : NULL;
     if (!create_window(&options)) return 1;
     // After SDL, which installs handlers of its own: the first SIGINT or SIGTERM ends the loop, so that the child
     // processes stop; a second one ends the process at once.
@@ -1585,7 +1554,7 @@ int main(int argc, char **argv) {
     JS_SetPropertyStr(js, native, "platform", JS_NewString(js, SDL_GetPlatform())); // Linux, macOS, Windows
     JS_SetPropertyStr(js, native, "shaderCompile", JS_NewString(js, programs_method()));
     JS_SetPropertyStr(js, native, "language", settings->language[0] ? JS_NewString(js, settings->language) : JS_NULL);
-    JS_SetPropertyStr(js, native, "galleryServer", gallery_server ? JS_NewString(js, gallery_server) : JS_NULL);
+    JS_SetPropertyStr(js, native, "galleryServer", gallery_server_url[0] ? JS_NewString(js, gallery_server_url) : JS_NULL);
     JS_SetPropertyStr(js, native, "l10nUrl", settings->l10n_url[0] ? JS_NewString(js, settings->l10n_url) : JS_NULL);
     JS_SetPropertyStr(js, global, "native", native);
     JS_FreeValue(js, global);
@@ -1647,7 +1616,7 @@ int main(int argc, char **argv) {
         ui_show_random_example();
         ui_show_info();
     }
-    if (gallery_server) ui_enable_gallery();
+    if (gallery_server_url[0]) ui_enable_gallery();
     if (!settings->code_visible) ui_set_visible(false);
     // "watch" of the settings menu applies at once.
     // The open file of the overlay can change through the "file" row and Ctrl+S, so the check follows it.

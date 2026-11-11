@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include <GLES3/gl3.h>
+#include <SDL3/SDL.h>
 
 #include "canvas2d.h"
 #include "native.h"
@@ -152,25 +153,32 @@ static void ellipse(plutovg_canvas_t *vg, const float *a) {
     plutovg_canvas_set_matrix(vg, &saved);
 }
 
+static float *read_numbers(JSContext *ctx, JSValueConst array, size_t *count) {
+    int64_t length = 0;
+    JSValue length_value = JS_GetPropertyStr(ctx, array, "length");
+    JS_ToInt64(ctx, &length, length_value);
+    JS_FreeValue(ctx, length_value);
+    *count = length > 0 ? (size_t)length : 0;
+    float *numbers = malloc(sizeof(float) * (*count + 1));
+    for (size_t i = 0; i < *count; i++) {
+        JSValue value = JS_GetPropertyUint32(ctx, array, (uint32_t)i);
+        numbers[i] = number(ctx, value);
+        JS_FreeValue(ctx, value);
+    }
+    return numbers;
+}
+
 CANVAS_FUNCTION(js_canvas_path) {
     CANVAS_OR_RETURN();
     static const int argument_counts[] = { 2, 2, 4, 6, 6, 8, 4, 0 };
-    JSValue length_value = JS_GetPropertyStr(ctx, argv[1], "length");
-    int32_t length = 0;
-    JS_ToInt32(ctx, &length, length_value);
-    JS_FreeValue(ctx, length_value);
+    size_t length;
+    float *numbers = read_numbers(ctx, argv[1], &length);
     plutovg_canvas_new_path(vg);
-    for (int32_t i = 0; i < length;) {
-        JSValue item = JS_GetPropertyUint32(ctx, argv[1], (uint32_t)i++);
-        int op = (int)number(ctx, item);
-        JS_FreeValue(ctx, item);
+    for (size_t i = 0; i < length;) {
+        int op = (int)numbers[i++];
         if (op < 0 || op > PATH_CLOSE) break;
         float a[8] = { 0 };
-        for (int k = 0; k < argument_counts[op] && i < length; k++) {
-            item = JS_GetPropertyUint32(ctx, argv[1], (uint32_t)i++);
-            a[k] = number(ctx, item);
-            JS_FreeValue(ctx, item);
-        }
+        for (int k = 0; k < argument_counts[op] && i < length; k++) a[k] = numbers[i++];
         switch (op) {
         case PATH_MOVE: plutovg_canvas_move_to(vg, a[0], a[1]); break;
         case PATH_LINE: plutovg_canvas_line_to(vg, a[0], a[1]); break;
@@ -182,6 +190,7 @@ CANVAS_FUNCTION(js_canvas_path) {
         case PATH_CLOSE: plutovg_canvas_close_path(vg); break;
         }
     }
+    free(numbers);
     return JS_UNDEFINED;
 }
 
@@ -228,29 +237,14 @@ static plutovg_font_face_t *load_font(const char *family, bool bold, bool italic
     snprintf(key, sizeof key, "%s|%d|%d", family, bold, italic);
     for (int i = 0; i < font_count; i++)
         if (!strcmp(fonts[i].name, key)) return fonts[i].face;
-    char *command;
-    char quoted[MAX_FONT_NAME * 2];
-    size_t used = 0;
-    for (const char *c = family; *c && used + 5 < sizeof quoted; c++) {
-        if (*c == '\'') {
-            memcpy(quoted + used, "'\\''", 4);
-            used += 4;
-        } else {
-            quoted[used++] = *c;
-        }
-    }
-    quoted[used] = '\0';
-    if (asprintf(&command, "fc-match -f '%%{file}' '%s:weight=%s:slant=%s'", quoted, bold ? "bold" : "regular",
-                 italic ? "italic" : "roman") < 0)
-        return NULL;
-    FILE *pipe = popen(command, "r");
-    free(command);
-    char path[1024] = { 0 };
-    if (pipe) {
-        if (!fgets(path, sizeof path, pipe)) path[0] = '\0';
-        pclose(pipe);
-    }
-    plutovg_font_face_t *face = path[0] ? plutovg_font_face_load_from_file(path, 0) : NULL;
+    char pattern[MAX_FONT_NAME + 64];
+    snprintf(pattern, sizeof pattern, "%s:weight=%s:slant=%s", family, bold ? "bold" : "regular", italic ? "italic" : "roman");
+    const char *arguments[] = { "fc-match", "-f", "%{file}", pattern, NULL };
+    SDL_Process *process = SDL_CreateProcess(arguments, true);
+    char *path = process ? SDL_ReadProcess(process, NULL, NULL) : NULL;
+    SDL_DestroyProcess(process);
+    plutovg_font_face_t *face = path && path[0] ? plutovg_font_face_load_from_file(path, 0) : NULL;
+    SDL_free(path);
     if (!face) fprintf(stderr, "canvas: no font for %s\n", family);
     if (font_count < MAX_FONTS) {
         snprintf(fonts[font_count].name, sizeof fonts[font_count].name, "%s", key);
@@ -338,20 +332,12 @@ CANVAS_FUNCTION(js_canvas_upload) {
 // ---------------------------------------------------------------- gradients and patterns
 
 static int read_stops(JSContext *ctx, JSValueConst array, plutovg_gradient_stop_t *stops, int capacity) {
-    JSValue length_value = JS_GetPropertyStr(ctx, array, "length");
-    int32_t length = 0;
-    JS_ToInt32(ctx, &length, length_value);
-    JS_FreeValue(ctx, length_value);
+    size_t length;
+    float *values = read_numbers(ctx, array, &length);
     int count = 0;
-    for (int32_t i = 0; i + 5 <= length && count < capacity; i += 5, count++) {
-        float values[5];
-        for (int k = 0; k < 5; k++) {
-            JSValue item = JS_GetPropertyUint32(ctx, array, (uint32_t)(i + k));
-            values[k] = number(ctx, item);
-            JS_FreeValue(ctx, item);
-        }
-        stops[count] = (plutovg_gradient_stop_t){ values[0], { values[1], values[2], values[3], values[4] } };
-    }
+    for (size_t i = 0; i + 5 <= length && count < capacity; i += 5, count++)
+        stops[count] = (plutovg_gradient_stop_t){ values[i], { values[i + 1], values[i + 2], values[i + 3], values[i + 4] } };
+    free(values);
     return count;
 }
 
@@ -424,18 +410,10 @@ CANVAS_FUNCTION(js_canvas_conic) {
 // dash(id, offset, [lengths]): the dash pattern of strokes; an empty list draws solid lines.
 CANVAS_FUNCTION(js_canvas_dash) {
     CANVAS_OR_RETURN();
-    JSValue length_value = JS_GetPropertyStr(ctx, argv[2], "length");
-    int32_t length = 0;
-    JS_ToInt32(ctx, &length, length_value);
-    JS_FreeValue(ctx, length_value);
-    float dashes[MAX_STOPS];
-    if (length > MAX_STOPS) length = MAX_STOPS;
-    for (int32_t i = 0; i < length; i++) {
-        JSValue item = JS_GetPropertyUint32(ctx, argv[2], (uint32_t)i);
-        dashes[i] = number(ctx, item);
-        JS_FreeValue(ctx, item);
-    }
-    plutovg_canvas_set_dash(vg, number(ctx, argv[1]), dashes, length);
+    size_t length;
+    float *dashes = read_numbers(ctx, argv[2], &length);
+    plutovg_canvas_set_dash(vg, number(ctx, argv[1]), dashes, (int)length);
+    free(dashes);
     return JS_UNDEFINED;
 }
 
@@ -526,14 +504,7 @@ static void set_saturation(float *c, float s) {
     c[min] = 0;
 }
 
-// Composites one premultiplied ARGB pixel over another with a W3C blend mode.
-static uint32_t composite_pixel(uint32_t destination, uint32_t source, enum blend_mode mode);
-
 uint32_t canvas2d_composite_pixel(uint32_t destination, uint32_t source, int mode) {
-    return composite_pixel(destination, source, (enum blend_mode)mode);
-}
-
-static uint32_t composite_pixel(uint32_t destination, uint32_t source, enum blend_mode mode) {
     float as = (float)(source >> 24) / 255, ab = (float)(destination >> 24) / 255;
     if (as == 0) return destination;
     float s[3], b[3], r[3];
@@ -635,22 +606,6 @@ static void filter_matrix(enum filter_kind kind, float amount, float m[9]) {
     }
 }
 
-// Reads a JS array of numbers into a malloc'd float array.
-static float *read_numbers(JSContext *ctx, JSValueConst array, size_t *count) {
-    int64_t length = 0;
-    JSValue length_value = JS_GetPropertyStr(ctx, array, "length");
-    JS_ToInt64(ctx, &length, length_value);
-    JS_FreeValue(ctx, length_value);
-    *count = length > 0 ? (size_t)length : 0;
-    float *numbers = malloc(sizeof(float) * (*count + 1));
-    for (size_t i = 0; i < *count; i++) {
-        JSValue value = JS_GetPropertyUint32(ctx, array, (uint32_t)i);
-        numbers[i] = number(ctx, value);
-        JS_FreeValue(ctx, value);
-    }
-    return numbers;
-}
-
 // Applies one filter function to the premultiplied ARGB pixels of `layer`; url(#id) filters take their program
 // from the array `programs`.
 static void apply_filter(JSContext *ctx, plutovg_surface_t *layer, int width, int height, const float *values, JSValueConst programs) {
@@ -673,7 +628,7 @@ static void apply_filter(JSContext *ctx, plutovg_surface_t *layer, int width, in
         unsigned char *under = plutovg_surface_get_data(shadow);
         for (int y = 0; y < height; y++) {
             uint32_t *row = (uint32_t *)(data + (size_t)y * (size_t)stride), *below = (uint32_t *)(under + (size_t)y * (size_t)stride);
-            for (int x = 0; x < width; x++) row[x] = composite_pixel(below[x], row[x], BLEND_SOURCE_OVER);
+            for (int x = 0; x < width; x++) row[x] = canvas2d_composite_pixel(below[x], row[x], BLEND_SOURCE_OVER);
         }
         plutovg_surface_destroy(shadow);
         return;
@@ -735,7 +690,7 @@ static void composite_layer(struct canvas *canvas, plutovg_surface_t *source, in
             const uint32_t *source_row = (const uint32_t *)(in + (size_t)y * (size_t)stride);
             const uint32_t *row = (const uint32_t *)(under + (size_t)y * (size_t)stride);
             uint32_t *result = (uint32_t *)(out + (size_t)y * (size_t)stride);
-            for (int x = 0; x < canvas->width; x++) result[x] = composite_pixel(row[x], source_row[x], mode);
+            for (int x = 0; x < canvas->width; x++) result[x] = canvas2d_composite_pixel(row[x], source_row[x], mode);
         }
         paint = blended;
         operator = PLUTOVG_OPERATOR_SRC;
@@ -785,6 +740,21 @@ CANVAS_FUNCTION(js_canvas_layer_end) {
 
 // ---------------------------------------------------------------- image data
 
+// A premultiplied ARGB pixel of a surface as straight RGBA bytes, and back.
+static void straight_rgba(uint32_t pixel, unsigned char out[4]) {
+    unsigned a = pixel >> 24;
+    for (int i = 0; i < 3; i++) {
+        unsigned channel = (pixel >> (16 - 8 * i)) & 0xFF;
+        out[i] = (unsigned char)(a ? (channel * 255 + a / 2) / a : channel);
+    }
+    out[3] = (unsigned char)a;
+}
+
+static uint32_t premultiplied_pixel(const unsigned char in[4]) {
+    unsigned a = in[3];
+    return a << 24 | (in[0] * a / 255) << 16 | (in[1] * a / 255) << 8 | (in[2] * a / 255);
+}
+
 // getImageData(id, x, y, width, height) returns straight RGBA bytes in an ArrayBuffer; outside pixels are 0.
 CANVAS_FUNCTION(js_canvas_get_image_data) {
     CANVAS_OR_RETURN();
@@ -801,15 +771,8 @@ CANVAS_FUNCTION(js_canvas_get_image_data) {
         for (int x = 0; x < width; x++) {
             int sx = left + x;
             if (sx < 0 || sx >= canvas->width) continue;
-            uint32_t pixel = ((const uint32_t *)(data + (size_t)sy * (size_t)stride))[sx];
-            unsigned a = pixel >> 24;
-            unsigned char *out = pixels + ((size_t)y * (size_t)width + (size_t)x) * 4;
-            if (a) {
-                out[0] = (unsigned char)((((pixel >> 16) & 0xFF) * 255 + a / 2) / a);
-                out[1] = (unsigned char)((((pixel >> 8) & 0xFF) * 255 + a / 2) / a);
-                out[2] = (unsigned char)(((pixel & 0xFF) * 255 + a / 2) / a);
-            }
-            out[3] = (unsigned char)a;
+            straight_rgba(((const uint32_t *)(data + (size_t)sy * (size_t)stride))[sx],
+                          pixels + ((size_t)y * (size_t)width + (size_t)x) * 4);
         }
     }
     JSValue buffer = JS_NewArrayBufferCopy(ctx, pixels, size);
@@ -837,10 +800,8 @@ CANVAS_FUNCTION(js_canvas_put_image_data) {
         for (int x = dirty_x; x < dirty_x + dirty_width && x < width; x++) {
             int tx = dx + x;
             if (x < 0 || tx < 0 || tx >= canvas->width) continue;
-            const uint8_t *in = pixels + ((size_t)y * (size_t)width + (size_t)x) * 4;
-            unsigned a = in[3];
             ((uint32_t *)(data + (size_t)ty * (size_t)stride))[tx] =
-                a << 24 | (in[0] * a / 255) << 16 | (in[1] * a / 255) << 8 | (in[2] * a / 255);
+                premultiplied_pixel(pixels + ((size_t)y * (size_t)width + (size_t)x) * 4);
         }
     }
     return JS_UNDEFINED;
@@ -848,7 +809,6 @@ CANVAS_FUNCTION(js_canvas_put_image_data) {
 
 // ---------------------------------------------------------------- images and video frames
 
-// Copies RGBA pixels (straight or premultiplied alpha, rows from the top or the bottom) into a canvas surface.
 static void fill_surface(struct canvas *canvas, const unsigned char *rgba, int width, int height, bool premultiplied, bool flip_y) {
     create_surface(canvas, width, height);
     unsigned char *data = plutovg_surface_get_data(canvas->surface);
@@ -903,18 +863,11 @@ CANVAS_FUNCTION(js_canvas_image_load) {
         canvases[id].fetch = fetch_start(source);
     } else {
         const char *path = !strncmp(source, "file://", 7) ? source + 7 : source;
-        FILE *file = fopen(path, "rb");
-        bool ok = false;
-        if (file) {
-            fseek(file, 0, SEEK_END);
-            long size = ftell(file);
-            fseek(file, 0, SEEK_SET);
-            unsigned char *data = malloc((size_t)size);
-            ok = fread(data, 1, (size_t)size, file) == (size_t)size && decode_into(&canvases[id], data, (size_t)size);
-            free(data);
-            fclose(file);
-        }
-        canvases[id].fetch = ok ? -2 : -3; // decoded or failed; the JS side reports it after the current code
+        int width, height, channels;
+        unsigned char *rgba = stbi_load(path, &width, &height, &channels, 4);
+        if (rgba) fill_surface(&canvases[id], rgba, width, height, false, false);
+        stbi_image_free(rgba);
+        canvases[id].fetch = rgba ? -2 : -3; // decoded or failed; the JS side reports it after the current code
     }
     JS_FreeCString(ctx, source);
     return JS_NewInt32(ctx, id);
@@ -931,7 +884,7 @@ CANVAS_FUNCTION(js_canvas_image_state) {
     return array;
 }
 
-unsigned char *canvas2d_rgba(int id, bool premultiplied, int *width, int *height) {
+unsigned char *canvas2d_rgba(int id, bool premultiplied, bool flip_y, int *width, int *height) {
     if (id < 0 || id >= MAX_CANVASES || !canvases[id].canvas) return NULL;
     struct canvas *canvas = &canvases[id];
     *width = canvas->width;
@@ -941,18 +894,12 @@ unsigned char *canvas2d_rgba(int id, bool premultiplied, int *width, int *height
     int stride = plutovg_surface_get_stride(canvas->surface);
     for (int y = 0; y < canvas->height; y++)
         for (int x = 0; x < canvas->width; x++) {
-            uint32_t pixel = ((const uint32_t *)(data + (size_t)y * (size_t)stride))[x];
-            unsigned a = pixel >> 24, r = (pixel >> 16) & 0xFF, g = (pixel >> 8) & 0xFF, b = pixel & 0xFF;
-            if (!premultiplied && a) {
-                r = (r * 255 + a / 2) / a;
-                g = (g * 255 + a / 2) / a;
-                b = (b * 255 + a / 2) / a;
-            }
+            uint32_t pixel = ((const uint32_t *)(data + (size_t)(flip_y ? canvas->height - 1 - y : y) * (size_t)stride))[x];
             unsigned char *out = pixels + ((size_t)y * (size_t)canvas->width + (size_t)x) * 4;
-            out[0] = (unsigned char)r;
-            out[1] = (unsigned char)g;
-            out[2] = (unsigned char)b;
-            out[3] = (unsigned char)a;
+            if (premultiplied) {
+                for (int i = 0; i < 3; i++) out[i] = (unsigned char)(pixel >> (16 - 8 * i));
+                out[3] = (unsigned char)(pixel >> 24);
+            } else straight_rgba(pixel, out);
         }
     return pixels;
 }

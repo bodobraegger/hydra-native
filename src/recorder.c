@@ -127,8 +127,6 @@ bool publisher_start(int stream, int width, int height) {
     return true;
 }
 
-bool publisher_active(void) { return publisher.active; }
-
 void publisher_stop(void) {
     if (publisher.active) writer_stop(&publisher);
 }

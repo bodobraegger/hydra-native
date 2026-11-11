@@ -394,7 +394,7 @@ static void test_wrap(void) {
     EXPECT(starts[1] == 16 && starts[2] == 28); // hard breaks; wrapped rows have 2 + 2 columns of indent
     EXPECT(editor_row_indent(&editor, 0) == 4);
     size_t row, x;
-    editor_visual_position(&editor, 18, &row, &x);
+    editor_caret_position(&editor, 18, STICKY_NONE, &row, &x);
     EXPECT(row == 1 && x == 6);
     EXPECT(editor_offset_at_visual(&editor, 0, 1, 6) == 18);
     editor_set_cursor(&editor, 3, false);
@@ -561,7 +561,7 @@ static void test_sublime_commands(void) {
     editor_toggle_bookmark(&editor); // line 2
     editor_set_cursor(&editor, 0, false);
     editor_insert(&editor, "x\n", 2, EDIT_OTHER); // a new line above moves the bookmark down
-    EXPECT(editor_is_bookmarked(&editor, 3) && !editor_is_bookmarked(&editor, 2));
+    EXPECT(editor.bookmark_count == 1 && editor.bookmarks[0] == 3);
     editor_next_bookmark(&editor, 1);
     EXPECT(editor_line_of(&editor, editor.cursor) == 3);
     editor_select_bookmarks(&editor);

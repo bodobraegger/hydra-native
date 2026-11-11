@@ -115,11 +115,20 @@ static void read_number(JSContext *ctx, JSValueConst object, const char *key, do
     JS_FreeValue(ctx, value);
 }
 
-static void read_choice(JSContext *ctx, JSValueConst object, const char *key, const char *const *names, size_t count, int *out) {
+// The index of the value of `key` in `names`, or `current` without such a value.
+static int read_choice(JSContext *ctx, JSValueConst object, const char *key, const char *const *names, size_t count, int current) {
     char text[SETTINGS_NAME] = "";
     read_string(ctx, object, key, text, sizeof text);
     for (size_t i = 0; i < count; i++)
-        if (!strcmp(names[i], text)) *out = (int)i;
+        if (!strcmp(names[i], text)) return (int)i;
+    return current;
+}
+
+// A number from 0 to `maximum`, rounded; a negative or missing number keeps `*out`.
+static void read_percent(JSContext *ctx, JSValueConst object, const char *key, int maximum, int *out) {
+    double number = *out;
+    read_number(ctx, object, key, &number);
+    if (number >= 0) *out = number > maximum ? maximum : (int)(number + 0.5);
 }
 
 // Calls `pair` for each property of an object whose value is a string (or, for arrays of strings, each item).
@@ -208,39 +217,24 @@ bool settings_load(struct settings *settings, const char *path, char *error, siz
         ok = false;
     }
     if (ok) {
+#define READ_CHOICE(key, names, field) \
+    settings->field = (typeof(settings->field))read_choice(ctx, root, key, names, sizeof names / sizeof names[0], (int)settings->field)
         double number;
         read_string(ctx, root, "font", settings->font, sizeof settings->font);
         number = settings->font_size;
         read_number(ctx, root, "fontSize", &number);
         if (number > 0) settings->font_size = (float)number;
         read_string(ctx, root, "theme", settings->theme, sizeof settings->theme);
-        int choice = (int)settings->render_whitespace;
-        read_choice(ctx, root, "renderWhitespace", whitespace_names, 5, &choice);
-        settings->render_whitespace = (enum render_whitespace)choice;
-        choice = (int)settings->autocomplete_style;
-        read_choice(ctx, root, "autocompleteStyle", style_names, 2, &choice);
-        settings->autocomplete_style = (enum autocomplete_style)choice;
-        choice = (int)settings->autocomplete_trigger;
-        read_choice(ctx, root, "autocompleteTrigger", trigger_names, 2, &choice);
-        settings->autocomplete_trigger = (enum autocomplete_trigger)choice;
-        choice = (int)settings->signature_help;
-        read_choice(ctx, root, "signatureHelp", signature_help_names, 2, &choice);
-        settings->signature_help = (enum signature_help)choice;
-        number = settings->completion_opacity;
-        read_number(ctx, root, "autocompleteOpacity", &number);
-        if (number >= 0) settings->completion_opacity = number > 100 ? 100 : (int)(number + 0.5);
-        number = settings->code_background_opacity;
-        read_number(ctx, root, "codeBackgroundOpacity", &number);
-        if (number >= 0) settings->code_background_opacity = number > 100 ? 100 : (int)(number + 0.5);
-        number = settings->audio_gain;
-        read_number(ctx, root, "audioGain", &number);
-        if (number >= 0) settings->audio_gain = number > SETTINGS_MAX_AUDIO_GAIN ? SETTINGS_MAX_AUDIO_GAIN : (int)(number + 0.5);
-        choice = (int)settings->code_background_blend;
-        read_choice(ctx, root, "codeBackgroundBlend", blend_names, 2, &choice);
-        settings->code_background_blend = (enum code_blend)choice;
-        choice = (int)settings->code_text_blend;
-        read_choice(ctx, root, "codeTextBlend", blend_names, 2, &choice);
-        settings->code_text_blend = (enum code_blend)choice;
+        READ_CHOICE("renderWhitespace", whitespace_names, render_whitespace);
+        READ_CHOICE("autocompleteStyle", style_names, autocomplete_style);
+        READ_CHOICE("autocompleteTrigger", trigger_names, autocomplete_trigger);
+        READ_CHOICE("signatureHelp", signature_help_names, signature_help);
+        read_percent(ctx, root, "autocompleteOpacity", 100, &settings->completion_opacity);
+        read_percent(ctx, root, "codeBackgroundOpacity", 100, &settings->code_background_opacity);
+        read_percent(ctx, root, "audioGain", SETTINGS_MAX_AUDIO_GAIN, &settings->audio_gain);
+        READ_CHOICE("codeBackgroundBlend", blend_names, code_background_blend);
+        READ_CHOICE("codeTextBlend", blend_names, code_text_blend);
+#undef READ_CHOICE
         read_bool(ctx, root, "wordWrap", &settings->word_wrap);
         read_bool(ctx, root, "codeVisible", &settings->code_visible);
         read_bool(ctx, root, "fullscreen", &settings->fullscreen);

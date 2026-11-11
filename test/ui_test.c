@@ -91,7 +91,6 @@ void overlay_end(int width, int height) {}
 void overlay_set_layer(enum overlay_layer layer) { current_layer = layer; }
 static bool difference_layers[OVERLAY_LAYER_COUNT];
 void overlay_set_difference(enum overlay_layer layer, bool difference) { difference_layers[layer] = difference; }
-int overlay_columns(int codepoint) { return 1; }
 void overlay_image(float x, float y, float width, float height, unsigned texture) {}
 unsigned thumbnail_texture(const char *url) { return 0; }
 float overlay_text_shaped(float x, float y, const char *text, size_t length, bool right_to_left, uint32_t color) { return 0; }
@@ -244,11 +243,11 @@ static void test_overlay_settings(const char *settings_file) {
     for (size_t i = 0; i < drawn_text_count; i++)
         if (!strcmp(drawn_texts[i].text, "run") && drawn_texts[i].layer == OVERLAY_CODE_TEXT) toolbar_texts++;
     EXPECT(toolbar_texts == 1);
-    EXPECT(click_text("difference", 1)); // the row "code text"
-    EXPECT(click_text("+", 1)); // the opacity of "code box" (after "list opacity"), one step up from the theme value
+    EXPECT(click_text("difference", 1)); // the row "text blend"
+    EXPECT(click_text("+", 1)); // "background opacity" (after "list opacity"), one step up from the theme value
     ui_draw(800, 600, 0);
     EXPECT(difference_layers[OVERLAY_CODE_TEXT] && !difference_layers[OVERLAY_CODE_BACKGROUND]);
-    EXPECT(click_text("difference", 0)); // the row "code box"
+    EXPECT(click_text("difference", 0)); // the row "background blend"
     ui_draw(800, 600, 0);
     EXPECT(difference_layers[OVERLAY_CODE_BACKGROUND]);
     key(SDLK_ESCAPE, 0);
@@ -334,7 +333,7 @@ static void test_number_fields(const char *settings_file) {
     overlay_set_font_size(20);
     key(SDLK_ESCAPE, 0); // closes the settings menu
     ui_draw(800, 1200, 0);
-    EXPECT(strstr(drawn, "code box") == NULL);
+    EXPECT(strstr(drawn, "code display") == NULL);
 }
 
 static struct settings saved_settings(const char *settings_file) {
@@ -516,9 +515,6 @@ static void test_signatures(void) {
     expect_call("osc(1).out(|)", NULL, 0, false);
     struct signature list[8];
     size_t count = signatures_parse(SIGNATURES, list, 8);
-    size_t starts[4], ends[4];
-    const char *code = "modulate( o1 , () => [1, 2] )";
-    EXPECT(signature_arguments(code, strlen(code), 8, starts, ends, 4) == 2 && starts[1] == 15 && ends[1] == 27);
     char text[128];
     signature_snippet(signature_find(list, count, "modulate", 8), text, sizeof text);
     EXPECT_STRING(text, "modulate(${o0}, ${0.1})");

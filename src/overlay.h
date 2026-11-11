@@ -43,7 +43,6 @@ void overlay_set_layer(enum overlay_layer layer);
 // A layer with `difference` composites with blend mode difference (|below - layer|) over what is drawn before it.
 void overlay_set_difference(enum overlay_layer layer, bool difference);
 const char *overlay_difference_method(void); // "KHR_blend_equation_advanced", "shader", or "none" before the first use
-int overlay_columns(int codepoint); // 2 for wide East Asian characters, else 1
 size_t overlay_text_columns(const char *text, size_t length);
 // Proportional text, shaped with HarfBuzz, in visual order after a bidi pass; returns the width in pixels.
 // For panels and prompts; the code uses the monospace grid of overlay_text().

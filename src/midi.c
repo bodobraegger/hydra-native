@@ -10,7 +10,6 @@
 #include "midi.h"
 
 #define MAX_MESSAGE_BYTES 64
-#define MAX_PORT_NAME 128
 #define SYSTEM_CLIENT 0
 
 static snd_seq_t *sequencer;

@@ -102,51 +102,15 @@ bool signature_call_at(const char *text, size_t offset, const struct signature *
         while (start > 0 && is_name_char(text[start - 1])) start--;
         const struct signature *signature = signature_find(list, count, text + start, end - start);
         if (!signature) continue;
-        size_t before = start;
-        while (before > 0 && isspace((unsigned char)text[before - 1])) before--;
         *call = (struct call_context){
-            .open = frames[level].open,
             .name_start = start,
-            .name_length = end - start,
             .argument = frames[level].commas,
-            .chained = before > 0 && text[before - 1] == '.',
             .direct = level == depth - 1 && !in_literal,
         };
         *found = signature;
         return true;
     }
     return false;
-}
-
-size_t signature_arguments(const char *text, size_t length, size_t open, size_t *starts, size_t *ends, size_t capacity) {
-    size_t count = 0, depth = 0, start = open + 1;
-    for (size_t i = open + 1; i < length;) {
-        bool open_literal;
-        size_t after = skip_literal(text, length, i, &open_literal);
-        if (after != i) {
-            i = after;
-            continue;
-        }
-        char c = text[i];
-        bool last = c == ')' && depth == 0;
-        if ((c == ',' && depth == 0) || last) {
-            size_t first = start, end = i;
-            while (first < end && isspace((unsigned char)text[first])) first++;
-            while (end > first && isspace((unsigned char)text[end - 1])) end--;
-            if (count < capacity && (!last || count > 0 || end > first)) {
-                starts[count] = first;
-                ends[count++] = end;
-            }
-            if (last) break;
-            start = i + 1;
-        } else if (c == '(' || c == '[' || c == '{') {
-            depth++;
-        } else if ((c == ')' || c == ']' || c == '}') && depth > 0) {
-            depth--;
-        }
-        i++;
-    }
-    return count;
 }
 
 bool signature_input_is_texture(const struct signature_input *input) {

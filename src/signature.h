@@ -23,10 +23,8 @@ struct signature {
 
 // The innermost unclosed '(' before `offset` with a name before it, outside strings and comments.
 struct call_context {
-    size_t open; // the offset of '('
-    size_t name_start, name_length;
+    size_t name_start;
     size_t argument; // the index of the argument that holds `offset`
-    bool chained; // a '.' comes before the name, as in osc().modulate(
     bool direct; // `offset` is in the argument itself, not in a bracket inside it
 };
 
@@ -36,8 +34,6 @@ const struct signature *signature_find(const struct signature *list, size_t coun
 // The innermost call around `offset` of a function in `list`.
 bool signature_call_at(const char *text, size_t offset, const struct signature *list, size_t count,
                        struct call_context *call, const struct signature **found);
-// The argument ranges of the call whose '(' is at `open`, without the spaces around them.
-size_t signature_arguments(const char *text, size_t length, size_t open, size_t *starts, size_t *ends, size_t capacity);
 bool signature_input_is_texture(const struct signature_input *input);
 bool signature_is_chained(const struct signature *signature); // a glsl transform of a chain
 bool signature_is_source(const struct signature *signature); // a glsl source function such as osc

@@ -1,8 +1,7 @@
 // Computes the same "loudness" feature as Meyda (used by hydra-synth's lib/audio.js):
 // a 512-sample Hann window, the FFT amplitude spectrum, 24 Bark bands, specific[i] = sum^0.23.
-// Then a.setScale/setCutoff values from browser sketches keep their meaning. Before that, the WebRTC audio
-// processing of Chrome (src/webrtc_apm.cc) or, without that library, src/audio_processing.c applies the
-// processing of getUserMedia().
+// Then a.setScale/setCutoff values from browser sketches keep their meaning. Before that, src/audio_processing.c
+// applies the processing of getUserMedia().
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -12,31 +11,8 @@
 #include "audio_input.h"
 #include "audio_processing.h"
 #include "native.h"
-#include "webrtc_apm.h"
 
-// The audio processing of Chrome (src/webrtc_apm.cc), when the library is there.
-static struct {
-    void *apm;
-    bool (*process)(void *apm, float *samples, int sample_rate);
-} webrtc;
-
-static char program_directory[1024]; // also of build/libhydra-webrtc-apm.so
-
-// WEBRTC_APM_LIBRARY_NAME is empty on macOS and Windows, which have no such library.
-static void load_webrtc_processing(void) {
-    if (!WEBRTC_APM_LIBRARY_NAME[0]) return;
-    char library[sizeof program_directory + sizeof WEBRTC_APM_LIBRARY_NAME + 1];
-    snprintf(library, sizeof library, "%s/" WEBRTC_APM_LIBRARY_NAME, program_directory);
-    SDL_SharedObject *handle = SDL_LoadObject(library);
-    if (!handle) {
-        fprintf(stderr, "audio: no WebRTC audio processing (%s), using the own noise suppression and gain control\n",
-                SDL_GetError());
-        return;
-    }
-    void *(*create)(int) = (void *(*)(int))SDL_LoadFunction(handle, "webrtc_apm_create");
-    webrtc.process = (bool (*)(void *, float *, int))SDL_LoadFunction(handle, "webrtc_apm_process");
-    webrtc.apm = create && webrtc.process ? create(AUDIO_SAMPLE_RATE) : NULL;
-}
+static char program_directory[1024]; // of hydra-native-capture, for the system audio of macOS
 
 #define DEVICE_WAIT_MS 50
 
@@ -95,19 +71,17 @@ static int capture(void *argument) {
 static void analyze(void) {
     int limits[BARK_BAND_COUNT + 1];
     compute_band_limits(limits);
-    load_webrtc_processing();
     struct audio_processor processor = { 0 };
     // Processed 10 ms frames collect here until a buffer of the size of Meyda is full.
     float pending[AUDIO_BUFFER_SIZE + AUDIO_FRAME_SIZE], magnitude[SPECTRUM_SIZE];
     size_t pending_count = 0;
     while (!SDL_GetAtomicInt(&device_changed) && audio_input_read(pending + pending_count)) {
-        if (webrtc.apm) webrtc.process(webrtc.apm, pending + pending_count, AUDIO_SAMPLE_RATE);
         // The gain of the settings, for quiet inputs such as the system output, which has no automatic gain.
         float gain = (float)SDL_GetAtomicInt(&gain_percent) / 100.0f;
         for (int i = 0; i < AUDIO_FRAME_SIZE; i++) pending[pending_count + i] *= gain;
         pending_count += AUDIO_FRAME_SIZE;
         if (pending_count < AUDIO_BUFFER_SIZE) continue;
-        audio_analyze(webrtc.apm ? NULL : &processor, pending, magnitude);
+        audio_analyze(&processor, pending, magnitude);
         pending_count -= AUDIO_BUFFER_SIZE;
         memmove(pending, pending + AUDIO_BUFFER_SIZE, pending_count * sizeof(float));
         float specific[BARK_BAND_COUNT], total = 0.0f;

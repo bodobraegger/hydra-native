@@ -89,7 +89,6 @@ static struct process *start_pipeline(int output, int fd, uint32_t node, int wid
     return process_start(argv, NULL, NULL);
 }
 
-// Ends the main loop when gst-launch-1.0 ended.
 static gboolean check_pipeline(gpointer data) {
     if (process_wait(pipeline, 0) == PROCESS_RUNNING) return G_SOURCE_CONTINUE;
     g_main_loop_quit(loop);
@@ -140,7 +139,7 @@ static void mutter_closed(GDBusConnection *connection, const char *sender, const
     g_main_loop_quit(loop);
 }
 
-// The connector name of monitor `index` (GetCurrentState of DisplayConfig), or NULL.
+// GetCurrentState of DisplayConfig; NULL without such a monitor.
 static char *monitor_connector(int index) {
     GVariant *state = call(DISPLAY_CONFIG_BUS_NAME, DISPLAY_CONFIG_PATH, "org.gnome.Mutter.DisplayConfig", "GetCurrentState", NULL, NULL);
     if (!state) return NULL;
@@ -232,7 +231,7 @@ static void portal_response(GDBusConnection *connection, const char *sender, con
 }
 
 // A portal method that answers through the Response signal of its Request object. `options` is the last argument
-// (a{sv}, with the handle token added), `head` the arguments before it ("" or the session handle).
+// (a{sv}, with the handle token added), after the session handle if there is one.
 static uint32_t portal_request(const char *method, const char *session, GVariantBuilder *options, bool dry_run, GVariant **results) {
     static unsigned counter;
     char token[64], path[256];

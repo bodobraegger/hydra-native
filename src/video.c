@@ -170,7 +170,7 @@ int video_open_camera(int index, int width, int height) {
 }
 #endif
 
-// Copies the newest frame of the camera of `source` into `front`; under the lock of the source.
+// Under the lock of the source.
 static void take_camera_frame(struct video_source *source) {
     if (!SDL_GetAtomicInt(&source->running)) return;
     if (SDL_GetCameraPermissionState(source->camera) == SDL_CAMERA_PERMISSION_STATE_DENIED) {
@@ -214,7 +214,7 @@ bool video_upload(int handle, GLuint texture) {
     return fresh;
 }
 
-// Copies the newest frame (RGBA) into `pixels`, which holds width * height * 4 bytes of video_size().
+// `pixels` holds width * height * 4 bytes of video_size().
 bool video_copy_frame(int handle, unsigned char *pixels) {
     struct video_source *source = find_source(handle);
     if (!source) return false;

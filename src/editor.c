@@ -5,7 +5,6 @@
 #include <ctype.h>
 #include <limits.h>
 #include <stdint.h>
-#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
@@ -554,10 +553,6 @@ void editor_caret_position(const struct editor *editor, size_t offset, enum stic
                                            : editor_columns_between(editor, starts[current], offset) + indent;
 }
 
-void editor_visual_position(const struct editor *editor, size_t offset, size_t *row, size_t *x) {
-    editor_caret_position(editor, offset, STICKY_NONE, row, x);
-}
-
 // The caret position nearest to column x in a row with right-to-left text.
 static size_t offset_at_column(const struct editor *editor, size_t line, size_t row_start, size_t row_end, size_t indent, size_t x) {
     struct editor_cell *cells;
@@ -673,7 +668,7 @@ void editor_replace_text(struct editor *editor, const char *text, size_t length)
 
 static void vertical(struct editor *editor, long rows, bool extend) {
     size_t row, x;
-    editor_visual_position(editor, editor->cursor, &row, &x);
+    editor_caret_position(editor, editor->cursor, STICKY_NONE, &row, &x);
     size_t goal = editor->has_goal_column ? editor->goal_column : x;
     size_t line = editor_line_of(editor, editor->cursor);
     size_t starts[1];
@@ -1671,19 +1666,15 @@ void editor_sort_lines(struct editor *editor, bool reverse, bool insensitive) {
         lines[i] = strndup(text, length);
     }
     qsort(lines, count, sizeof *lines, insensitive ? compare_strings_insensitive : compare_strings);
-    for (size_t i = 0; reverse && i < count / 2; i++) {
-        char *swap = lines[i];
-        lines[i] = lines[count - 1 - i];
-        lines[count - 1 - i] = swap;
-    }
     char *text = malloc(end - start + 1);
     size_t used = 0;
     for (size_t i = 0; i < count; i++) {
-        size_t length = strlen(lines[i]);
-        memcpy(text + used, lines[i], length);
+        char *line = lines[reverse ? count - 1 - i : i];
+        size_t length = strlen(line);
+        memcpy(text + used, line, length);
         used += length;
         if (i + 1 < count) text[used++] = '\n';
-        free(lines[i]);
+        free(line);
     }
     begin_edit(editor, EDIT_OTHER);
     replace(editor, start, end, text, used);
@@ -1738,7 +1729,6 @@ long editor_matching_bracket(const struct editor *editor, size_t offset) {
     return -1;
 }
 
-// The next match at or after `from` (or before it, backwards), wrapping around; -1 when there is none.
 // The base letters of U+00C0 to U+017F, or a space where the letter has no accent to drop.
 static const char latin_base_letters[] =
     "aaaaaa ceeeeiiii nooooo ouuuuy  aaaaaa ceeeeiiii nooooo ouuuuy yaaaaaaccccccccddddeeeeeeeeeegggggggghhhhiiiiii"
@@ -2012,12 +2002,6 @@ void editor_toggle_bookmark(struct editor *editor) {
     memmove(editor->bookmarks + at + 1, editor->bookmarks + at, (editor->bookmark_count - at) * sizeof(size_t));
     editor->bookmarks[at] = line;
     editor->bookmark_count++;
-}
-
-bool editor_is_bookmarked(const struct editor *editor, size_t line) {
-    for (size_t i = 0; i < editor->bookmark_count; i++)
-        if (editor->bookmarks[i] == line) return true;
-    return false;
 }
 
 void editor_next_bookmark(struct editor *editor, int direction) {

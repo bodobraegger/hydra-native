@@ -30,7 +30,6 @@ int process_wait(struct process *process, int timeout_ms);
 // POSIX, so that a child that ignores SIGTERM cannot block the caller; TerminateJobObject on Windows. Returns the
 // exit status.
 int process_stop(struct process *process);
-// process_stop, then frees `process`.
 void process_free(struct process *process);
 // Whether `name` is a program in PATH (on Windows also with the extension .exe).
 bool process_find_program(const char *name);
@@ -47,5 +46,4 @@ void stream_close(int stream);
 // The address of a local socket of this process: a Unix socket path (in XDG_RUNTIME_DIR, TMPDIR or /tmp) on
 // POSIX, a named pipe (\\.\pipe\...) on Windows. Node.js listens on both kinds with net.Server.listen(address).
 void stream_local_address(char *address, size_t size, const char *name);
-// Connects to the local socket at `address`; the stream, or -1.
-int stream_connect(const char *address);
+int stream_connect(const char *address); // -1 on failure

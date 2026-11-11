@@ -23,7 +23,6 @@ struct process {
     int status; // PROCESS_RUNNING until the process ended
 };
 
-// A UTF-16 copy of a UTF-8 text, or NULL.
 static wchar_t *wide(const char *text) {
     int length = MultiByteToWideChar(CP_UTF8, 0, text, -1, NULL, 0);
     if (length <= 0) return NULL;

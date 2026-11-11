@@ -244,8 +244,6 @@ static void clear_glyphs(void) {
     free(pixels);
 }
 
-int overlay_columns(int codepoint) { return unicode_columns(codepoint); }
-
 static bool is_emoji(int codepoint) {
     return (codepoint >= 0x1F000 && codepoint <= 0x1FAFF) || (codepoint >= 0x2600 && codepoint <= 0x27BF) ||
            (codepoint >= 0x2B00 && codepoint <= 0x2BFF) || codepoint == 0x203C || codepoint == 0x2049;
@@ -268,7 +266,7 @@ static struct glyph *render_font_glyph(struct glyph *slot, int key, struct font 
 static struct glyph *render_glyph(struct glyph *slot, int codepoint) {
     struct font *font = font_for(codepoint);
     if (!font) return codepoint == FALLBACK_CODEPOINT ? NULL : overlay_glyph(FALLBACK_CODEPOINT);
-    return render_font_glyph(slot, codepoint, font, (int)glyph_index(font, codepoint), overlay_columns(codepoint));
+    return render_font_glyph(slot, codepoint, font, (int)glyph_index(font, codepoint), unicode_columns(codepoint));
 }
 
 // The PNG of a color glyph, scaled to `width` by `height` pixels with an area average of premultiplied colors.
@@ -601,11 +599,6 @@ void overlay_rect(float x, float y, float width, float height, uint32_t color) {
     push_quad(x, y, x + width, y + height, 0.5f / ATLAS_SIZE, white, 0.5f / ATLAS_SIZE, white, color);
 }
 
-static int decode_utf8(const unsigned char *text, size_t length, size_t *consumed) {
-    int codepoint = unicode_decode(text, length, consumed);
-    return codepoint == 0xFFFD ? FALLBACK_CODEPOINT : codepoint;
-}
-
 // ---------------------------------------------------------------- shaped text with bidi
 
 #define MAX_SHAPED 2048
@@ -708,14 +701,10 @@ static int shape_with(const char *text, size_t length, int paragraph, struct sha
     return out;
 }
 
-static int shape(const char *text, size_t length, int paragraph, struct shaped_glyph *glyphs, int capacity) {
-    return shape_with(text, length, paragraph, glyphs, capacity, NULL);
-}
-
 static struct shaped_glyph shaped_glyphs[MAX_SHAPED];
 
 float overlay_text_shaped_width(const char *text, size_t length, bool right_to_left) {
-    int count = shape(text, length, right_to_left, shaped_glyphs, MAX_SHAPED);
+    int count = shape_with(text, length, right_to_left, shaped_glyphs, MAX_SHAPED, NULL);
     float width = 0;
     for (int i = 0; i < count; i++) width += shaped_glyphs[i].advance;
     return width;
@@ -748,12 +737,12 @@ static float draw_glyphs(float x, float y, const struct shaped_glyph *list, int 
 }
 
 float overlay_text_shaped(float x, float y, const char *text, size_t length, bool right_to_left, uint32_t color) {
-    int count = shape(text, length, right_to_left, shaped_glyphs, MAX_SHAPED);
+    int count = shape_with(text, length, right_to_left, shaped_glyphs, MAX_SHAPED, NULL);
     return draw_glyphs(x, y, shaped_glyphs, count, color, 1);
 }
 
 void overlay_text_fitted(float x, float y, const char *text, size_t length, float width, uint32_t color) {
-    int count = shape(text, length, 1, shaped_glyphs, MAX_SHAPED);
+    int count = shape_with(text, length, 1, shaped_glyphs, MAX_SHAPED, NULL);
     float natural = 0;
     for (int i = 0; i < count; i++) natural += shaped_glyphs[i].advance;
     float scale = natural > width && natural > 0 ? width / natural : 1;
@@ -782,7 +771,8 @@ void overlay_text(float x, float y, const char *text, size_t length, size_t firs
     size_t column = 0;
     for (size_t offset = 0; offset < length && column < first_column + max_columns;) {
         size_t consumed, end = unicode_cluster_end((const unsigned char *)text, length, offset);
-        int codepoint = decode_utf8((const unsigned char *)text + offset, length - offset, &consumed);
+        int codepoint = unicode_decode((const unsigned char *)text + offset, length - offset, &consumed);
+        if (codepoint == 0xFFFD) codepoint = FALLBACK_CODEPOINT;
         int columns = codepoint == '\t' ? OVERLAY_TAB_WIDTH - (int)(column % OVERLAY_TAB_WIDTH)
                                          : unicode_cluster_columns((const unsigned char *)text, offset, end);
         if (column >= first_column && end > offset + consumed) {

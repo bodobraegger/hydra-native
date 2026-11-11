@@ -152,7 +152,7 @@ static void apply_state(const struct context *context) {
     glPixelStorei(GL_UNPACK_ALIGNMENT, context->unpack_alignment);
 }
 
-// Makes context `id` current: its framebuffer stands for the default framebuffer of WebGL.
+// The framebuffer of the context stands for the default framebuffer of WebGL.
 static struct context *activate(JSContext *ctx, JSValueConst value) {
     int id = to_int(ctx, value);
     if (id < 0 || id >= MAX_CONTEXTS || !contexts[id].used) return NULL;
@@ -610,17 +610,6 @@ WEBGL_FUNCTION(js_pixel_store) {
     return JS_UNDEFINED;
 }
 
-static void flip_rows(unsigned char *pixels, int width, int height, int bytes_per_pixel) {
-    size_t row = (size_t)width * (size_t)bytes_per_pixel;
-    unsigned char *swap = malloc(row);
-    for (int y = 0; y < height / 2; y++) {
-        memcpy(swap, pixels + (size_t)y * row, row);
-        memcpy(pixels + (size_t)y * row, pixels + (size_t)(height - 1 - y) * row, row);
-        memcpy(pixels + (size_t)(height - 1 - y) * row, swap, row);
-    }
-    free(swap);
-}
-
 // The bytes of one pixel of an upload, or 0 for a format that WebGL 1 does not take.
 static size_t pixel_bytes(GLenum format, GLenum type) {
     if (type == GL_UNSIGNED_SHORT_5_6_5 || type == GL_UNSIGNED_SHORT_4_4_4_4 || type == GL_UNSIGNED_SHORT_5_5_5_1) return 2;
@@ -673,18 +662,11 @@ WEBGL_FUNCTION(js_tex_sub_image_2d) {
     return JS_UNDEFINED;
 }
 
-// The RGBA pixels of a 2D canvas or image of js/canvas.js, with the pixel store flags applied.
-static unsigned char *source_pixels(struct context *context, int handle, int *width, int *height) {
-    unsigned char *pixels = canvas2d_rgba(handle, context->premultiply_alpha, width, height);
-    if (pixels && context->flip_y) flip_rows(pixels, *width, *height, 4);
-    return pixels;
-}
-
 // texImageSource(id, target, level, internalFormat, format, type, canvasHandle): the image-source form.
 WEBGL_FUNCTION(js_tex_image_source) {
     ACTIVATE();
     int width, height;
-    unsigned char *pixels = source_pixels(context, INT(6), &width, &height);
+    unsigned char *pixels = canvas2d_rgba(INT(6), context->premultiply_alpha, context->flip_y, &width, &height);
     if (!pixels) return JS_ThrowTypeError(ctx, "texImage2D: the source has no pixels");
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     glTexImage2D((GLenum)INT(1), INT(2), INT(3), width, height, 0, (GLenum)INT(4), (GLenum)INT(5), pixels);
@@ -697,7 +679,7 @@ WEBGL_FUNCTION(js_tex_image_source) {
 WEBGL_FUNCTION(js_tex_sub_image_source) {
     ACTIVATE();
     int width, height;
-    unsigned char *pixels = source_pixels(context, INT(7), &width, &height);
+    unsigned char *pixels = canvas2d_rgba(INT(7), context->premultiply_alpha, context->flip_y, &width, &height);
     if (!pixels) return JS_ThrowTypeError(ctx, "texSubImage2D: the source has no pixels");
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     glTexSubImage2D((GLenum)INT(1), INT(2), INT(3), INT(4), width, height, (GLenum)INT(5), (GLenum)INT(6), pixels);

@@ -201,12 +201,21 @@ static bool settings_visible;
 static bool gallery_enabled; // the web editor shows "share" only with a gallery server
 #define MAX_PANEL_BUTTONS 256
 #define EXTENSION_ROWS 3
-// Clickable areas of the extensions panel, with the action that src/ui.c runs on a click.
+// Clickable areas of the extensions and settings panels, with the action of a click.
 static struct {
     float x, y, width, height;
     char action[32]; // "category N", "add N", "docs N", "example N M"
 } panel_buttons[MAX_PANEL_BUTTONS];
 static size_t panel_button_count;
+
+// The index of the first panel button at (x, y), or panel_button_count.
+static size_t panel_button_at(float x, float y) {
+    size_t i = 0;
+    while (i < panel_button_count && (x < panel_buttons[i].x || x > panel_buttons[i].x + panel_buttons[i].width ||
+                                      y < panel_buttons[i].y || y > panel_buttons[i].y + panel_buttons[i].height))
+        i++;
+    return i;
+}
 static size_t info_scroll;
 static float pointer_x, pointer_y; // the last mouse position, for toolbar tooltips
 
@@ -397,7 +406,6 @@ static void show_result(const char *prefix, char *error) {
     }
 }
 
-// true when the code ran without an error
 static bool evaluate_range(size_t start, size_t end) {
     flash_start = start;
     flash_end = end;
@@ -564,7 +572,6 @@ static void load_signatures(void) {
     free(text);
 }
 
-// The hydra function whose parentheses hold `offset`, or NULL.
 static const struct signature *call_at(size_t offset, struct call_context *call) {
     load_signatures();
     const struct signature *found;
@@ -663,7 +670,7 @@ static void add_function_completion(const char *name, size_t length) {
     add_completion(name, length, signature && !call_follows ? insert : NULL);
 }
 
-static bool is_identifier_char(unsigned char c);
+static bool is_identifier_char(unsigned char c) { return isalnum(c) || c == '_' || c == '$'; }
 
 static uint32_t completion_color(uint32_t rgb, uint32_t alpha) {
     return rgb | (alpha * (uint32_t)active_settings.completion_opacity + 50) / 100;
@@ -827,7 +834,7 @@ static void open_completion(bool forced) {
 static void accept_completion(void) {
     size_t start;
     editor_word_before_cursor(&editor, &start);
-    editor_set_cursor(&editor, start, true); // the typed word is replaced
+    editor_set_cursor(&editor, start, true);
     const char *insert = completion.inserts[completion.selected];
     if (insert) {
         insert_snippet(insert);
@@ -967,8 +974,6 @@ static void accept_prompt(int direction) {
 
 // ---------------------------------------------------------------- commands
 
-static void save_settings(void);
-
 // The gallery and patch bay server ("" is off): js/main.js starts or stops the patch bay at once, and "share"
 // shows only with a server, as in the web editor.
 static void set_server(const char *url) {
@@ -1003,7 +1008,6 @@ static void copy_patch_bay_id(void) {
     free(stream_id);
 }
 
-// Writes the settings file after a change of the settings menu or of the font size.
 static void save_settings(void) {
     char error[SETTINGS_TEXT];
     if (settings_file && !settings_save(&stored_settings, settings_file, error, sizeof error))
@@ -1041,17 +1045,17 @@ static uint32_t code_background_color(void) {
 // A click on a number of the settings menu turns it into a text field: Enter applies the typed value (clamped,
 // with an optional unit), Escape cancels, Up and Down (and the wheel) step it, Shift by ten steps.
 enum number_kind { NUMBER_OPACITY, NUMBER_FONT_SIZE, NUMBER_AUDIO_GAIN, NUMBER_COMPLETION_OPACITY };
-#define LAST_NUMBER_KIND NUMBER_COMPLETION_OPACITY
 static const struct {
     const char *unit; // accepted after the number, and shown after it
     const char *action; // the panel action of a click on the value
-    double minimum, maximum, step;
+    double minimum, maximum;
 } number_specs[] = {
-    [NUMBER_OPACITY] = { "%", "edit opacity", 0, 100, 1 },
-    [NUMBER_FONT_SIZE] = { "px", "edit size", OVERLAY_MIN_FONT_SIZE, OVERLAY_MAX_FONT_SIZE, 1 },
-    [NUMBER_AUDIO_GAIN] = { "%", "edit gain", 0, SETTINGS_MAX_AUDIO_GAIN, 1 },
-    [NUMBER_COMPLETION_OPACITY] = { "%", "edit list opacity", 0, 100, 1 },
+    [NUMBER_OPACITY] = { "%", "edit opacity", 0, 100 },
+    [NUMBER_FONT_SIZE] = { "px", "edit size", OVERLAY_MIN_FONT_SIZE, OVERLAY_MAX_FONT_SIZE },
+    [NUMBER_AUDIO_GAIN] = { "%", "edit gain", 0, SETTINGS_MAX_AUDIO_GAIN },
+    [NUMBER_COMPLETION_OPACITY] = { "%", "edit list opacity", 0, 100 },
 };
+#define NUMBER_KIND_COUNT (sizeof number_specs / sizeof number_specs[0])
 #define MAX_NUMBER_TEXT 16
 #define LARGE_STEPS 10
 
@@ -1119,7 +1123,7 @@ static void step_number(enum number_kind kind, int steps) {
     double value;
     if (!number_field.open || number_field.kind != kind || !parse_number(kind, number_field.text, &value))
         value = number_value(kind);
-    set_number(kind, value + steps * number_specs[kind].step);
+    set_number(kind, value + steps);
     if (number_field.open && number_field.kind == kind) open_number_field(kind);
 }
 
@@ -1287,7 +1291,6 @@ static void run_command(enum command command, bool extend) {
     bool was_open = completion.open;
     size_t old_length = editor.length;
     unsigned generation = snippet.generation;
-    if (was_open && !is_completion_command(command) && command != COMMAND_BACKSPACE) close_completion();
     run_command_body(command, extend);
     if (generation == snippet.generation) follow_snippet(old_length);
     if (was_open && command == COMMAND_BACKSPACE) open_completion(true);
@@ -1296,9 +1299,7 @@ static void run_command(enum command command, bool extend) {
 static void run_command_body(enum command command, bool extend) {
     size_t start, end;
     long page = (long)visible_rows() - 1;
-    if (command != COMMAND_COMPLETION_NEXT && command != COMMAND_COMPLETION_PREVIOUS &&
-        command != COMMAND_COMPLETION_ACCEPT && command != COMMAND_TRIGGER_COMPLETION)
-        close_completion();
+    if (!is_completion_command(command)) close_completion();
     switch (command) {
     case COMMAND_NONE:
     case COMMAND_COUNT: break;
@@ -1672,6 +1673,12 @@ static void info_panel(float *left, float *top, float *width, float *height) {
     *height = (float)last_height - *top - MARGIN - bar_height();
 }
 
+static bool in_info_panel(float x, float y) {
+    float left, top, width, height;
+    info_panel(&left, &top, &width, &height);
+    return x >= left && x <= left + width && y >= top && y <= top + height;
+}
+
 static bool starts_wide(const char *text) {
     size_t consumed;
     return unicode_columns(unicode_decode((const unsigned char *)text, strlen(text), &consumed)) == 2;
@@ -1859,7 +1866,6 @@ static void run_panel_action(const char *action) {
     } else if (!strncmp(action, "docs ", 5) && (result = host.call("__extensionDocumentation", action + 5))) {
         SDL_OpenURL(result);
     } else if (!strncmp(action, "example ", 8) && (result = host.call("__extensionExample", action + 8))) {
-        // 'load and eval code'
         editor_replace_text(&editor, result, strlen(result));
         evaluate_range(0, editor.length);
         extensions_visible = false;
@@ -1868,20 +1874,15 @@ static void run_panel_action(const char *action) {
 }
 
 static bool extensions_click(float x, float y) {
-    float left, top, width, height;
-    info_panel(&left, &top, &width, &height);
-    if (x < left || x > left + width || y < top || y > top + height) {
+    if (!in_info_panel(x, y)) {
         extensions_visible = false;
         return false;
     }
-    for (size_t i = 0; i < panel_button_count; i++) {
-        if (x >= panel_buttons[i].x && x <= panel_buttons[i].x + panel_buttons[i].width && y >= panel_buttons[i].y &&
-            y <= panel_buttons[i].y + panel_buttons[i].height) {
-            char action[32];
-            snprintf(action, sizeof action, "%s", panel_buttons[i].action);
-            run_panel_action(action);
-            break;
-        }
+    size_t button = panel_button_at(x, y);
+    if (button < panel_button_count) {
+        char action[32];
+        snprintf(action, sizeof action, "%s", panel_buttons[button].action);
+        run_panel_action(action);
     }
     return true;
 }
@@ -1890,7 +1891,7 @@ static bool info_click(float x, float y) {
     float left, top, width, height;
     info_panel(&left, &top, &width, &height);
     if (x < left || x > left + width || y < top || y > top + height) {
-        info_visible = false; // a click outside closes the panel
+        info_visible = false;
         return false;
     }
     float line_height = overlay_line_height();
@@ -1938,7 +1939,6 @@ static void load_font_choices(void) {
         if (i == font_choice_count) font_choice_count++;
     }
     pclose(pipe);
-    // Sorted by family name.
     for (size_t i = 1; i < font_choice_count; i++)
         for (size_t k = i; k > 0 && strcasecmp(font_choices[k - 1].family, font_choices[k].family) > 0; k--) {
             typeof(font_choices[0]) swap = font_choices[k];
@@ -1949,7 +1949,6 @@ static void load_font_choices(void) {
 
 // The audio inputs and the languages of the settings menu, read when it opens.
 #define MAX_AUDIO_DEVICES 32
-#define MAX_LANGUAGES 16
 static struct audio_device audio_choices[MAX_AUDIO_DEVICES];
 static int audio_choice_count;
 static struct {
@@ -1988,7 +1987,7 @@ static void load_settings_lists(void) {
 
 struct panel_flow {
     float x, y, start, right;
-    float height; // of the current row
+    float height;
     float top, bottom; // the panel shows only the rows between these; the wheel scrolls the others in
 };
 
@@ -2085,7 +2084,7 @@ static void flow_label_disabled(struct panel_flow *flow, const char *text, bool 
 
 static size_t settings_scroll_limit = (size_t)-1; // the rows below the panel in the last frame
 
-// The settings menu: theme, autocomplete, font size and font, saved in the settings file at once.
+// The settings menu; each choice applies at once and goes into the settings file.
 static void draw_settings(void) {
     float left, top, width, height, line_height = overlay_line_height(), char_width = overlay_char_width();
     info_panel(&left, &top, &width, &height);
@@ -2206,7 +2205,7 @@ static void draw_settings(void) {
 }
 
 static void run_settings_action(const char *action) {
-    for (enum number_kind kind = NUMBER_OPACITY; kind <= LAST_NUMBER_KIND; kind++)
+    for (enum number_kind kind = NUMBER_OPACITY; kind < NUMBER_KIND_COUNT; kind++)
         if (!strcmp(action, number_specs[kind].action)) {
             if (!number_field.open || number_field.kind != kind) open_number_field(kind);
             return;
@@ -2261,10 +2260,7 @@ static void run_settings_action(const char *action) {
         prompt.query_selected = true;
     }
     else if (!strcmp(action, "opacity -") || !strcmp(action, "opacity +")) {
-        int percent = code_background_percent() + (action[8] == '+' ? OPACITY_STEP : -OPACITY_STEP);
-        percent = percent < 0 ? 0 : percent > 100 ? 100 : percent;
-        stored_settings.code_background_opacity = active_settings.code_background_opacity = percent;
-        save_settings();
+        set_number(NUMBER_OPACITY, code_background_percent() + (action[8] == '+' ? OPACITY_STEP : -OPACITY_STEP));
     } else if (!strcmp(action, "list opacity -") || !strcmp(action, "list opacity +")) {
         set_number(NUMBER_COMPLETION_OPACITY,
                    active_settings.completion_opacity + (action[13] == '+' ? OPACITY_STEP : -OPACITY_STEP));
@@ -2303,22 +2299,15 @@ static void run_settings_action(const char *action) {
 
 // The buttons take a click first; a click outside the panel and its buttons closes it.
 static bool settings_click(float x, float y) {
-    for (size_t i = 0; i < panel_button_count; i++) {
-        if (x >= panel_buttons[i].x && x <= panel_buttons[i].x + panel_buttons[i].width && y >= panel_buttons[i].y &&
-            y <= panel_buttons[i].y + panel_buttons[i].height) {
-            char action[32];
-            snprintf(action, sizeof action, "%s", panel_buttons[i].action);
-            run_settings_action(action);
-            return true;
-        }
+    size_t button = panel_button_at(x, y);
+    if (button < panel_button_count) {
+        char action[32];
+        snprintf(action, sizeof action, "%s", panel_buttons[button].action);
+        run_settings_action(action);
+        return true;
     }
-    float left, top, width, height;
-    info_panel(&left, &top, &width, &height);
-    if (x < left || x > left + width || y < top || y > top + height) {
-        settings_visible = false;
-        return false;
-    }
-    return true;
+    if (!in_info_panel(x, y)) settings_visible = false;
+    return settings_visible;
 }
 
 // ---------------------------------------------------------------- help
@@ -2415,7 +2404,7 @@ static bool wheel_number(int lines) {
         if (pointer_x < panel_buttons[i].x || pointer_x > panel_buttons[i].x + panel_buttons[i].width ||
             pointer_y < panel_buttons[i].y || pointer_y > panel_buttons[i].y + panel_buttons[i].height)
             continue;
-        for (enum number_kind kind = NUMBER_OPACITY; kind <= LAST_NUMBER_KIND; kind++)
+        for (enum number_kind kind = NUMBER_OPACITY; kind < NUMBER_KIND_COUNT; kind++)
             if (!strcmp(panel_buttons[i].action, number_specs[kind].action)) {
                 step_number(kind, steps);
                 return true;
@@ -2447,7 +2436,6 @@ struct highlight_state {
 };
 
 static bool is_identifier_start(unsigned char c) { return isalpha(c) || c == '_' || c == '$'; }
-static bool is_identifier_char(unsigned char c) { return isalnum(c) || c == '_' || c == '$'; }
 
 static bool is_keyword(const char *word, size_t length) {
     for (size_t i = 0; i < sizeof keywords / sizeof keywords[0]; i++)
@@ -2562,7 +2550,6 @@ static bool whitespace_shown(size_t line_start, size_t line_end, size_t offset, 
     return false;
 }
 
-// A middle-height dot for a space, an arrow for a tab.
 static void draw_whitespace(size_t column, float y, bool tab) {
     if (column < scroll_column || column >= scroll_column + visible_columns()) return;
     float char_width = overlay_char_width(), x = MARGIN + (float)(column - scroll_column) * char_width;
@@ -2770,7 +2757,7 @@ static void draw_code(void) {
 }
 
 // The list below the word that is being typed, left-aligned with its start (above the cursor line when there is
-// no room below, as in VS Code). It hides the code below it; see COMPLETION_BOX_COLOR.
+// no room below, as in VS Code). It hides the code below it; see COMPLETION_BOX_RGB.
 static void draw_completion_list(void) {
     size_t x, row = global_caret_row(editor.cursor, editor.sticky, &x);
     if (row < scroll_row || row >= scroll_row + visible_rows()) return;
@@ -2795,7 +2782,6 @@ static void draw_completion_list(void) {
     overlay_set_layer(OVERLAY_TOP);
 }
 
-// Ghost text: the rest of the selected candidate after the cursor, in the dim ghost color of the theme.
 static void draw_completion_ghost(void) {
     size_t x, row = global_caret_row(editor.cursor, editor.sticky, &x);
     if (row < scroll_row || row >= scroll_row + visible_rows() || x < scroll_column) return;
@@ -2887,10 +2873,9 @@ static void draw_prompt(int width, int height) {
         break;
     case PROMPT_SHARE: {
         float line_height = overlay_line_height(), y = (float)height - bar_height();
-        size_t lines = sizeof share_confirmation / sizeof share_confirmation[0], columns = visible_columns();
+        size_t lines = sizeof share_confirmation / sizeof share_confirmation[0];
         float top = y - (float)(lines + 1) * line_height;
         overlay_rect(0, top, (float)width, (float)(lines + 1) * line_height, theme->popup_background);
-        (void)columns;
         for (size_t i = 0; i < lines; i++)
             overlay_text_shaped(MARGIN, top + (float)i * line_height + line_height / 2, share_confirmation[i],
                                 strlen(share_confirmation[i]), false, theme->text);
@@ -2972,8 +2957,6 @@ void ui_set_visible(bool show) { visible = show; }
 void ui_show_info(void) { info_visible = true; }
 
 void ui_enable_gallery(void) { gallery_enabled = true; }
-
-void ui_set_server(const char *url) { set_server(url); }
 
 void ui_share_done(bool ok, const char *output) {
     char text[MAX_MESSAGE];

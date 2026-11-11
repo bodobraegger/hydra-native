@@ -1,5 +1,4 @@
-// Noise suppression and automatic gain control in the manner of the WebRTC audio processing module of Chrome,
-// for systems without libwebrtc-audio-processing-1.so.3 (see src/webrtc_apm.cc).
+// Noise suppression and automatic gain control in the manner of the WebRTC audio processing module of Chrome.
 // Noise suppression: a Wiener filter with the decision-directed estimate of the a priori SNR and a noise power
 // that follows the minimum of the smoothed power of each bin. The gain floor is the 18 dB of the "high" level.
 // Gain control: the adaptive digital controller of AGC2. It estimates the RMS level of active frames, moves the
@@ -77,7 +76,6 @@ void audio_analyze(struct audio_processor *processor, const float samples[AUDIO_
         power[bin] = real[bin] * real[bin] + imaginary[bin] * imaginary[bin];
         magnitude[bin] = sqrtf(power[bin]);
     }
-    if (!processor) return;
     if (!processor->started) {
         for (int bin = 0; bin < SPECTRUM_SIZE; bin++) {
             processor->noise[bin] = processor->smoothed_power[bin] = processor->previous_clean[bin] = power[bin] + SILENCE;

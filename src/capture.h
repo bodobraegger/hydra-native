@@ -10,7 +10,7 @@
 enum capture_source {
     CAPTURE_PICKER,  // the system dialog picks a window or a monitor (getDisplayMedia, initScreen)
     CAPTURE_MONITOR, // a monitor by index, without a dialog
-    CAPTURE_AREA,    // a rectangle of the desktop
+    CAPTURE_AREA,
     CAPTURE_WINDOW,  // the window that has the focus after a delay
 };
 
@@ -19,7 +19,7 @@ struct capture_request {
     int monitor;
     int x, y, area_width, area_height;
     double delay_seconds;
-    int width, height; // of the frames
+    int width, height;
     bool dry_run; // print the system calls instead of making them (tests)
 };
 

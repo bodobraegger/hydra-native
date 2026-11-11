@@ -32,11 +32,11 @@ enum edit_kind {
     EDIT_DELETING,
 };
 
-// A selection is the text between anchor and cursor; an empty selection is a caret.
 // The side of a cursor at a boundary of text directions, as `sticky` of CodeMirror 5: attached to the
 // character before it or after it.
 enum sticky { STICKY_NONE, STICKY_BEFORE, STICKY_AFTER };
 
+// The text between anchor and cursor; an empty selection is a caret.
 struct selection {
     size_t cursor;
     size_t anchor;
@@ -166,7 +166,6 @@ void editor_hard_wrap(struct editor *editor, size_t width); // Alt+Q
 
 // Commands of the CodeMirror 5 sublime keymap.
 void editor_toggle_bookmark(struct editor *editor);
-bool editor_is_bookmarked(const struct editor *editor, size_t line);
 void editor_next_bookmark(struct editor *editor, int direction);
 void editor_clear_bookmarks(struct editor *editor);
 void editor_select_bookmarks(struct editor *editor);
@@ -204,8 +203,8 @@ size_t editor_words(const struct editor *editor, const char *prefix, size_t pref
 // Soft wrap: visual rows of a line with editor->wrap_columns columns and the hanging indent.
 size_t editor_wrap_rows(const struct editor *editor, size_t line, size_t *row_starts, size_t capacity);
 size_t editor_row_indent(const struct editor *editor, size_t line); // columns of the indent of wrapped rows
-void editor_visual_position(const struct editor *editor, size_t offset, size_t *row, size_t *x); // row in its line
-// The same with the side of the cursor; in a row with right-to-left text, x is the visual column of the caret.
+// The visual row of `offset` in its line and its column; in a row with right-to-left text, x is the visual column
+// of the caret on the side `sticky`.
 void editor_caret_position(const struct editor *editor, size_t offset, enum sticky sticky, size_t *row, size_t *x);
 bool editor_line_has_rtl(const struct editor *editor, size_t line);
 // The cells of the row [row_start, row_end) of `line` in visual order, from column `indent` on (malloc'd).

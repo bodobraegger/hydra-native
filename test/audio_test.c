@@ -3,8 +3,6 @@
 #include <math.h>
 #include <stdio.h>
 
-#include <SDL3/SDL_loadso.h>
-
 #include "../src/audio_processing.h"
 
 #define TONE_HZ 1000.0f
@@ -31,22 +29,6 @@ static float noise_sample(void) {
 
 static long sample_index;
 
-// The WebRTC audio processing of build/libhydra-webrtc-apm (WEBRTC_APM_FILE, empty when it is not built).
-static struct {
-    void *(*create)(int sample_rate);
-    bool (*process)(void *apm, float *samples, int sample_rate);
-    void (*destroy)(void *apm);
-} webrtc;
-
-static void load_webrtc(void) {
-    SDL_SharedObject *library = WEBRTC_APM_FILE[0] ? SDL_LoadObject(WEBRTC_APM_FILE) : NULL;
-    if (!library) return;
-    webrtc.create = (void *(*)(int))SDL_LoadFunction(library, "webrtc_apm_create");
-    webrtc.process = (bool (*)(void *, float *, int))SDL_LoadFunction(library, "webrtc_apm_process");
-    webrtc.destroy = (void (*)(void *))SDL_LoadFunction(library, "webrtc_apm_destroy");
-    if (!webrtc.process || !webrtc.destroy) webrtc.create = NULL;
-}
-
 // Runs `seconds` of bursts of a tone with RMS level `level_dbfs`; returns the mean magnitude of the tone bin
 // in the last burst and the mean magnitude of the bins above the tone in the last pause.
 static void run(struct audio_processor *processor, float seconds, float level_dbfs, float *tone, float *noise) {
@@ -64,35 +46,6 @@ static void run(struct audio_processor *processor, float seconds, float level_db
             for (int bin = noise_bin; bin < SPECTRUM_SIZE; bin++) *noise += magnitude[bin] / (SPECTRUM_SIZE - noise_bin);
         }
     }
-}
-
-// The WebRTC audio processing: a quiet tone becomes louder.
-static void check_webrtc_processing(void) {
-    if (!webrtc.create) {
-        fprintf(stderr, "no WebRTC library \"%s\", skipped\n", WEBRTC_APM_FILE);
-        return;
-    }
-    void *apm = webrtc.create(AUDIO_SAMPLE_RATE);
-    const int frame = AUDIO_SAMPLE_RATE / 100;
-    float amplitude = sqrtf(2.0f) * powf(10.0f, -46.0f / 20.0f), samples[AUDIO_SAMPLE_RATE / 100];
-    double input = 0, output = 0;
-    long index = 0;
-    for (int f = 0; f < 2000; f++) { // 20 s of speech-like bursts
-        bool on = (f / 50) % 2 == 0;
-        for (int i = 0; i < frame; i++, index++)
-            samples[i] = noise_sample() + (on ? amplitude * sinf(2.0f * (float)M_PI * 440.0f * (float)index / AUDIO_SAMPLE_RATE) : 0);
-        double before = 0;
-        for (int i = 0; i < frame; i++) before += samples[i] * samples[i];
-        EXPECT(webrtc.process(apm, samples, AUDIO_SAMPLE_RATE), "ProcessStream failed");
-        if (f >= 1800 && on) {
-            input += before;
-            for (int i = 0; i < frame; i++) output += samples[i] * samples[i];
-        }
-    }
-    webrtc.destroy(apm);
-    double gain_db = 10 * log10(output / input);
-    fprintf(stderr, "WebRTC processing: gain %.1f dB on a -46 dBFS tone after 18 s\n", gain_db);
-    EXPECT(gain_db > 6, "the AGC2 of the library gives %.1f dB", gain_db);
 }
 
 int main(void) {
@@ -122,8 +75,6 @@ int main(void) {
                     (sqrtf(2.0f) * powf(10.0f, -10.0f / 20.0f));
     EXPECT(tone <= limited * 1.05f, "tone %.1f, limit %.1f", tone, limited);
 
-    load_webrtc();
-    check_webrtc_processing();
     if (failures) {
         fprintf(stderr, "audio_test: %d failures\n", failures);
         return 1;

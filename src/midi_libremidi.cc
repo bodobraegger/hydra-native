@@ -91,7 +91,6 @@ void open_input(const libremidi::input_port &info) {
     fprintf(stderr, "midi: cannot open the input %s\n", info.display_name.c_str());
 }
 
-// Opens the new inputs and marks the ports that went away.
 void update_ports() {
     auto current_inputs = observer->get_input_ports();
     for (auto &slot : inputs) {
