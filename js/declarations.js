@@ -7,6 +7,11 @@ import { endsExpression, tokenize } from './tokenize.js'
 const OPENING = new Set(['(', '[', '{'])
 const CLOSING = new Set([')', ']', '}'])
 const DESTRUCTURING = new Set(['[', '{']) // let [a, b] = ..., let { a } = ...
+const OPERATOR_NAMES = new Set(['in', 'instanceof']) // let in object: the variable let
+
+// The token after let in a declaration: a name or a destructuring pattern.
+const startsBinding = (token) => token &&
+  ((token.kind === 'name' && !OPERATOR_NAMES.has(token.text)) || DESTRUCTURING.has(token.text))
 
 // At the start of the code, after a ";" or a block, or on a new line after an expression (automatic semicolon
 // insertion): after an operator or an open bracket, the next line continues the expression.
@@ -25,7 +30,7 @@ export function rewriteDeclarations (code) {
     if (depth === 0 && token.kind === 'name' && startsStatement(code, tokens[index - 1], token)) {
       const replace = (text) => changes.push({ start: token.start, end: token.end, text })
       if (token.text === 'const') replace('var  ')
-      else if (token.text === 'let' && next && (next.kind === 'name' || DESTRUCTURING.has(next.text))) replace('var')
+      else if (token.text === 'let' && startsBinding(next)) replace('var')
       else if (token.text === 'class' && next && next.kind === 'name') {
         replace(`var ${next.text} = class`)
         classPending = true

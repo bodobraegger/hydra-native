@@ -26,6 +26,7 @@ const untouched = [
   '// const a = 1\n/* let b = 2 */ x = 1',
   "x = 'const a = 1'; y = /const/.test('let')",
   'let = 5; x = let',
+  'let in object',
   'x =\nclass Foo {}',
   'x = 5 -\nlet [0]',
 ]
