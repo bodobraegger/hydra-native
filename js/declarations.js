@@ -2,16 +2,17 @@
 // of the same name throws a redeclaration error there. rewriteDeclarations turns them into var, which can be
 // declared again: `const` becomes `var  ` and `let` becomes `var`, so that the columns stay, and `class Name {}`
 // becomes `var Name = class Name {};`. No line is added or removed, so the line numbers of errors stay.
-import { tokenize } from './tokenize.js'
+import { endsExpression, tokenize } from './tokenize.js'
 
 const OPENING = new Set(['(', '[', '{'])
 const CLOSING = new Set([')', ']', '}'])
 const DESTRUCTURING = new Set(['[', '{']) // let [a, b] = ..., let { a } = ...
 
-// At the start of the code, after a ";" or a block, or on a new line (automatic semicolon insertion).
+// At the start of the code, after a ";" or a block, or on a new line after an expression (automatic semicolon
+// insertion): after an operator or an open bracket, the next line continues the expression.
 const startsStatement = (code, before, token) => !before ||
   (before.kind === 'punct' && (before.text === ';' || before.text === '}')) ||
-  code.slice(before.end, token.start).includes('\n')
+  (endsExpression(before) && code.slice(before.end, token.start).includes('\n'))
 
 export function rewriteDeclarations (code) {
   const changes = []

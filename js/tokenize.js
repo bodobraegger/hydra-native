@@ -11,12 +11,12 @@ const NAME = /[A-Za-z_$\u00a0-\uffff][\w$\u00a0-\uffff]*/y
 
 // Whether `token` can be the last token of an expression, so that a "/" after it divides. A "}" ends an object
 // literal there, and a block is followed by a new statement.
-const endsExpression = (token) => Boolean(token) && (token.kind === 'number' || token.kind === 'string' ||
-  (token.kind === 'name' && !EXPRESSION_KEYWORDS.has(token.text)) || [')', ']'].includes(token.text) ||
+export const endsExpression = (token) => Boolean(token) && (token.kind === 'number' || token.kind === 'string' ||
+  (token.kind === 'name' && !EXPRESSION_KEYWORDS.has(token.text)) || [')', ']', '++', '--'].includes(token.text) ||
   (token.text === '}' && !token.block))
 
-// The tokens of `text`: numbers, names and single punctuation characters, with their offsets. Strings, template
-// literals and regular expressions are "string" tokens; comments are skipped. A "}" of a block has `block`.
+// The tokens of `text`: numbers, names, "++", "--" and single punctuation characters, with their offsets. Strings,
+// template literals and regular expressions are "string" tokens; comments are skipped. A "}" of a block has `block`.
 export function tokenize (text) {
   const tokens = []
   const templateDepths = [] // the brace depth of each open ${ in a template literal
@@ -86,7 +86,7 @@ export function tokenize (text) {
         blocks.push(block)
       }
       if (c === '}') depth--
-      i++
+      i += (c === '+' || c === '-') && text[i + 1] === c ? 2 : 1
       add('punct', start)
       if (c === '}' && block) last().block = true
     }

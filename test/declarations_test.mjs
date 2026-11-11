@@ -26,12 +26,15 @@ const untouched = [
   '// const a = 1\n/* let b = 2 */ x = 1',
   "x = 'const a = 1'; y = /const/.test('let')",
   'let = 5; x = let',
+  'x =\nclass Foo {}',
+  'x = 5 -\nlet [0]',
 ]
 for (const code of untouched) assert.equal(rewriteDeclarations(code), code, code)
 // A ${ } of a template literal is no statement start, and the code after the template counts again.
 assert.equal(rewriteDeclarations('x = `${(() => { const a = 1; return a })()}`\nconst b = 2'),
   'x = `${(() => { const a = 1; return a })()}`\nvar   b = 2')
 
+assert.equal(rewriteDeclarations('x++\nconst y = 1'), 'x++\nvar   y = 1')
 // A "/" after a block starts a regular expression, after an object literal it divides.
 assert.equal(rewriteDeclarations("if (x) { y() }\n/'/.test(s); const c = 2"),
   "if (x) { y() }\n/'/.test(s); var   c = 2")
