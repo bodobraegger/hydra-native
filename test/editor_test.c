@@ -634,6 +634,79 @@ static void test_sublime_commands(void) {
     editor_free(&editor);
 }
 
+// Random editing with a fixed seed: after each step the selections stay inside the text, the line table matches
+// the text, and an undo followed by a redo gives the same text. The sanitizers of the unit tests check the rest.
+#define RANDOM_STEPS 100000
+#define RANDOM_RESTART 5000 // steps until a new empty text
+#define RANDOM_MAX_LENGTH 1500
+
+static void up(struct editor *e) { editor_move_lines(e, -1); }
+static void down(struct editor *e) { editor_move_lines(e, 1); }
+static void cursor_below(struct editor *e) { editor_add_cursor_vertical(e, 1); }
+static void word_back(struct editor *e) { editor_delete_word(e, -1); }
+static void line_end(struct editor *e) { editor_delete_line_part(e, 1); }
+static void sort(struct editor *e) { editor_sort_lines(e, false, true); }
+static void upper(struct editor *e) { editor_change_case(e, true); }
+static void outdent(struct editor *e) { editor_indent(e, true); }
+static void wrap_text(struct editor *e) { editor_hard_wrap(e, 20); }
+static void find_next(struct editor *e) { editor_find_under(e, 1); }
+static void undo(struct editor *e) { editor_undo(e); }
+static void redo(struct editor *e) { editor_redo(e); }
+
+static void test_random_edits(void) {
+    static void (*const commands[])(struct editor *) = {
+        editor_insert_newline, editor_backspace, editor_delete_forward, editor_delete_selection, editor_transpose,
+        editor_toggle_comment, editor_format, editor_duplicate_lines, editor_delete_lines, editor_join_lines,
+        editor_select_lines, editor_split_selection_by_line, editor_go_to_bracket, editor_select_between_brackets,
+        editor_select_next_occurrence, editor_select_all_under, editor_select_scope, editor_collapse,
+        editor_collapse_to_first, editor_select_all, editor_set_mark, editor_select_to_mark, editor_delete_to_mark,
+        editor_swap_with_mark, editor_yank, editor_skip_and_select_next, editor_toggle_bookmark,
+        editor_select_bookmarks, up, down, cursor_below, word_back, line_end, sort, upper, outdent, wrap_text,
+        find_next, undo, redo,
+    };
+    static const char *const pieces[] = { "osc(", ")", "\n", "\t", "  ", "'", "\"", "{", "}", "[", "a", "B_c", ".",
+                                          "\xC3\xA9", "e\xCC\x81", "\xE6\x97\xA5", "\xF0\x9F\x91\x8D\xF0\x9F\x8F\xBD",
+                                          "\xD7\xA9\xD7\x9C", "\xFF", "\xC3", "\xE6\x97", "\r\n", "// ", "=> " };
+    enum { COMMAND_COUNT = sizeof commands / sizeof commands[0], PIECE_COUNT = sizeof pieces / sizeof pieces[0] };
+    _Static_assert(COMMAND_COUNT < 100, "the command share of the choices");
+    struct editor editor;
+    editor_init(&editor);
+    unsigned seed = 1;
+    for (int step = 0; step < RANDOM_STEPS && !failures; step++) {
+        if (step % RANDOM_RESTART == 0) editor_set_text(&editor, "", 0);
+        unsigned choice = (unsigned)rand_r(&seed) % 200; // most steps add text, so that the text grows
+        const char *piece = pieces[(unsigned)rand_r(&seed) % PIECE_COUNT];
+        size_t line = (size_t)rand_r(&seed) % editor.line_count, column = (size_t)rand_r(&seed) % 30;
+        if (choice < COMMAND_COUNT) commands[choice](&editor);
+        else if (choice < 100) editor_type(&editor, piece, strlen(piece));
+        else if (choice < 130) editor_insert(&editor, piece, strlen(piece), EDIT_OTHER);
+        else if (choice < 160) editor_move(&editor, (enum motion)(column % 12), step % 3 == 0);
+        else if (choice < 170) editor_move_vertical(&editor, (long)column - 15, step % 2);
+        else if (choice < 180) editor_set_cursor(&editor, editor_offset_at(&editor, line, column), step % 2);
+        else if (choice < 188) editor_add_cursor(&editor, editor_offset_at(&editor, line, column));
+        else if (choice < 192) editor_column_select(&editor, line, column, line + 3, column / 2);
+        else if (choice < 196) editor.wrap_columns = column < 4 ? 0 : column;
+        else if (choice == 196) editor_replace_all(&editor, piece, strlen(piece), "x", 1, true);
+        else editor_find(&editor, piece, strlen(piece), true, step % 2 ? 1 : -1);
+        if (editor.length > RANDOM_MAX_LENGTH) editor_replace_text(&editor, "osc()", 5);
+
+        struct selection *list;
+        size_t count = editor_selections(&editor, &list), newlines = 0, column_now, row_now;
+        for (size_t i = 0; i < count; i++) EXPECT(list[i].cursor <= editor.length && list[i].anchor <= editor.length);
+        free(list);
+        EXPECT(editor.text[editor.length] == '\0' && editor.line_starts[0] == 0);
+        for (size_t i = 0; i < editor.length; i++) newlines += editor.text[i] == '\n';
+        EXPECT(editor.line_count == newlines + 1);
+        for (size_t i = 1; i < editor.line_count; i++) EXPECT(editor.text[editor.line_starts[i] - 1] == '\n');
+        editor_caret_position(&editor, editor.cursor, editor.sticky, &row_now, &column_now);
+        char *before = strdup(editor.text);
+        if (editor_undo(&editor) && editor_redo(&editor)) EXPECT(!strcmp(before, editor.text));
+        free(before);
+        if (failures) fprintf(stderr, "random edits: step %d, choice %u, piece \"%s\"\n", step, choice, piece);
+    }
+    editor_free(&editor);
+}
+
 int main(void) {
     test_typing_and_undo();
     test_utf8_and_motion();
@@ -650,6 +723,7 @@ int main(void) {
     test_clusters();
     test_enter_indentation();
     test_visual_motion();
+    test_random_edits();
     if (failures) {
         fprintf(stderr, "editor_test: %d failures\n", failures);
         return 1;
