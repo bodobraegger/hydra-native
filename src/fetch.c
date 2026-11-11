@@ -14,6 +14,7 @@
 #define MAX_FETCHES 64
 #define FETCH_TIMEOUT_SECONDS "30"
 #define MAX_REQUEST_HEADERS 64
+#define MAX_RESPONSE_BYTES ((size_t)1 << 30) // a larger response fails, so that a download cannot use all memory
 
 struct fetch {
     SDL_Process *process;
@@ -115,21 +116,29 @@ void fetch_poll(void (*done)(int id, bool ok, const char *data, size_t length)) 
         struct fetch *fetch = fetches[id];
         if (!fetch) continue;
         for (;;) {
+            bool too_large = false;
             if (fetch->length + 65536 > fetch->capacity) {
-                fetch->capacity = fetch->capacity ? fetch->capacity * 2 : 65536 * 2;
-                fetch->data = realloc(fetch->data, fetch->capacity);
+                size_t capacity = fetch->capacity ? fetch->capacity * 2 : 65536 * 2;
+                char *data = capacity <= MAX_RESPONSE_BYTES ? realloc(fetch->data, capacity) : NULL;
+                too_large = !data;
+                if (data) {
+                    fetch->data = data;
+                    fetch->capacity = capacity;
+                }
             }
-            size_t count = SDL_ReadIO(fetch->output, fetch->data + fetch->length, fetch->capacity - fetch->length - 1);
+            size_t count = too_large ? 0 : SDL_ReadIO(fetch->output, fetch->data + fetch->length,
+                                                      fetch->capacity - fetch->length - 1);
             if (count > 0) {
                 fetch->length += count;
                 continue;
             }
-            if (SDL_GetIOStatus(fetch->output) == SDL_IO_STATUS_NOT_READY) break;
+            if (too_large) SDL_KillProcess(fetch->process, true);
+            else if (SDL_GetIOStatus(fetch->output) == SDL_IO_STATUS_NOT_READY) break;
             int status = -1;
             SDL_WaitProcess(fetch->process, true, &status);
             SDL_DestroyProcess(fetch->process);
-            fetch->data[fetch->length] = '\0';
-            done(id, status == 0, fetch->data, fetch->length);
+            if (fetch->data) fetch->data[fetch->length] = '\0';
+            done(id, status == 0 && !too_large, fetch->data ? fetch->data : "", fetch->length);
             free(fetch->data);
             free(fetch);
             fetches[id] = NULL;
