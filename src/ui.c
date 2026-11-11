@@ -444,7 +444,9 @@ static char *read_whole_file(const char *path, size_t *length) {
     size_t capacity = 65536, used = 0, count;
     char *text = malloc(capacity);
     while ((count = fread(text + used, 1, capacity - used, file)) > 0) {
-        used += count;
+        // The editor and the host functions take the code as a C string, so a NUL byte of a file does not enter.
+        for (size_t i = used, end = used + count; i < end; i++)
+            if (text[i]) text[used++] = text[i];
         if (used == capacity) text = realloc(text, capacity *= 2);
     }
     fclose(file);
@@ -1281,8 +1283,31 @@ static bool is_completion_command(enum command command) {
            command == COMMAND_COMPLETION_ACCEPT;
 }
 
+// The command palette reaches every command, and the keys of the prompt context apply to all prompts. A command
+// of a context does nothing where it has no meaning (the list is closed, the prompt is not "replace").
+static bool command_applies(enum command command) {
+    switch (command) {
+    case COMMAND_COMPLETION_NEXT:
+    case COMMAND_COMPLETION_PREVIOUS:
+    case COMMAND_COMPLETION_ACCEPT: return completion.open;
+    case COMMAND_SNIPPET_NEXT:
+    case COMMAND_SNIPPET_PREVIOUS:
+    case COMMAND_SNIPPET_END: return snippet.active;
+    case COMMAND_NUMBER_ACCEPT:
+    case COMMAND_NUMBER_CANCEL:
+    case COMMAND_NUMBER_UP:
+    case COMMAND_NUMBER_DOWN:
+    case COMMAND_NUMBER_UP_LARGE:
+    case COMMAND_NUMBER_DOWN_LARGE:
+    case COMMAND_NUMBER_BACKSPACE: return number_field.open;
+    case COMMAND_REPLACE_ALL: return prompt.kind == PROMPT_REPLACE;
+    default: return true;
+    }
+}
+
 // Open suggestions follow Backspace and close for any other command, as in VS Code.
 static void run_command(enum command command, bool extend) {
+    if (!command_applies(command)) return;
     bool was_open = completion.open;
     size_t old_length = editor.length;
     unsigned generation = snippet.generation;
@@ -1529,6 +1554,10 @@ bool ui_key(const SDL_KeyboardEvent *event) {
     chord_prefix = 0;
     const struct key_binding *binding =
         keymap_lookup(key, (SDL_Keymod)event->mod, visible ? key_context() : CONTEXT_ANY, prefix, &extend);
+    // The key of a command that does not apply here keeps its meaning outside of the context (Ctrl+Alt+Enter
+    // evaluates all in the find prompt).
+    if (binding && !command_applies(binding->command))
+        binding = keymap_lookup(key, (SDL_Keymod)event->mod, CONTEXT_ANY, prefix, &extend);
     if (prefix && !binding) {
         ui_show_message("no command for this key after Ctrl+K", false);
         suppress_text = true;

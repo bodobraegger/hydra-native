@@ -770,6 +770,21 @@ int main(void) {
     key(SDLK_RETURN, 0);
     key(SDLK_RETURN, SDL_KMOD_LCTRL);
     EXPECT_STRING(evaluated, "shape(2).out()");
+    // Ctrl+Alt+Enter replaces all only in the replace prompt; in another prompt it evaluates all, and the code stays.
+    key(SDLK_G, SDL_KMOD_LCTRL);
+    type("2");
+    key(SDLK_RETURN, SDL_KMOD_LCTRL | SDL_KMOD_LALT);
+    key(SDLK_ESCAPE, 0);
+    EXPECT_STRING(ui_code(), "shape(1).out()\nshape(2).out()\nnoise().out()");
+    EXPECT_STRING(evaluated, "shape(1).out()\nshape(2).out()\nnoise().out()");
+    // The palette reaches the commands of the autocomplete list; without a list they do nothing.
+    key(SDLK_P, SDL_KMOD_LCTRL | SDL_KMOD_LSHIFT);
+    type("next completion");
+    key(SDLK_RETURN, 0);
+    key(SDLK_P, SDL_KMOD_LCTRL | SDL_KMOD_LSHIFT);
+    type("insert the completion");
+    key(SDLK_RETURN, 0);
+    EXPECT_STRING(ui_code(), "shape(1).out()\nshape(2).out()\nnoise().out()");
     key(SDLK_F, SDL_KMOD_LCTRL);
     type("noise");
     key(SDLK_RETURN, 0);
