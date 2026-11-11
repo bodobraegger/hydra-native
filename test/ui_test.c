@@ -653,6 +653,44 @@ static void test_signatures(void) {
 
 #define LONG_SERVER "http://127.0.0.1:9/a-long-path-of-a-custom-server"
 
+// Random text with a fixed seed for the two parsers of outside input: a settings file and the code around the
+// cursor. They must not read or write outside their buffers (the sanitizers check that) and must keep their limits.
+#define RANDOM_INPUTS 3000
+
+static void test_random_input(const char *settings_file) {
+    static const char *const json[] = { "{", "}", "[", "]", ":", ",", "\"", "\\", "theme", "themes", "keybindings",
+                                        "fontSize", "audioGain", "autocompleteOpacity", "base", "#ff00", "-1", "1e99",
+                                        "true", "null", "\xFF", " ", "Ctrl+", "\n", "join_lines", "\"a\":\"b\"" };
+    static const char *const code[] = { "osc(", "noise(", ")", ",", ".", "'", "\"", "`", "${", "}", "[", "]", " ",
+                                        "\\", "=>", "//", "/*", "\n", "wobble", "1", "\xE6\x97\xA5" };
+    struct signature list[8];
+    size_t count = signatures_parse(SIGNATURES, list, 8);
+    unsigned seed = 1;
+    for (int i = 0; i < RANDOM_INPUTS; i++) {
+        char text[512] = "";
+        const char *const *pieces = i % 2 ? json : code;
+        unsigned piece_count = i % 2 ? sizeof json / sizeof json[0] : sizeof code / sizeof code[0];
+        for (int k = (int)((unsigned)rand_r(&seed) % 40); k > 0 && strlen(text) < sizeof text - 32; k--)
+            strcat(text, pieces[(unsigned)rand_r(&seed) % piece_count]);
+        if (i % 2) {
+            struct settings loaded;
+            char error[SETTINGS_TEXT];
+            write_file(settings_file, text);
+            settings_defaults(&loaded);
+            settings_load(&loaded, settings_file, error, sizeof error);
+            EXPECT(loaded.theme_count <= MAX_CUSTOM_THEMES && loaded.keybinding_count <= MAX_KEYBINDINGS);
+            EXPECT(loaded.completion_opacity >= 0 && loaded.completion_opacity <= 100);
+            EXPECT(loaded.audio_gain >= 0 && loaded.audio_gain <= SETTINGS_MAX_AUDIO_GAIN);
+        } else {
+            struct call_context call;
+            const struct signature *found = NULL;
+            size_t offset = (unsigned)rand_r(&seed) % (strlen(text) + 1);
+            if (signature_call_at(text, offset, list, count, &call, &found))
+                EXPECT(found && call.name_start <= offset);
+        }
+    }
+}
+
 int main(void) {
     // The dummy video driver gives SDL a clipboard without a window.
     SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "dummy");
@@ -1032,6 +1070,7 @@ int main(void) {
     test_number_fields(settings_file);
     test_settings_rows(settings_file);
     test_files(settings_file);
+    test_random_input(settings_file);
 
     unlink(settings_file);
     *strrchr(settings_file, '/') = '\0';
