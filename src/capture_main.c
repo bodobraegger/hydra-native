@@ -44,6 +44,7 @@ int main(int argc, char **argv) {
     } else if (!strcmp(mode, "window")) {
         request.source = CAPTURE_WINDOW;
         request.delay_seconds = atof(argv[2]);
+        if (!(request.delay_seconds > 0)) request.delay_seconds = 0; // also for a negative delay and NaN
     } else {
         request.source = CAPTURE_AREA;
         request.x = atoi(argv[2]);
