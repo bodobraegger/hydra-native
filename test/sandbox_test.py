@@ -35,6 +35,9 @@ SHARED = """
   await attempt('fetch file URL', () => fetch('file://SECRET').then((response) => response.text()))
   await attempt('initVideo file', () => s1.initVideo('SECRET'))
   await attempt('initImage file URL', () => s2.initImage('file://SECRET'))
+  await attempt('initMonitor', () => s3.initMonitor(0))
+  await attempt('vidRecorder', () => vidRecorder.start())
+  await attempt('screencap', () => screencap())
   await loadScript('LOCAL_SCRIPT')
   results['loadScript path'] = globalThis.localScriptRuns === 1 ? 'blocked' : 'escaped'
   const test = RegExp.prototype.test

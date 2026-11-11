@@ -243,6 +243,8 @@ static JSValue js_capture_open(JSContext *ctx, JSValueConst this, int argc, JSVa
     JSValue result;
     if (status == COMMAND_INVALID) {
         result = JS_ThrowTypeError(ctx, "unknown capture %s", mode);
+    } else if (status == COMMAND_SANDBOXED) {
+        result = JS_ThrowTypeError(ctx, "capture without the picker is off: " SANDBOX_REASON);
     } else {
         int handle = status == COMMAND_OK ? video_open(command, numbers[count - 2], numbers[count - 1]) : -1;
         result = video_handle(ctx, handle, "cannot start the screen capture");
@@ -633,7 +635,9 @@ static JSValue js_exit(JSContext *ctx, JSValueConst this, int argc, JSValueConst
     return JS_UNDEFINED;
 }
 
+// screencap() and vidRecorder write files, so shared code cannot call them; the screenshot key still works.
 static JSValue js_screencap(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    if (sandbox_active()) return JS_ThrowTypeError(ctx, "screencap() is off: " SANDBOX_REASON);
     snapshot_request_screencap();
     return JS_UNDEFINED;
 }
@@ -641,6 +645,7 @@ static JSValue js_screencap(JSContext *ctx, JSValueConst this, int argc, JSValue
 static char recording_path[PATH_MAX + 80];
 
 static JSValue js_record_start(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    if (sandbox_active()) return JS_ThrowTypeError(ctx, "vidRecorder is off: " SANDBOX_REASON);
     char base[PATH_MAX + 64];
     snapshot_download_base(base, sizeof base);
     snprintf(recording_path, sizeof recording_path, "%s.webm", base);

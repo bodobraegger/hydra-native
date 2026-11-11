@@ -89,6 +89,8 @@ enum command_status sandbox_capture_command(char *command, size_t size, const ch
     bool known = false;
     for (size_t i = 0; i < sizeof modes / sizeof modes[0]; i++) known = known || !strcmp(mode, modes[i]);
     if (!known) return COMMAND_INVALID;
+    // Only the picker asks the user; the other modes would record the screen for shared code without a dialog.
+    if (sandboxed && strcmp(mode, "picker") != 0) return COMMAND_SANDBOXED;
     char program[PATH_MAX + 32];
 #if defined(_WIN32)
     snprintf(program, sizeof program, "%s\\hydra-native-capture.exe", program_directory);
