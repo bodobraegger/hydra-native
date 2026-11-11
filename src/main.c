@@ -410,7 +410,6 @@ int main(int argc, char **argv) {
     JS_SetPropertyStr(js, native, "platform", JS_NewString(js, SDL_GetPlatform())); // Linux, macOS, Windows
     JS_SetPropertyStr(js, native, "shaderCompile", JS_NewString(js, programs_method()));
     JS_SetPropertyStr(js, native, "language", settings.language[0] ? JS_NewString(js, settings.language) : JS_NULL);
-    JS_SetPropertyStr(js, native, "galleryServer", share_server()[0] ? JS_NewString(js, share_server()) : JS_NULL);
     JS_SetPropertyStr(js, native, "l10nUrl", settings.l10n_url[0] ? JS_NewString(js, settings.l10n_url) : JS_NULL);
     JS_SetPropertyStr(js, global, "native", native);
     JS_FreeValue(js, global);
@@ -457,6 +456,7 @@ int main(int argc, char **argv) {
         .set_audio = audio_set_device,
         .set_audio_gain = audio_set_gain,
         .choose_file = choose_file,
+        .set_server = share_set_server,
     };
     char emoji_font[PATH_MAX + 64];
     snprintf(emoji_font, sizeof emoji_font, "%s/../vendor/fonts/NotoEmoji.ttf", directory);

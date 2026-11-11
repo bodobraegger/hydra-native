@@ -31,6 +31,8 @@ struct ui_host {
     // Shows the open dialog (`save` false) or the save dialog for a .js file; the chosen path comes later through
     // ui_open_file() or ui_save_as(), on the main thread.
     void (*choose_file)(bool save);
+    // The gallery and patch bay server ("" is off). Only this call sets it, so that code of a sketch cannot.
+    void (*set_server)(const char *url);
 };
 
 // The settings of this run, with the changes of the settings menu (main.c reads "watch" from it).

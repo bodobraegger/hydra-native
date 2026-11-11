@@ -98,7 +98,7 @@ const DEFAULT_GALLERY_SERVER = 'https://api.hydrasynth.xyz'
 
 // GET <server>/sketchById?sketch_id=<id> answers a JSON list of sketches, as in gallery.js.
 function sketchFromServer (sketchId) {
-  const server = native.galleryServer || DEFAULT_GALLERY_SERVER
+  const server = native.galleryServer() || DEFAULT_GALLERY_SERVER
   try {
     const sketches = JSON.parse(native.fetchSync(`${server}/sketchById?sketch_id=${encodeURIComponent(sketchId)}`))
     return sketches.length > 0 ? sketches[0] : null

@@ -14,7 +14,7 @@
 static int failures;
 static char evaluated[4096];
 static char next_error[256];
-static char patch_bay_server[256]; // the argument of the last __setPatchBayServer
+static char patch_bay_server[256]; // of the last set_server call of the host
 static char drawn[16384]; // all texts of the last frame, one per line
 static char language_now[16]; // the argument of the last __setLanguage
 static float copy_x, copy_y; // where the "copy" button of the settings panel shows its text
@@ -130,10 +130,7 @@ static char *call(const char *function, const char *argument) {
         return strdup(argument);
     }
     if (!strcmp(function, "__urlForCode")) return strdup("https://hydra.ojack.xyz/?code=x");
-    if (!strcmp(function, "__setPatchBayServer")) {
-        snprintf(patch_bay_server, sizeof patch_bay_server, "%s", argument);
-        return strdup("");
-    }
+    if (!strcmp(function, "__setPatchBayServer")) return strdup("");
     if (!strcmp(function, "__patchBayStreamId")) return strdup(patch_bay_server[0] ? STREAM_ID : "");
     char *text = strdup(argument);
     for (char *c = text; *c; c++) *c = (char)toupper((unsigned char)*c);
@@ -160,6 +157,8 @@ static void toggle_fullscreen(void) { fullscreen_now = !fullscreen_now; }
 static bool is_fullscreen(void) { return fullscreen_now; }
 static void set_vsync(bool vsync) { vsync_now = vsync; }
 static void set_audio_gain(int percent) { audio_gain_now = percent; }
+static void set_server(const char *url) { snprintf(patch_bay_server, sizeof patch_bay_server, "%s", url); }
+
 // The file dialogs answer at once with chosen_path; ui_test opens no real dialog.
 static void choose_file(bool save) {
     dialogs++;
@@ -432,7 +431,8 @@ static void test_files(const char *settings_file) {
     struct settings defaults;
     settings_defaults(&defaults);
     static const struct ui_host host = { evaluate, toggle_fullscreen, is_fullscreen, nothing, call, nothing, share,
-                                         set_title, set_vsync, audio_devices, set_audio, set_audio_gain, choose_file };
+                                         set_title, set_vsync, audio_devices, set_audio, set_audio_gain, choose_file,
+                                         set_server };
     ui_init(&defaults, settings_file, NULL, NULL, &host);
     EXPECT(ui_file_path() == NULL);
     key(SDLK_COMMA, SDL_KMOD_LCTRL);
@@ -678,7 +678,8 @@ int main(void) {
     EXPECT(loaded.theme_count == 1 && !strcmp(loaded.themes[0].base, "solarized") && loaded.keybinding_count == 1);
     snprintf(loaded.theme, sizeof loaded.theme, "contrast");
     static const struct ui_host host = { evaluate, toggle_fullscreen, is_fullscreen, nothing, call, nothing, share,
-                                         set_title, set_vsync, audio_devices, set_audio, set_audio_gain, choose_file };
+                                         set_title, set_vsync, audio_devices, set_audio, set_audio_gain, choose_file,
+                                         set_server };
     ui_init(&loaded, settings_file, NULL, path, &host);
     ui_draw(800, 600, 0);
 

@@ -977,7 +977,8 @@ static void accept_prompt(int direction) {
 static void set_server(const char *url) {
     snprintf(settings.gallery_server, sizeof settings.gallery_server, "%s", url);
     save_settings();
-    free(host.call("__setPatchBayServer", url));
+    host.set_server(url);
+    free(host.call("__setPatchBayServer", ""));
     gallery_enabled = url[0] != '\0';
     char text[SETTINGS_TEXT + 64];
     if (url[0]) snprintf(text, sizeof text, "gallery and patch bay: %s", url);

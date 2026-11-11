@@ -14,9 +14,9 @@ export class PatchBay extends EventEmitter {
   }
 
   // pb.init(stream, { server, room }): the stream is always the output of hydra-native.
-  init (stream, { server, room = WEB_EDITOR_ROOM } = {}) {
-    if (!native.patchBayStart(server, room)) console.warn('pb: cannot start node tools/patch-bay.mjs')
-    this.settings = { server, room }
+  init (stream, { room = WEB_EDITOR_ROOM } = {}) {
+    if (!native.patchBayStart(room)) console.warn('pb: cannot start node tools/patch-bay.mjs')
+    this.settings = { server: native.galleryServer(), room }
     window.pb = this
   }
 

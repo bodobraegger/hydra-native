@@ -392,11 +392,10 @@ static JSValue js_http_request(JSContext *ctx, JSValueConst this, int argc, JSVa
 // ---------------------------------------------------------------- webRTC patch bay (tools/patch-bay.mjs)
 
 static JSValue js_patch_bay_start(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
-    const char *server = JS_ToCString(ctx, argv[0]), *room = JS_ToCString(ctx, argv[1]);
+    const char *room = JS_ToCString(ctx, argv[0]);
     char script[PATH_MAX + 64];
     snprintf(script, sizeof script, "%s/../tools/patch-bay.mjs", executable_path_directory);
-    bool ok = server && room && patch_bay_start(script, server, room);
-    JS_FreeCString(ctx, server);
+    bool ok = room && share_server()[0] && patch_bay_start(script, share_server(), room);
     JS_FreeCString(ctx, room);
     return JS_NewBool(ctx, ok);
 }
@@ -406,12 +405,10 @@ static JSValue js_patch_bay_stop(JSContext *ctx, JSValueConst this, int argc, JS
     return JS_UNDEFINED;
 }
 
-// setGalleryServer(url or null): the server of sharing and of the patch bay changes while the program runs.
-static JSValue js_set_gallery_server(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
-    const char *url = JS_IsString(argv[0]) ? JS_ToCString(ctx, argv[0]) : NULL;
-    share_set_server(url ? url : "");
-    JS_FreeCString(ctx, url);
-    return JS_UNDEFINED;
+// galleryServer(): the server of the settings, or null. Only the settings menu changes it (src/ui.h, set_server),
+// so that a sketch cannot send the output or a shared sketch to a server of its choice.
+static JSValue js_gallery_server(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    return share_server()[0] ? JS_NewString(ctx, share_server()) : JS_NULL;
 }
 
 static JSValue js_patch_bay_send(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
@@ -697,10 +694,10 @@ static const JSCFunctionListEntry native_functions[] = {
     JS_CFUNC_DEF("audioFeatures", 0, js_audio_features),
     JS_CFUNC_DEF("fetchStart", 1, js_fetch_start),
     JS_CFUNC_DEF("shareDone", 2, js_share_done),
-    JS_CFUNC_DEF("patchBayStart", 2, js_patch_bay_start),
+    JS_CFUNC_DEF("patchBayStart", 1, js_patch_bay_start),
     JS_CFUNC_DEF("patchBaySend", 1, js_patch_bay_send),
     JS_CFUNC_DEF("patchBayStop", 0, js_patch_bay_stop),
-    JS_CFUNC_DEF("setGalleryServer", 1, js_set_gallery_server),
+    JS_CFUNC_DEF("galleryServer", 0, js_gallery_server),
     JS_CFUNC_DEF("patchBayPublish", 1, js_patch_bay_publish),
     JS_CFUNC_DEF("patchBayVideo", 3, js_patch_bay_video),
     JS_CFUNC_DEF("httpRequest", 4, js_http_request),

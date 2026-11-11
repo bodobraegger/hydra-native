@@ -22,20 +22,19 @@ endCanvasRecording()
 // and hydra-synth uses it for initStream; without one, pb is undefined. The settings menu changes the server
 // while the program runs (src/ui.c, set_server).
 let patchBay = null
-window.__setPatchBayServer = (server) => {
+window.__setPatchBayServer = () => {
+  const server = native.galleryServer()
   if (patchBay) patchBay.close()
   patchBay = server ? new PatchBay() : null
-  if (patchBay) patchBay.init(null, { server })
+  if (patchBay) patchBay.init()
   else delete window.pb
   hydra.pb = patchBay
   for (const source of hydra.s) source.pb = patchBay
-  native.setGalleryServer(server || null)
-  native.galleryServer = server || null
   return ''
 }
 // The stream id for the settings panel and Ctrl+Alt+I; others connect with s0.initStream('<stream id>').
 window.__patchBayStreamId = () => patchBay && patchBay.streamId ? patchBay.streamId : ''
-if (native.galleryServer) window.__setPatchBayServer(native.galleryServer)
+window.__setPatchBayServer()
 // hydra-editor exposes the renderer as hydraSynth; the hydra-extensions look for it there.
 window.hydraSynth = hydra
 installSources(hydra.s[0].constructor.prototype)
