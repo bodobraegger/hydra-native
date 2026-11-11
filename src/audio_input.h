@@ -26,6 +26,7 @@ bool audio_input_init(void);
 // Opens `device`: an empty name for the default input. `program_directory` holds hydra-native-capture. Writes the
 // reason of an error to stderr.
 bool audio_input_open(const char *device, const char *program_directory);
-// Waits for the next frame; false when the device fails, with a message on stderr.
+// Waits for the next frame, but not without an end: a device that sends nothing may give a silent frame after a
+// short time, so that the thread sees a change of the device. False when the device fails, with a message on stderr.
 bool audio_input_read(float frame[AUDIO_FRAME_SIZE]);
 void audio_input_close(void);
