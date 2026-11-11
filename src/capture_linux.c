@@ -3,13 +3,13 @@
 // long as the D-Bus connection of this process. gst-launch-1.0 reads the PipeWire stream and writes the frames.
 #define _GNU_SOURCE
 #include "capture.h"
-#include "process.h"
 
 #include <fcntl.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include <gio/gio.h>
@@ -34,12 +34,11 @@
 #define PORTAL_RESPONSE_SUCCESS 0u
 #define PORTAL_CLOSE_TIMEOUT_MS 1000
 #define DRY_RUN_NODE 42u
-#define PIPELINE_CHECK_MS 200
 
 static GDBusConnection *bus;
 static GMainLoop *loop;
-static struct process *pipeline;
-static int exit_status;
+static GPid pipeline; // gst-launch-1.0, or 0
+static guint pipeline_watch;
 // While a portal request waits for its answer, its own loop runs and its dialog (the picker) may be open.
 static GMainLoop *request_loop;
 static char request_path[256];
@@ -64,9 +63,15 @@ static gboolean output_closed(gint fd, GIOCondition condition, gpointer data) {
     return G_SOURCE_REMOVE;
 }
 
+static void pipeline_ended(GPid pid, gint status, gpointer data) {
+    pipeline = 0;
+    g_main_loop_quit(loop);
+}
+
 // gst-launch-1.0 with pipewiresrc for `node` (through the PipeWire remote `fd` of the portal, or -1 for the
-// default remote) writes RGBA frames of the requested size to `output`. Both descriptors pass to the child.
-static struct process *start_pipeline(int output, int fd, uint32_t node, int width, int height, bool dry_run) {
+// default remote) writes RGBA frames of the requested size to `output`. Both descriptors pass to the child. The
+// main loop ends with the child. False when it did not start, and after a dry run.
+static bool start_pipeline(int output, int fd, uint32_t node, int width, int height, bool dry_run) {
     char fd_argument[32] = "", path[32], caps[96], sink[32];
     if (fd >= 0) snprintf(fd_argument, sizeof fd_argument, "fd=%d", fd);
     snprintf(path, sizeof path, "path=%u", node);
@@ -82,28 +87,31 @@ static struct process *start_pipeline(int output, int fd, uint32_t node, int wid
         printf("run");
         for (const char **word = argv; *word; word++) printf(" %s", *word);
         printf("\n");
-        return NULL;
+        return false;
     }
     if (fd >= 0) fcntl(fd, F_SETFD, 0); // GDBus received it with close-on-exec
     fcntl(output, F_SETFD, 0);
-    return process_start(argv, NULL, NULL);
-}
-
-static gboolean check_pipeline(gpointer data) {
-    if (process_wait(pipeline, 0) == PROCESS_RUNNING) return G_SOURCE_CONTINUE;
-    g_main_loop_quit(loop);
-    return G_SOURCE_REMOVE;
-}
-
-static bool watch_pipeline(void) {
-    if (!pipeline) return false;
-    g_timeout_add(PIPELINE_CHECK_MS, check_pipeline, NULL);
+    // The child stays in the process group of this program: src/video.c stops the group, and a child in a group
+    // of its own would live on and keep the frame pipe open when this program dies first.
+    GError *error = NULL;
+    GSpawnFlags flags = G_SPAWN_SEARCH_PATH | G_SPAWN_LEAVE_DESCRIPTORS_OPEN | G_SPAWN_DO_NOT_REAP_CHILD |
+                        G_SPAWN_CHILD_INHERITS_STDIN;
+    if (!g_spawn_async(NULL, (char **)argv, NULL, flags, NULL, NULL, &pipeline, &error)) {
+        fprintf(stderr, "capture: cannot start gst-launch-1.0: %s\n", error->message);
+        g_error_free(error);
+        pipeline = 0;
+        return false;
+    }
+    pipeline_watch = g_child_watch_add(pipeline, pipeline_ended, NULL);
     return true;
 }
 
 static void stop_pipeline(void) {
-    process_free(pipeline);
-    pipeline = NULL;
+    if (!pipeline) return;
+    g_source_remove(pipeline_watch);
+    kill(pipeline, SIGTERM);
+    waitpid(pipeline, NULL, 0);
+    pipeline = 0;
 }
 
 static GVariant *call(const char *name, const char *path, const char *interface, const char *method, GVariant *arguments,
@@ -130,8 +138,8 @@ static void mutter_stream_added(GDBusConnection *connection, const char *sender,
     uint32_t node;
     g_variant_get(parameters, "(u)", &node);
     fprintf(stderr, "capture: pipewire node %u\n", node);
-    pipeline = start_pipeline(mutter.output, -1, node, mutter.width, mutter.height, false);
-    if (!watch_pipeline()) g_main_loop_quit(loop);
+    if (!pipeline && !start_pipeline(mutter.output, -1, node, mutter.width, mutter.height, false))
+        g_main_loop_quit(loop);
 }
 
 static void mutter_closed(GDBusConnection *connection, const char *sender, const char *path, const char *interface,
@@ -212,7 +220,7 @@ static int run_mutter(const struct capture_request *request, int output) {
     if (stopped) g_variant_unref(stopped);
     g_free(stream);
     g_free(session);
-    return reply ? exit_status : 1;
+    return reply ? 0 : 1;
 }
 
 // ---------------------------------------------------------------- xdg-desktop-portal (the picker)
@@ -354,13 +362,13 @@ static int run_portal(const struct capture_request *request, int output) {
     int fd = open_pipewire_remote(session, request->dry_run);
     g_free(session);
     if (fd < 0) return 1;
-    pipeline = start_pipeline(output, fd, node, request->width, request->height, request->dry_run);
+    bool started = start_pipeline(output, fd, node, request->width, request->height, request->dry_run);
     if (request->dry_run) return 0;
-    if (!watch_pipeline()) return 1;
+    if (!started) return 1;
     g_main_loop_run(loop);
     stop_pipeline();
     close(fd);
-    return exit_status;
+    return 0;
 }
 
 int capture_run(const struct capture_request *request, int output) {
