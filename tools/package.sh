@@ -8,9 +8,9 @@
 # CI runs the Linux and the macOS branch. The Windows branch is not tested: the program does not build there yet
 # (PORTING.md).
 #
-# The program finds its files relative to its own path: the bundle next to it, and tools/ and assets/ one
+# The program finds its files relative to its own path: the bundle and the helpers next to it, and assets/ one
 # directory up (src/main.c). bin/ keeps that layout, so the unpacked folder runs from any place. In the macOS
-# app, Contents/MacOS is that folder, and Contents/ holds tools/ and assets/.
+# app, Contents/MacOS is that folder, and Contents/ holds assets/.
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -18,28 +18,27 @@ build=${HYDRA_NATIVE_BUILD:-$root/build}
 version=${1:-$(git -C "$root" describe --tags --always --dirty)}
 version=${version#v}
 case $(uname -s) in
-Darwin) system=macos-arm64 wrtc=wrtc-darwin-arm64 ;;
-MINGW* | MSYS*) system=windows-x64 wrtc=wrtc-win32-x64 ;;
-*) system=linux-x86_64 wrtc=wrtc-linux-x64 ;;
+Darwin) system=macos-arm64 ;;
+MINGW* | MSYS*) system=windows-x64 ;;
+*) system=linux-x86_64 ;;
 esac
 name=hydra-native-$version-$system
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
 target=$stage/$name
-contents=$target # the folder with the program folder, tools/ and assets/
+contents=$target # the folder with the program folder and assets/
 bin=$target/bin
 if [ "$system" = macos-arm64 ]; then
 	contents=$target/hydra-native.app/Contents
 	bin=$contents/MacOS
 fi
 
-mkdir -p "$bin" "$contents/tools" "$contents/assets" "$contents/node_modules/@roamhq" \
-	"$target/licenses/node" "$target/source"
+mkdir -p "$bin" "$contents/assets" "$target/licenses/node" "$target/source"
 
 case $system in
 linux-x86_64)
-	cp "$build/hydra-native" "$build/hydra-native-capture" "$bin/"
-	strip --strip-debug "$bin/hydra-native" "$bin/hydra-native-capture"
+	cp "$build/hydra-native" "$build/hydra-native-capture" "$build/hydra-native-patch-bay" "$bin/"
+	strip --strip-debug "$bin/hydra-native" "$bin/hydra-native-capture" "$bin/hydra-native-patch-bay"
 	cp -r "$root/assets/icon" "$root/assets/hydra-native.desktop" "$contents/assets/"
 	;;
 macos-arm64)
@@ -77,14 +76,6 @@ windows-x64)
 esac
 cp "$build/hydra-bundle.js" "$bin/"
 
-# The patch bay helper as one file, so that only the native WebRTC module comes from node_modules.
-# Its require() (for wrtc.node) resolves from tools/, like the require of Node.js in the repo.
-"$root/node_modules/.bin/esbuild" "$root/tools/patch-bay.mjs" --bundle --platform=node --format=esm \
-	--log-level=warning --banner:js="import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);" \
-	--outfile="$contents/tools/patch-bay.mjs" --metafile="$stage/patch-bay.meta.json"
-# pnpm installs only the prebuilt module of the system that runs it, so each system packs its own.
-cp -rL "$(realpath "$root/node_modules/@roamhq/wrtc")/../$wrtc" "$contents/node_modules/@roamhq/"
-
 # Licenses: the AGPL-3.0 of the program, the C libraries in the binary, the font, and the npm packages in the archive.
 cp "$root/node_modules/hydra-synth/LICENSE" "$target/LICENSE"
 cp "$root/THIRD_PARTY.md" "$target/"
@@ -96,18 +87,15 @@ if [ "$system" != linux-x86_64 ]; then # libremidi in the program, ANGLE and SDL
 	echo "SDL3 (zlib license): https://github.com/libsdl-org/SDL/blob/main/LICENSE.txt" > "$licenses/sdl3.txt"
 fi
 sed -n '/^This software is available under 2 licenses/,$p' "$root/vendor/stb/stb_truetype.h" > "$licenses/stb.txt"
-# The npm packages in the archive: those that esbuild bundled (its metafiles), plus the WebRTC module,
-# which is copied as files.
-WRTC=$wrtc node -e '
+# The npm packages in the archive: those that esbuild bundled (its metafile).
+node -e '
 const fs = require("fs"), path = require("path")
-const [root, target, ...metafiles] = process.argv.slice(1)
-const wrtc = fs.realpathSync(path.join(root, "node_modules/@roamhq/wrtc"))
-const directories = new Set([wrtc, path.join(wrtc, "../" + process.env.WRTC)])
-for (const metafile of metafiles)
-  for (const input of Object.keys(JSON.parse(fs.readFileSync(metafile, "utf8")).inputs)) {
-    const match = input.match(/^(.*node_modules\/(?:@[^/]+\/)?[^/]+)\//)
-    if (match) directories.add(path.resolve(root, match[1]))
-  }
+const [root, target, metafile] = process.argv.slice(1)
+const directories = new Set()
+for (const input of Object.keys(JSON.parse(fs.readFileSync(metafile, "utf8")).inputs)) {
+  const match = input.match(/^(.*node_modules\/(?:@[^/]+\/)?[^/]+)\//)
+  if (match) directories.add(path.resolve(root, match[1]))
+}
 const lines = []
 for (const directory of directories) {
   const { name, version, license } = JSON.parse(fs.readFileSync(path.join(directory, "package.json"), "utf8"))
@@ -119,7 +107,7 @@ for (const directory of directories) {
   for (const file of files) fs.copyFileSync(path.join(directory, file), path.join(folder, file))
 }
 fs.writeFileSync(path.join(target, "packages.tsv"), [...new Set(lines)].sort().join("\n") + "\n")
-' "$root" "$licenses/node" "$build/hydra-bundle.meta.json" "$stage/patch-bay.meta.json"
+' "$root" "$licenses/node" "$build/hydra-bundle.meta.json"
 
 git -C "$root" archive --format=tar.gz --prefix="hydra-native-$version-source/" \
 	-o "$target/source/hydra-native-$version-source.tar.gz" HEAD

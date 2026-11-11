@@ -71,7 +71,8 @@ jobs:
           sudo apt-get update
           sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build pkg-config libsdl3-dev libgles-dev libpulse-dev libasound2-dev \
-            libgio-2.0-dev python3
+            libgio-2.0-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgstreamer-plugins-bad1.0-dev \
+            libsoup-3.0-dev libjson-glib-dev python3
 
       # pnpm runs on the Node.js of the runner image, in the version of packageManager in package.json; make
       # runs the install.

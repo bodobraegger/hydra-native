@@ -1,5 +1,5 @@
 # A thin wrapper around the CMake build (CMakeLists.txt). BUILD is a direct child of this folder, because the
-# program finds its tools and icon one directory above its own.
+# program finds its icon one directory above its own.
 BUILD ?= build
 
 all: $(BUILD)/build.ninja

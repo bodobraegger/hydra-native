@@ -7,8 +7,9 @@ a porter needs. docs/manual.md describes what a user sees on each system.
 
 - Linux (x86_64): complete.
 - macOS (arm64): a preview. CMake builds the program, the capture tool, the JS bundle and the unit tests except
-  the MIDI test (`brew install cmake ninja pnpm sdl3`, then `make`). CI renders test/check.js on ANGLE in a hidden
-  window and packs hydra-native.app with an ad-hoc signature (tools/package.sh). Not tested on a Mac: the
+  the MIDI test (`brew install cmake ninja pnpm sdl3`, then `make`), but not the patch bay. CI renders
+  test/check.js on ANGLE in a hidden window and packs hydra-native.app with an ad-hoc signature
+  (tools/package.sh). Not tested on a Mac: the
   microphone, camera and screen recording permissions, the audio of the system output, CoreMIDI, the Dock icon
   and the code socket.
 - Windows (x64): CMake builds only the window test and the capture tool. The window test passes on ANGLE
@@ -17,8 +18,9 @@ a porter needs. docs/manual.md describes what a user sees on each system.
 ## Open work for Windows
 
 - QuickJS does not build with MSVC. quickjs-ng does.
-- src/code_socket.c and src/bindings.c use Unix sockets and POSIX calls. The code socket (`--send`) must become a named pipe, as the
-  socket of the patch bay already is (`\\.\pipe\hydra-native-patch-bay-PID`).
+- src/code_socket.c and src/bindings.c use Unix sockets and POSIX calls. The code socket (`--send`) must become a
+  named pipe; stream_local_address (src/process.h) already gives one on Windows.
+- The patch bay helper (src/patch_bay_main.c) needs GStreamer, and it listens on a Unix socket.
 - src/fetch.c puts the body of a request into a temporary file in /tmp outside of Linux.
 - SIGINT and SIGTERM end the program; Windows needs SDL_EVENT_QUIT and a console control handler.
 - The system output as audio input is not available.
@@ -38,6 +40,7 @@ a porter needs. docs/manual.md describes what a user sees on each system.
 | MIDI            | ALSA sequencer (src/midi.c)          | libremidi with CoreMIDI      | libremidi with WinMM      |
 | camera          | gst-launch-1.0 process               | SDL3 camera                  | SDL3 camera               |
 | screen capture  | portal and Mutter                    | ScreenCaptureKit             | Windows.Graphics.Capture  |
+| patch bay       | webrtcbin of GStreamer               | not available                | not available             |
 | child processes | posix_spawn, process group           | posix_spawn, process group   | CreateProcess, job object |
 | shell           | /bin/sh -c                           | /bin/sh -c                   | cmd.exe /d /s /c          |
 
@@ -55,9 +58,8 @@ Direct3D 11 does not, so a shader reads a copy of the window below each differen
   or to the terminal that started it.
 - The audio of the system output comes from `hydra-native-capture audio` (src/capture_macos.m), an SCStream of
   the main display with audio. It needs the Screen Recording permission and no microphone permission.
-- A signed and notarized app must sign wrtc.node with the identity of the app.
-- pnpm installs only the @roamhq/wrtc binary of the system that runs it, so each archive must be packed on its
-  own system.
+- The patch bay needs GStreamer, which macOS does not have. It can come from Homebrew, or the app stays without
+  it (PLAN.md).
 
 ## Windows
 

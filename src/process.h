@@ -47,6 +47,6 @@ long stream_write_ready(int stream, const void *buffer, size_t size);
 void stream_shutdown(int stream);
 void stream_close(int stream);
 // The address of a local socket of this process: a Unix socket path (in XDG_RUNTIME_DIR, TMPDIR or /tmp) on
-// POSIX, a named pipe (\\.\pipe\...) on Windows. Node.js listens on both kinds with net.Server.listen(address).
+// POSIX, a named pipe (\\.\pipe\...) on Windows.
 void stream_local_address(char *address, size_t size, const char *name);
 int stream_connect(const char *address); // -1 on failure

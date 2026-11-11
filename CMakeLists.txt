@@ -4,7 +4,7 @@ project(hydra-native VERSION 0.1.0 LANGUAGES C)
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE RelWithDebInfo)
 endif()
-# The program finds its bundle next to itself and its tools and icon one directory up, so every
+# The program finds its bundle and helpers next to itself and its icon one directory up, so every
 # build directory is a direct child of the source directory (build/, build-clean/).
 # The generator expression keeps Visual Studio from adding a Release/ or Debug/ folder.
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY $<1:${CMAKE_BINARY_DIR}>)

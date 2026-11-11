@@ -22,6 +22,11 @@ a distributed hydra-native binary with its bundle falls under the AGPL-3.0.
   OpenGL ES on macOS and Windows, as a prebuilt archive of https://github.com/jeremyfa/build-angle.
 - SDL 3, zlib license. https://libsdl.org. The macOS app contains the SDL3 library of Homebrew.
 
+## Libraries of the system (not in the archive)
+
+- GStreamer with webrtcbin, libsoup 3 and json-glib, LGPL-2.1-or-later. hydra-native-patch-bay links them on
+  Linux. https://gstreamer.freedesktop.org
+
 ## JavaScript packages (installed by pnpm, bundled by esbuild)
 
 - hydra-synth, commit 9d29a9f4fd8f9081b9759943f38db36f05b9a88f of the main branch (1.4.0 and the
@@ -29,15 +34,6 @@ a distributed hydra-native binary with its bundle falls under the AGPL-3.0.
   The renderer and the API; it runs unchanged. js/regl-shim.js, js/raf-loop-shim.js and js/meyda-shim.js
   replace its dependencies regl, raf-loop and meyda.
 - esbuild 0.28.2, MIT license. Build tool only, not in the output.
-
-## JavaScript packages of the patch bay (installed by pnpm, run by Node.js in tools/patch-bay.mjs)
-
-- @roamhq/wrtc 0.8.0 and its prebuilt binary @roamhq/wrtc-linux-x64 0.8.1 (wrtc.node, which contains the
-  WebRTC library of Google), BSD-2-Clause license. https://github.com/WonderInventions/node-webrtc
-  The WebRTC stack (ICE, DTLS-SRTP, VP8) of pb and s0.initStream.
-  On macOS and Windows, pnpm installs the prebuilt binary of that system instead: @roamhq/wrtc-darwin-arm64,
-  @roamhq/wrtc-darwin-x64 or @roamhq/wrtc-win32-x64, version 0.8.0, under the same license.
-- simple-peer 9.11.1 and socket.io-client 2.5.0 (the versions of the web editor), MIT license.
 - socket.io 2.5.0, MIT license. Only for test/signalling_server.cjs.
 
 ## Code of the hydra web editor
@@ -48,9 +44,8 @@ From https://github.com/hydra-synth/hydra (the editor of hydra.ojack.xyz), commi
   parsing it; see its header.
 - js/hydra-editor/examples.json (src/stores/examples.json), the examples of the "random example" button.
 - js/hydra-editor/text-elements.js (src/stores/text-elements.js), the English texts of the info panel, unchanged.
-- js/hydra-editor/rtc-patch-bay.js and js/hydra-editor/pb-live.js (src/lib/patch-bay/), the webRTC patch bay;
-  tools/patch-bay.mjs runs them in Node.js. Changed: `inherits` comes from node:util, and the default name
-  comes from crypto.randomUUID() instead of shortid.
+- src/lib/patch-bay/rtc-patch-bay.js and pb-live.js, the webRTC patch bay: src/patch_bay_main.c does the same
+  in C, with the same messages, roles of the peers and tables of names.
 - The confirmation text of the gallery share prompt in src/ui.c (src/stores/gallery-store.js).
 
 From https://github.com/hydra-synth/hydra-server, backend/server.js, AGPL-3.0: the socket.io handlers of the

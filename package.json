@@ -4,10 +4,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@roamhq/wrtc": "0.8.0",
-    "hydra-synth": "github:hydra-synth/hydra-synth#9d29a9f4fd8f9081b9759943f38db36f05b9a88f",
-    "simple-peer": "9.11.1",
-    "socket.io-client": "2.5.0"
+    "hydra-synth": "github:hydra-synth/hydra-synth#9d29a9f4fd8f9081b9759943f38db36f05b9a88f"
   },
   "devDependencies": {
     "esbuild": "^0.28.2",
