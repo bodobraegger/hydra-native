@@ -20,6 +20,12 @@ static const struct key_binding default_keymap[] = {
     { SDLK_RIGHTBRACKET, KEY_ALT, COMMAND_COMPLETION_NEXT, .context = CONTEXT_GHOST },
     { SDLK_LEFTBRACKET, KEY_ALT, COMMAND_COMPLETION_PREVIOUS, .context = CONTEXT_GHOST },
 
+    // while the drop-down list of the toolbar is open; Escape closes it
+    { SDLK_DOWN, 0, COMMAND_MENU_NEXT, .context = CONTEXT_MENU },
+    { SDLK_UP, 0, COMMAND_MENU_PREVIOUS, .context = CONTEXT_MENU },
+    { SDLK_RETURN, 0, COMMAND_MENU_ACCEPT, .context = CONTEXT_MENU },
+    { SDLK_KP_ENTER, 0, COMMAND_MENU_ACCEPT, .context = CONTEXT_MENU },
+
     // while a number of the settings menu is a text field
     { SDLK_RETURN, 0, COMMAND_NUMBER_ACCEPT, .context = CONTEXT_NUMBER },
     { SDLK_KP_ENTER, 0, COMMAND_NUMBER_ACCEPT, .context = CONTEXT_NUMBER },

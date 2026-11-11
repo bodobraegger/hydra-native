@@ -27,6 +27,7 @@
     X(SAVE_TO_URL, "copy the hydra.ojack.xyz URL of the code") \
     X(GALLERY_SHARE, "share the sketch with the gallery") \
     X(CLEAR_ALL, "clear all: hush, speed 1, empty code; with an open file, reset to the saved file") \
+    X(CLEAR_AND_CLOSE, "clear all and close the file, so that Ctrl+S cannot overwrite it") \
     X(SHOW_EXAMPLE, "show a random example") \
     X(MUTATE, "randomize a number (mutator)") \
     X(MUTATE_TRANSFORM, "randomize a function (mutator)") \
@@ -106,6 +107,9 @@
     X(PROMPT_UP, "next command up in the palette") \
     X(PROMPT_DOWN, "next command down in the palette") \
     X(PROMPT_BACKSPACE, "delete in the prompt") \
+    X(MENU_NEXT, "next entry of the drop-down list") \
+    X(MENU_PREVIOUS, "previous entry of the drop-down list") \
+    X(MENU_ACCEPT, "run the entry of the drop-down list") \
     X(REPLACE_ALL, "replace all") \
     X(CHORD, "first key of a two-key command") \
     X(SUBWORD_LEFT, "subword left (camelCase)") \
@@ -156,6 +160,7 @@ enum key_context {
     CONTEXT_PROMPT, // find, replace, go to line or the command palette is open
     CONTEXT_SNIPPET, // an inserted call has tab stops on its arguments
     CONTEXT_NUMBER, // a number of the settings menu is a text field
+    CONTEXT_MENU, // the drop-down list of the toolbar button "reset" is open
 };
 
 struct key_binding {

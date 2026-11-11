@@ -205,6 +205,20 @@ static bool info_visible;
 static bool extensions_visible;
 static bool settings_visible;
 static bool gallery_enabled; // the web editor shows "share" only with a gallery server
+
+// The drop-down list of the toolbar button "reset", which shows with an open file: the entry, its tooltip and its
+// command.
+static const struct {
+    const char *label, *title;
+    enum command command;
+} reset_menu[] = {
+    { "reset", "load the saved file again and run it", COMMAND_CLEAR_ALL },
+    { "clear", "close the file and empty the code", COMMAND_CLEAR_AND_CLOSE },
+};
+#define RESET_MENU_COUNT (sizeof reset_menu / sizeof reset_menu[0])
+#define RESET_BUTTON_TITLE "reset to the saved file, or clear"
+static bool reset_menu_open;
+static size_t reset_menu_selected;
 #define MAX_PANEL_BUTTONS 256
 #define EXTENSION_ROWS 3
 
@@ -1306,7 +1320,8 @@ static void open_url_from_clipboard(void) {
 const struct settings *ui_settings(void) { return &settings; }
 
 static void escape(void) {
-    if (completion.open) close_completion();
+    if (reset_menu_open) reset_menu_open = false;
+    else if (completion.open) close_completion();
     else if (signature_help_open) signature_help_open = false;
     else if (prompt.kind != PROMPT_NONE) prompt.kind = PROMPT_NONE;
     else if (help_visible) help_visible = false;
@@ -1354,6 +1369,9 @@ static bool command_applies(enum command command) {
     case COMMAND_NUMBER_DOWN_LARGE:
     case COMMAND_NUMBER_BACKSPACE: return number_field.open;
     case COMMAND_REPLACE_ALL: return prompt.kind == PROMPT_REPLACE;
+    case COMMAND_MENU_NEXT:
+    case COMMAND_MENU_PREVIOUS:
+    case COMMAND_MENU_ACCEPT: return reset_menu_open;
     default: return true;
     }
 }
@@ -1373,6 +1391,8 @@ static void run_command_body(enum command command, bool extend) {
     size_t start, end;
     long page = (long)visible_rows() - 1;
     if (!is_completion_command(command)) close_completion();
+    if (command != COMMAND_MENU_NEXT && command != COMMAND_MENU_PREVIOUS && command != COMMAND_ESCAPE)
+        reset_menu_open = false;
     switch (command) {
     case COMMAND_NONE:
     case COMMAND_COUNT: break;
@@ -1407,6 +1427,10 @@ static void run_command_body(enum command command, bool extend) {
         return;
     }
     case COMMAND_CLEAR_ALL: clear_all(); break;
+    case COMMAND_CLEAR_AND_CLOSE:
+        close_file();
+        clear_all();
+        break;
     case COMMAND_SHOW_EXAMPLE:
         close_file();
         clear_all();
@@ -1560,6 +1584,11 @@ static void run_command_body(enum command command, bool extend) {
         return;
     case COMMAND_PROMPT_DOWN: if (prompt.palette_index > 0) prompt.palette_index--; return;
     case COMMAND_PROMPT_BACKSPACE: prompt_backspace(); break;
+    case COMMAND_MENU_NEXT: reset_menu_selected = (reset_menu_selected + 1) % RESET_MENU_COUNT; return;
+    case COMMAND_MENU_PREVIOUS:
+        reset_menu_selected = (reset_menu_selected + RESET_MENU_COUNT - 1) % RESET_MENU_COUNT;
+        return;
+    case COMMAND_MENU_ACCEPT: run_command(reset_menu[reset_menu_selected].command, false); return;
     case COMMAND_REPLACE_ALL: {
         size_t count =
             editor_replace_all(&editor, prompt.query, strlen(prompt.query), prompt.replacement,
@@ -1594,6 +1623,7 @@ static void run_command_body(enum command command, bool extend) {
 static enum key_context key_context(void) {
     if (!settings_visible) number_field.open = false;
     if (number_field.open) return CONTEXT_NUMBER;
+    if (reset_menu_open) return CONTEXT_MENU;
     if (completion.open) return settings.autocomplete_style == AUTOCOMPLETE_GHOST ? CONTEXT_GHOST : CONTEXT_COMPLETION;
     if (prompt.kind != PROMPT_NONE) return CONTEXT_PROMPT;
     follow_snippet(editor.length); // the snippet ends when a mouse click moved the cursor out of it
@@ -1634,6 +1664,7 @@ void ui_text_editing(const char *text) { snprintf(composition, sizeof compositio
 void ui_text_input(const char *text) {
     composition[0] = '\0';
     if (suppress_text || !visible || (SDL_GetModState() & (SDL_KMOD_CTRL | SDL_KMOD_LALT))) return;
+    reset_menu_open = false;
     if (help_visible) return;
     if (number_field.open && settings_visible) {
         type_number(text);
@@ -1704,6 +1735,23 @@ static float toolbar_x(size_t index, float *width) {
     return x;
 }
 
+// The drop-down list of "reset" lies below the button and is as wide as it; returns its left edge.
+static float reset_menu_left(float *width) {
+    size_t button = 0;
+    while (toolbar[button].command != COMMAND_CLEAR_ALL) button++;
+    return toolbar_x(button, width);
+}
+
+static float reset_menu_top(void) { return MARGIN + overlay_line_height() + TEXT_PADDING; }
+
+// The entry of the open list at (x, y), or RESET_MENU_COUNT.
+static size_t reset_menu_entry_at(float x, float y) {
+    float width, left = reset_menu_left(&width), top = reset_menu_top();
+    if (!reset_menu_open || x < left || x > left + width || y < top) return RESET_MENU_COUNT;
+    size_t row = (size_t)((y - top) / overlay_line_height());
+    return row < RESET_MENU_COUNT ? row : RESET_MENU_COUNT;
+}
+
 static bool toolbar_click(float x, float y, SDL_Keymod modifiers) {
     if (y < MARGIN || y > MARGIN + overlay_line_height()) return false;
     for (size_t i = 0; i < TOOLBAR_COUNT; i++) {
@@ -1711,6 +1759,11 @@ static bool toolbar_click(float x, float y, SDL_Keymod modifiers) {
         float width, left = toolbar_x(i, &width);
         if (x < left || x > left + width) continue;
         const struct toolbar_item *item = &toolbar[i];
+        if (item->command == COMMAND_CLEAR_ALL && file_path) {
+            reset_menu_open = !reset_menu_open;
+            reset_menu_selected = 0;
+            return true;
+        }
         enum command command = item->command;
         if (modifiers & SDL_KMOD_CTRL) command = item->with_ctrl;
         if (modifiers & SDL_KMOD_SHIFT) command = item->with_shift;
@@ -1718,6 +1771,28 @@ static bool toolbar_click(float x, float y, SDL_Keymod modifiers) {
         return true;
     }
     return false;
+}
+
+// A tooltip with its right edge at `right`.
+static void draw_tooltip(float right, float top, const char *text) {
+    float width = overlay_text_width(text, strlen(text)), left = right - width;
+    if (left < MARGIN) left = MARGIN;
+    overlay_rect(left - TEXT_PADDING, top, width + 2 * TEXT_PADDING, overlay_line_height(), theme->popup_background);
+    overlay_text_run(left, top, text, strlen(text), theme->text);
+}
+
+static void draw_reset_menu(void) {
+    float width, left = reset_menu_left(&width), top = reset_menu_top(), line_height = overlay_line_height();
+    for (size_t entry = 0; entry < RESET_MENU_COUNT; entry++) {
+        float y = top + (float)entry * line_height;
+        overlay_rect(left, y, width, line_height,
+                     entry == reset_menu_selected ? theme->popup_selected : theme->popup_background);
+        overlay_text(left + overlay_char_width() / 2, y, reset_menu[entry].label, strlen(reset_menu[entry].label), 0,
+                     64, NULL, theme->text);
+    }
+    size_t hovered = reset_menu_entry_at(pointer_x, pointer_y);
+    if (hovered < RESET_MENU_COUNT)
+        draw_tooltip(left - 2 * TEXT_PADDING, top + (float)hovered * line_height, reset_menu[hovered].title);
 }
 
 static void draw_toolbar(void) {
@@ -1733,20 +1808,16 @@ static void draw_toolbar(void) {
         overlay_set_layer(OVERLAY_TOP);
         bool hover = pointer_y >= MARGIN && pointer_y <= MARGIN + overlay_line_height() && pointer_x >= x &&
                      pointer_x <= x + width;
-        if (!hover) continue;
+        if (!hover || reset_menu_open) continue; // the open list takes the place of the tooltip
         const char *title = toolbar[i].command == COMMAND_TOGGLE_INFO &&
             info_visible ? "toolbar.hide-info" : toolbar[i].title;
-        char *text = title ? host.call("__translate", title) : strdup(command_description(toolbar[i].command));
+        char *text = toolbar[i].command == COMMAND_CLEAR_ALL && file_path ? strdup(RESET_BUTTON_TITLE)
+            : title ? host.call("__translate", title) : strdup(command_description(toolbar[i].command));
         if (!text) continue;
-        float tooltip_width = overlay_text_width(text, strlen(text));
-        float left = x + width - tooltip_width;
-        if (left < MARGIN) left = MARGIN;
-        float top = MARGIN + overlay_line_height() + TEXT_PADDING;
-        overlay_rect(left - TEXT_PADDING, top, tooltip_width + 2 * TEXT_PADDING, overlay_line_height(),
-                     theme->popup_background);
-        overlay_text_run(left, top, text, strlen(text), theme->text);
+        draw_tooltip(x + width, MARGIN + overlay_line_height() + TEXT_PADDING, text);
         free(text);
     }
+    if (reset_menu_open) draw_reset_menu();
 }
 
 // ---------------------------------------------------------------- info panel
@@ -2431,7 +2502,13 @@ void ui_mouse_button(float x, float y, bool down, int clicks, SDL_Keymod modifie
         help_visible = false;
         return;
     }
+    size_t entry = reset_menu_entry_at(x, y);
+    if (entry < RESET_MENU_COUNT) {
+        run_command(reset_menu[entry].command, false);
+        return;
+    }
     if (toolbar_click(x, y, modifiers)) return;
+    reset_menu_open = false;
     if (info_visible && info_click(x, y)) return;
     if (extensions_visible && extensions_click(x, y)) return;
     if (settings_visible && settings_click(x, y)) return;

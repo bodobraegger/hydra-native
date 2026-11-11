@@ -454,13 +454,24 @@ static void test_files(const char *settings_file) {
     EXPECT_STRING(read_file(saved), "osc(4).out()");
     EXPECT_CONTAINS(title, strrchr(saved, '/') + 1);
 
-    // With the file open, the toolbar says "reset", and it brings back the saved code.
+    // With the file open, the toolbar says "reset" and opens a list: its "reset" brings back the saved code, and its
+    // "clear" closes the file. Ctrl+Shift+Delete resets.
     ui_draw(800, 600, 0);
     EXPECT(click_text("reset", 0));
+    ui_draw(800, 600, 0);
+    EXPECT_CONTAINS(drawn, "reset\nclear\n");
+    EXPECT(click_text("reset", 1)); // the entry below the button
+    EXPECT_STRING(evaluated, "osc(4).out()");
     type("x");
     key(SDLK_DELETE, SDL_KMOD_LCTRL | SDL_KMOD_LSHIFT);
     EXPECT_STRING(ui_file_path(), saved);
     EXPECT_STRING(evaluated, "osc(4).out()");
+    ui_draw(800, 600, 0);
+    EXPECT(click_text("reset", 0));
+    key(SDLK_DOWN, 0);
+    key(SDLK_RETURN, 0);
+    EXPECT(ui_file_path() == NULL);
+    EXPECT_STRING(evaluated, "hush(); speed = 1");
     // An example closes the file, so Ctrl+S cannot overwrite it with the example.
     key(SDLK_F7, 0);
     EXPECT(ui_file_path() == NULL);

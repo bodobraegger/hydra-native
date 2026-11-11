@@ -38,8 +38,11 @@ Ctrl+Shift+H hides and shows the overlay; the visuals keep running, and the eval
 The default font is DejaVu Sans Mono at 20 pixels (settings menu: font size and font; Ctrl+plus and Ctrl+minus).
 The toolbar at the top right has the buttons of the web editor: run, clear, extensions, example, mutate
 (Shift: undo, Ctrl: change a function), share (with a server in the settings) and info. With an open file,
-"clear" becomes "reset": it brings back the saved file and runs it. An example or a sketch URL closes the file,
-so that Ctrl+S cannot overwrite it; Ctrl+S then asks for a file. The info panel has the
+"clear" becomes "reset", which opens a list with two entries: "reset" brings back the saved file and runs it, and
+"clear" closes the file and empties the code. Up, Down and Enter choose an entry, and Escape or a click outside
+closes the list. The command "clear all and close the file" of the command palette does the same as "clear".
+"clear", an example or a sketch URL closes the file, so that Ctrl+S cannot overwrite it; Ctrl+S then asks for a
+file. The info panel has the
 languages of the web editor except Arabic (from hydra-synth/l10n, cached in ~/.cache/hydra-native/l10n).
 The extensions panel lists the catalog of hydra-synth/hydra-extensions; "+" adds the load code to the top.
 The window title shows the hydra.ojack.xyz URL of the code after each run of all code, as the address bar of
@@ -156,35 +159,35 @@ These are the default keys. Change any of them in the "keybindings" section of s
 F1 shows every command with its name and its current keys, and Ctrl+Shift+P finds a command by name.
 Keys marked "always" also work while the overlay is hidden.
 
-| Key                                            | Action                                                 |
-| ---------------------------------------------- | ------------------------------------------------------ |
-| Ctrl+Enter, Shift+Enter                        | evaluate the line or the selection (always)            |
-| Alt+Enter                                      | evaluate the block between blank lines (always)        |
-| Ctrl+Alt+Enter, Ctrl+Shift+Enter               | evaluate all (always)                                  |
-| Ctrl+Shift+H                                   | hide or show the code (always)                         |
-| Ctrl+S; Ctrl+Shift+S                           | save; save a screenshot and the code (always)          |
-| F1; Ctrl+Shift+P; Ctrl+,                       | help; command palette; settings (always)               |
-| Ctrl+Alt+I                                     | copy the stream id of the patch bay (always)           |
-| Ctrl+Shift+L; Ctrl+Shift+O; Ctrl+Shift+G       | copy the URL; open a URL; share with the gallery       |
-| F7; F8, Shift+F8, Ctrl+F8; Ctrl+Shift+Delete   | example; mutate, undo, change a function; clear all    |
-| F11; Ctrl+Q                                    | fullscreen; quit (always)                              |
-| Ctrl+Shift+F, Shift+Alt+F                      | format: indent by brackets and chains, with tabs       |
-| Ctrl+/ (Ctrl+Shift+7 on the ch layout)         | toggle comment                                         |
-| Alt+Up, Alt+Down; Shift+Alt+Down, Ctrl+Shift+D | move lines; duplicate lines                            |
-| Ctrl+L; Ctrl+Shift+K; Ctrl+J                   | select line; delete line; join lines                   |
-| Ctrl+D                                         | select the word, then add the next occurrence          |
-| Ctrl+Shift+Up/Down, Ctrl+Alt+Up/Down           | add a cursor above or below                            |
-| Alt+click; Shift+Alt+drag; Shift+Alt+I         | add a cursor; column selection; a cursor per line      |
-| Alt+Left, Alt+Right                            | move by subword (camelCase)                            |
-| Ctrl+F2, F2, Shift+F2; Ctrl+F3, Alt+F3         | bookmarks; find or select the word under the cursor    |
-| Ctrl+K, then Ctrl+U, L, K, Backspace, D        | the two-key commands of the sublime keymap             |
-| Ctrl+F, F3, Shift+F3; Ctrl+H; Ctrl+G           | find; replace (Tab, Enter, Ctrl+Alt+Enter); go to line |
-| Ctrl+Space; Tab, Escape; Alt+], Alt+[          | autocomplete; accept, dismiss; other ghost candidates  |
-| Ctrl+Shift+Space                               | signature help of the hydra function around the cursor |
-| Tab, Shift+Tab; Escape (after a completion)    | next, previous argument of the call; end the tab stops |
-| Ctrl+], Ctrl+[; Tab, Shift+Tab                 | indent, outdent                                        |
-| Ctrl+M; Ctrl+Shift+M                           | go to the bracket; select inside the brackets          |
-| Escape                                         | close a popup, keep one cursor, leave fullscreen       |
+| Key                                            | Action                                                   |
+| ---------------------------------------------- | -------------------------------------------------------- |
+| Ctrl+Enter, Shift+Enter                        | evaluate the line or the selection (always)              |
+| Alt+Enter                                      | evaluate the block between blank lines (always)          |
+| Ctrl+Alt+Enter, Ctrl+Shift+Enter               | evaluate all (always)                                    |
+| Ctrl+Shift+H                                   | hide or show the code (always)                           |
+| Ctrl+S; Ctrl+Shift+S                           | save; save a screenshot and the code (always)            |
+| F1; Ctrl+Shift+P; Ctrl+,                       | help; command palette; settings (always)                 |
+| Ctrl+Alt+I                                     | copy the stream id of the patch bay (always)             |
+| Ctrl+Shift+L; Ctrl+Shift+O; Ctrl+Shift+G       | copy the URL; open a URL; share with the gallery         |
+| F7; F8, Shift+F8, Ctrl+F8; Ctrl+Shift+Delete   | example; mutate, undo, change a function; clear or reset |
+| F11; Ctrl+Q                                    | fullscreen; quit (always)                                |
+| Ctrl+Shift+F, Shift+Alt+F                      | format: indent by brackets and chains, with tabs         |
+| Ctrl+/ (Ctrl+Shift+7 on the ch layout)         | toggle comment                                           |
+| Alt+Up, Alt+Down; Shift+Alt+Down, Ctrl+Shift+D | move lines; duplicate lines                              |
+| Ctrl+L; Ctrl+Shift+K; Ctrl+J                   | select line; delete line; join lines                     |
+| Ctrl+D                                         | select the word, then add the next occurrence            |
+| Ctrl+Shift+Up/Down, Ctrl+Alt+Up/Down           | add a cursor above or below                              |
+| Alt+click; Shift+Alt+drag; Shift+Alt+I         | add a cursor; column selection; a cursor per line        |
+| Alt+Left, Alt+Right                            | move by subword (camelCase)                              |
+| Ctrl+F2, F2, Shift+F2; Ctrl+F3, Alt+F3         | bookmarks; find or select the word under the cursor      |
+| Ctrl+K, then Ctrl+U, L, K, Backspace, D        | the two-key commands of the sublime keymap               |
+| Ctrl+F, F3, Shift+F3; Ctrl+H; Ctrl+G           | find; replace (Tab, Enter, Ctrl+Alt+Enter); go to line   |
+| Ctrl+Space; Tab, Escape; Alt+], Alt+[          | autocomplete; accept, dismiss; other ghost candidates    |
+| Ctrl+Shift+Space                               | signature help of the hydra function around the cursor   |
+| Tab, Shift+Tab; Escape (after a completion)    | next, previous argument of the call; end the tab stops   |
+| Ctrl+], Ctrl+[; Tab, Shift+Tab                 | indent, outdent                                          |
+| Ctrl+M; Ctrl+Shift+M                           | go to the bracket; select inside the brackets            |
+| Escape                                         | close a popup, keep one cursor, leave fullscreen         |
 
 Sketches add keys with the browser API, for example
 `window.addEventListener('keydown', (event) => { if (event.key === '1') speed = 2 })`.
