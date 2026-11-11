@@ -40,6 +40,7 @@
 #include <libsoup/soup.h>
 
 #define PUBLISH_CHECK_MS 500
+#define MIN_PING_MS 1000 // engine.io gives 25000
 #define CLOSE_WAIT_MS 1000 // for the close handshake of the signalling WebSocket
 #define ID_LENGTH 8 // pb.id, the start of a random UUID as in rtc-patch-bay.js
 #define MAX_FRAME_SIDE 16384
@@ -100,6 +101,7 @@ static GDataInputStream *input;
 static SoupSession *session;
 static SoupWebsocketConnection *signaller;
 static bool connected; // to the socket.io namespace
+static guint ping_timer;
 static GPtrArray *unsent; // event packets before the connection, which socket.io-client also buffers
 
 // The frames of the output come through a GDataInputStream, which reads in a thread of the GLib pool. So each read
@@ -778,7 +780,10 @@ static void receive_event(JsonArray *event) {
 }
 
 static gboolean send_ping(gpointer data) {
-    if (soup_websocket_connection_get_state(signaller) != SOUP_WEBSOCKET_STATE_OPEN) return G_SOURCE_REMOVE;
+    if (soup_websocket_connection_get_state(signaller) != SOUP_WEBSOCKET_STATE_OPEN) {
+        ping_timer = 0;
+        return G_SOURCE_REMOVE;
+    }
     soup_websocket_connection_send_text(signaller, ENGINE_PING);
     return G_SOURCE_CONTINUE;
 }
@@ -789,8 +794,10 @@ static void open_engine(const char *text) {
     g_free(stream_id);
     stream_id = g_strdup(member_string(handshake, "sid"));
     gint64 interval = handshake ? json_object_get_int_member_with_default(handshake, "pingInterval", 0) : 0;
-    if (interval > 0) g_timeout_add((guint)interval, send_ping, NULL);
     if (node) json_node_unref(node);
+    if (interval <= 0) return;
+    g_clear_handle_id(&ping_timer, g_source_remove);
+    ping_timer = g_timeout_add((guint)CLAMP(interval, MIN_PING_MS, G_MAXINT), send_ping, NULL);
 }
 
 static void on_signalling_message(SoupWebsocketConnection *connection, gint type, GBytes *bytes, gpointer data) {
