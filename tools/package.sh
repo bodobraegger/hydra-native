@@ -91,8 +91,6 @@ cp "$root/node_modules/hydra-synth/LICENSE" "$target/LICENSE"
 cp "$root/THIRD_PARTY.md" "$target/"
 licenses=$target/licenses
 cp "$root/vendor/quickjs/LICENSE" "$licenses/quickjs.txt"
-cp "$root/vendor/harfbuzz/COPYING" "$licenses/harfbuzz.txt"
-cp "$root/vendor/sheenbidi/LICENSE" "$licenses/sheenbidi.txt"
 if [ "$system" != linux-x86_64 ]; then # libremidi in the program, ANGLE and SDL3 in the program folder (their archives hold no license file)
 	cp "$root/vendor/libremidi/LICENSE.md" "$licenses/libremidi.txt"
 	echo "ANGLE (BSD-3-Clause): https://chromium.googlesource.com/angle/angle/+/refs/heads/main/LICENSE" > "$licenses/angle.txt"

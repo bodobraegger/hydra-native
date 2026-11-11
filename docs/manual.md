@@ -40,7 +40,7 @@ The toolbar at the top right has the buttons of the web editor: run, clear, exte
 (Shift: undo, Ctrl: change a function), share (with a server in the settings) and info. With an open file,
 "clear" becomes "reset": it brings back the saved file and runs it. An example or a sketch URL closes the file,
 so that Ctrl+S cannot overwrite it; Ctrl+S then asks for a file. The info panel has the
-languages of the web editor (from hydra-synth/l10n, cached in ~/.cache/hydra-native/l10n).
+languages of the web editor except Arabic (from hydra-synth/l10n, cached in ~/.cache/hydra-native/l10n).
 The extensions panel lists the catalog of hydra-synth/hydra-extensions; "+" adds the load code to the top.
 The window title shows the hydra.ojack.xyz URL of the code after each run of all code, as the address bar of
 the web editor does. Ctrl+Shift+L copies that URL, and Ctrl+Shift+O opens the URL in the clipboard.

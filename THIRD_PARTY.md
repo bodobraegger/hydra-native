@@ -15,14 +15,9 @@ a distributed hydra-native binary with its bundle falls under the AGPL-3.0.
   commit 4e9b368bfc071e97206ea5c6adba68dd0cbf8897 of https://github.com/nothings/stb.
   Glyph atlas of the code overlay (src/overlay.c), the text sources (src/text.c) and PNG output (src/main.c).
 - stb_image.h 2.30 by Sean Barrett, public domain or MIT license, same commit. Thumbnails (src/thumbnails.c).
-- HarfBuzz 14.6.0, "Old MIT" license. https://github.com/harfbuzz/harfbuzz
-  Text shaping of panels and prompts (src/overlay.c); built from the amalgamated src/harfbuzz.cc.
 - libremidi 5.4.3 by Jean-Michaël Celerier, BSD-2-Clause license (with parts of RtMidi, MIT license).
   https://github.com/celtera/libremidi. MIDI input and output on macOS (CoreMIDI) and Windows (WinMM) in its
   header-only mode; src/midi_libremidi.cc.
-- SheenBidi 2.9.0 by Muhammad Tayyab Akram, Apache-2.0 license. https://github.com/Tehreer/SheenBidi
-  The Unicode bidi algorithm (UAX #9) for the text of panels and prompts (src/overlay.c); built from
-  Source/SheenBidi.c with SB_CONFIG_UNITY.
 - ANGLE, commit 9684da72c67be785ed049e4c5704964b5d6e1bcb, BSD-3-Clause license. https://angleproject.org
   OpenGL ES on macOS and Windows, as a prebuilt archive of https://github.com/jeremyfa/build-angle.
 - SDL 3, zlib license. https://libsdl.org. The macOS app contains the SDL3 library of Homebrew.
@@ -86,9 +81,8 @@ vendor/fonts with its OFL.txt. It draws emoji in the overlay when the system has
 
 ## Algorithms from specifications
 
-- src/bidi.c ports bidiOrdering, and src/editor.c ports moveVisually, getBidiPartAt and endOfLine of
-  CodeMirror 5.65.9 (MIT license, https://codemirror.net/5/), so that the arrow keys move in right-to-left
-  code as in the web editor.
+- src/editor.c ports findPosH (the motion by groups) and findPosSubword of CodeMirror 5.65.9 (MIT license,
+  https://codemirror.net/5/), so that Ctrl+Left, Ctrl+Right and the subword keys stop as in the web editor.
 
 - src/unicode_tables.h comes from the Unicode Character Database 16.0.0 (GraphemeBreakProperty.txt,
   emoji-data.txt, EastAsianWidth.txt; Unicode License v3) and the extendingChars class of CodeMirror 5.65.9 (MIT),

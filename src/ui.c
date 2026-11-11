@@ -369,13 +369,11 @@ static size_t line_of_row(size_t row) {
     return low;
 }
 
-static size_t global_caret_row(size_t offset, enum sticky sticky, size_t *x) {
+static size_t global_row(size_t offset, size_t *x) {
     size_t row;
-    editor_caret_position(&editor, offset, sticky, &row, x);
+    editor_caret_position(&editor, offset, &row, x);
     return layout.first_row[editor_line_of(&editor, offset)] + row;
 }
-
-static size_t global_row(size_t offset, size_t *x) { return global_caret_row(offset, STICKY_NONE, x); }
 
 static void reveal_cursor(void) {
     update_layout();
@@ -1740,13 +1738,13 @@ static void draw_toolbar(void) {
             info_visible ? "toolbar.hide-info" : toolbar[i].title;
         char *text = title ? host.call("__translate", title) : strdup(command_description(toolbar[i].command));
         if (!text) continue;
-        float tooltip_width = overlay_text_shaped_width(text, strlen(text), false);
+        float tooltip_width = overlay_text_width(text, strlen(text));
         float left = x + width - tooltip_width;
         if (left < MARGIN) left = MARGIN;
         float top = MARGIN + overlay_line_height() + TEXT_PADDING;
         overlay_rect(left - TEXT_PADDING, top, tooltip_width + 2 * TEXT_PADDING, overlay_line_height(),
                      theme->popup_background);
-        overlay_text_shaped(left, top, text, strlen(text), false, theme->text);
+        overlay_text_run(left, top, text, strlen(text), theme->text);
         free(text);
     }
 }
@@ -1774,11 +1772,10 @@ static bool starts_wide(const char *text) {
     return unicode_columns(unicode_decode((const unsigned char *)text, strlen(text), &consumed)) == 2;
 }
 
-// Breaks a paragraph into lines of at most `width` pixels of shaped text: at spaces, and between characters of
-// scripts without spaces (Japanese, Chinese). Calls `line` for each line.
-static void wrap_shaped(const char *text, float width, bool rtl,
-                        void (*line)(const char *text, size_t length, void *data),
-                        void *data) {
+// Breaks a paragraph into lines of at most `width` pixels: at spaces, and between characters of scripts without
+// spaces (Japanese, Chinese). Calls `line` for each line.
+static void wrap_text(const char *text, float width, void (*line)(const char *text, size_t length, void *data),
+                      void *data) {
     size_t length = strlen(text), start = 0, end = 0;
     while (start < length) {
         size_t candidate = end;
@@ -1791,7 +1788,7 @@ static void wrap_shaped(const char *text, float width, bool rtl,
             while (candidate < length && text[candidate] != ' ' && !starts_wide(text + candidate)) candidate++;
             while (candidate < length && text[candidate] == ' ') candidate++;
         }
-        bool fits = overlay_text_shaped_width(text + start, candidate - start, rtl) <= width;
+        bool fits = overlay_text_width(text + start, candidate - start) <= width;
         if (!fits && end > start) {
             size_t trimmed = end;
             while (trimmed > start && text[trimmed - 1] == ' ') trimmed--;
@@ -1808,18 +1805,15 @@ static void wrap_shaped(const char *text, float width, bool rtl,
 }
 
 struct info_layout {
-    float left, top, width;
-    bool rtl;
+    float left, top;
     size_t row, rows, skipped;
 };
 
 static void draw_info_line(const char *text, size_t length, void *data) {
     struct info_layout *layout_state = data;
     if (layout_state->skipped++ < info_scroll || layout_state->row >= layout_state->rows) return;
-    float line_width = overlay_text_shaped_width(text, length, layout_state->rtl);
-    float x = layout_state->rtl ? layout_state->left + layout_state->width - line_width : layout_state->left;
-    overlay_text_shaped(x, layout_state->top + overlay_line_height() * (float)layout_state->row++, text, length,
-                        layout_state->rtl, theme->text);
+    overlay_text_run(layout_state->left, layout_state->top + overlay_line_height() * (float)layout_state->row++,
+                     text, length, theme->text);
 }
 
 static void draw_info(void) {
@@ -1836,26 +1830,24 @@ static void draw_info(void) {
         *name++ = '\0';
         char *selected = strchr(name, '\t');
         if (selected) *selected++ = '\0';
-        float name_width = overlay_text_shaped_width(name, strlen(name), false) + char_width;
+        float name_width = overlay_text_width(name, strlen(name)) + char_width;
         if (x + name_width > left + width) break;
         snprintf(language_buttons[language_button_count].code, sizeof language_buttons[0].code, "%s", line);
         language_buttons[language_button_count].x = x;
         language_buttons[language_button_count++].width = name_width;
         overlay_rect(x, top + line_height / 2, name_width, line_height,
                      selected && *selected == '1' ? theme->popup_selected : theme->toolbar);
-        overlay_text_shaped(x + char_width / 2, top + line_height / 2, name, strlen(name), false, theme->text);
+        overlay_text_run(x + char_width / 2, top + line_height / 2, name, strlen(name), theme->text);
         x += name_width + char_width;
     }
     free(languages);
     char *text = host.call("__infoText", "");
     if (!text) return;
-    char *saveptr;
-    char *direction = strtok_r(text, "\n", &saveptr);
-    struct info_layout layout_state = { left + 2 * char_width, top + 2 * line_height, width - 4 * char_width,
-                                        direction && !strcmp(direction, "rtl"), 0,
+    struct info_layout layout_state = { left + 2 * char_width, top + 2 * line_height, 0,
                                         (size_t)((height - 3 * line_height) / line_height), 0 };
-    for (char *paragraph = strtok_r(NULL, "\n", &saveptr); paragraph; paragraph = strtok_r(NULL, "\n", &saveptr)) {
-        wrap_shaped(paragraph, layout_state.width, layout_state.rtl, draw_info_line, &layout_state);
+    char *saveptr;
+    for (char *paragraph = strtok_r(text, "\n", &saveptr); paragraph; paragraph = strtok_r(NULL, "\n", &saveptr)) {
+        wrap_text(paragraph, width - 4 * char_width, draw_info_line, &layout_state);
         draw_info_line("", 0, &layout_state); // a blank line between paragraphs
     }
     free(text);
@@ -2645,79 +2637,9 @@ static void draw_whitespace(size_t column, float y, bool tab) {
     overlay_rect(x + (char_width - size) / 2, y + (overlay_line_height() - size) / 2, size, size, theme->whitespace);
 }
 
-// Rectangles over the cells of a right-to-left row whose text starts in [start, end).
-static void cell_rects(float y, const struct editor_cell *cells, size_t count, size_t start, size_t end,
-                       uint32_t color) {
-    for (size_t i = 0; i < count; i++)
-        if (cells[i].start >= start && cells[i].start < end)
-            column_rect(y, cells[i].column, cells[i].column + cells[i].width, color);
-}
-
-// A row with right-to-left text, drawn in the visual order of the full bidi algorithm, as the browser draws the
-// line of CodeMirror 5: left-to-right runs on the grid, right-to-left runs shaped (Arabic joins) in their cells.
-static void draw_bidi_row(size_t line, size_t row_start, size_t row_end, size_t indent, float y,
-                          const struct selection *selections,
-                          size_t selection_count, long bracket, long bracket_self) {
-    size_t line_start = editor_line_start(&editor, line);
-    bool last_row = row_end == editor_line_end(&editor, line);
-    struct editor_cell *cells;
-    size_t count = editor_row_cells(&editor, line, row_start, row_end, indent, &cells);
-    size_t row_columns = count ? cells[count - 1].column + cells[count - 1].width - indent : 0;
-    overlay_set_layer(OVERLAY_CODE_BACKGROUND);
-    if (row_columns > 0) column_rect(y, indent, indent + row_columns, code_background_color());
-    overlay_set_layer(OVERLAY_CODE_MARKS);
-    if (now < flash_until && flash_start != flash_end && flash_start <= row_end && flash_end >= row_start)
-        column_rect(y, indent, indent + (row_columns > 0 ? row_columns : 1), theme->flash);
-    for (size_t i = 0; i < selection_count; i++) {
-        size_t start = selection_start(&selections[i]), end = selection_end(&selections[i]);
-        if (start == end) continue;
-        cell_rects(y, cells, count, start, end, theme->selection);
-        if (last_row && end > row_end && start <= row_end)
-            column_rect(y, indent + row_columns, indent + row_columns + 1, theme->selection);
-    }
-    for (size_t i = 0; i < match_count; i++)
-        cell_rects(y, cells, count, matches[i].start, matches[i].end,
-                   i == active_match ? theme->match_active : theme->match);
-    if (bracket >= 0)
-        for (int k = 0; k < 2; k++) {
-            size_t position = (size_t)(k ? bracket_self : bracket);
-            cell_rects(y, cells, count, position, position + 1, theme->bracket);
-        }
-    for (size_t i = 0; i < count; i++) {
-        char c = editor.text[cells[i].start];
-        if ((c == ' ' || c == '\t') &&
-            whitespace_shown(line_start, editor_line_end(&editor, line), cells[i].start, selections, selection_count))
-            draw_whitespace(cells[i].column, y, c == '\t');
-    }
-    overlay_set_layer(OVERLAY_CODE_TEXT);
-    for (size_t i = 0; i < count;) {
-        size_t end = i + 1, first = cells[i].start, last = cells[i].end;
-        while (end < count && cells[end].level == cells[i].level) {
-            if (cells[end].start < first) first = cells[end].start;
-            if (cells[end].end > last) last = cells[end].end;
-            end++;
-        }
-        size_t column = cells[i].column, width = cells[end - 1].column + cells[end - 1].width - column;
-        if (column >= scroll_column) {
-            float x = MARGIN + (float)(column - scroll_column) * overlay_char_width();
-            if (cells[i].level % 2)
-                overlay_text_fitted(x, y, editor.text + first, last - first, (float)width * overlay_char_width(),
-                                    colors[first - line_start]);
-            else
-                overlay_text(x, y, editor.text + first, last - first, 0, width, colors + (first - line_start),
-                             theme->text);
-        }
-        i = end;
-    }
-    overlay_set_layer(OVERLAY_TOP);
-    free(cells);
-}
-
 // Draws one visual row: the bytes [start, end) of `line`, shown from column `indent` on.
 static void draw_row(size_t line, size_t row_start, size_t row_end, size_t indent, float y,
                      const struct selection *selections, size_t selection_count, long bracket, long bracket_self) {
-    if (editor_line_has_rtl(&editor, line))
-        return draw_bidi_row(line, row_start, row_end, indent, y, selections, selection_count, bracket, bracket_self);
     size_t line_start = editor_line_start(&editor, line);
     size_t row_columns = columns_between(row_start, row_end);
     bool last_row = row_end == editor_line_end(&editor, line);
@@ -2819,7 +2741,7 @@ static void draw_code(void) {
 
     bool blink_on = fmod(now - last_activity, 2 * CURSOR_BLINK_MS) < CURSOR_BLINK_MS;
     for (size_t i = 0; blink_on && i < selection_count; i++) {
-        size_t x, row = global_caret_row(selections[i].cursor, selections[i].sticky, &x);
+        size_t x, row = global_row(selections[i].cursor, &x);
         if (row < scroll_row || row >= scroll_row + rows || x < scroll_column || x > scroll_column + visible_columns())
             continue;
         overlay_rect(MARGIN + (float)(x - scroll_column) * overlay_char_width() - CURSOR_WIDTH / 2,
@@ -2852,7 +2774,7 @@ static void draw_code(void) {
 // The list below the word that is being typed, left-aligned with its start (above the cursor line when there is
 // no room below, as in VS Code). It hides the code below it; see COMPLETION_BOX_RGB.
 static void draw_completion_list(void) {
-    size_t x, row = global_caret_row(editor.cursor, editor.sticky, &x);
+    size_t x, row = global_row(editor.cursor, &x);
     if (row < scroll_row || row >= scroll_row + visible_rows()) return;
     float char_width = overlay_char_width(), line_height = overlay_line_height();
     size_t width = 0;
@@ -2879,7 +2801,7 @@ static void draw_completion_list(void) {
 }
 
 static void draw_completion_ghost(void) {
-    size_t x, row = global_caret_row(editor.cursor, editor.sticky, &x);
+    size_t x, row = global_row(editor.cursor, &x);
     if (row < scroll_row || row >= scroll_row + visible_rows() || x < scroll_column) return;
     const char *rest = completion.items[completion.selected] + completion.prefix_length;
     float left = MARGIN + (float)(x - scroll_column) * overlay_char_width(),
@@ -2912,7 +2834,7 @@ static void draw_signature_help(void) {
     } else {
         snprintf(detail, sizeof detail, "%s takes %zu arguments", signature->name, signature->input_count);
     }
-    size_t x, row = global_caret_row(editor.cursor, editor.sticky, &x);
+    size_t x, row = global_row(editor.cursor, &x);
     if (row < scroll_row || row >= scroll_row + visible_rows()) return;
     size_t name_x;
     global_row(call.name_start, &name_x);
@@ -2982,8 +2904,8 @@ static void draw_prompt(int width, int height) {
         float top = y - (float)(lines + 1) * line_height;
         overlay_rect(0, top, (float)width, (float)(lines + 1) * line_height, theme->popup_background);
         for (size_t i = 0; i < lines; i++)
-            overlay_text_shaped(MARGIN, top + (float)i * line_height + line_height / 2, share_confirmation[i],
-                                strlen(share_confirmation[i]), false, theme->text);
+            overlay_text_run(MARGIN, top + (float)i * line_height + line_height / 2, share_confirmation[i],
+                             strlen(share_confirmation[i]), theme->text);
         snprintf(text, sizeof text, "name: %s   (Enter: OK, Escape: cancel)", prompt.query);
         break;
     }

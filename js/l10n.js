@@ -5,8 +5,8 @@
 import english from './hydra-editor/text-elements.js'
 import { pendingFetches } from './network.js'
 
-const LANGUAGES = ['ja', 'es', 'ar', 'id', 'pt-br', 'ch', 'ko', 'fr', 'de']
-const RIGHT_TO_LEFT = ['ar']
+// The web editor also has Arabic; hydra-native draws no right-to-left text.
+const LANGUAGES = ['ja', 'es', 'id', 'pt-br', 'ch', 'ko', 'fr', 'de']
 const languagePath = (language) => `https://raw.githubusercontent.com/hydra-synth/l10n/main/${language}/editor.json`
 // The link targets of src/views/info.js.
 const LINKS = {
@@ -74,8 +74,7 @@ function plain (text) {
     .trim()
 }
 
-// The content of src/views/info.js, one paragraph per line in logical order; the first line is "ltr" or "rtl".
-// src/ui.c wraps, shapes (HarfBuzz) and orders the text (bidi).
+// The content of src/views/info.js, one paragraph per line; src/ui.c wraps the text.
 window.__infoText = () => {
   const t = translate
   const rule = '/'.repeat(59)
@@ -85,7 +84,7 @@ window.__infoText = () => {
     t('info.description-detailed'), t('info.uses'), ...(t('info.uses-list') || []).map((item) => `- ${item}`),
     t('info.author'), t('info.more-info'), t('info.more-info-forums'), t('info.support')
   ].map(plain)
-  return [RIGHT_TO_LEFT.includes(selected) ? 'rtl' : 'ltr', ...paragraphs].join('\n')
+  return paragraphs.join('\n')
 }
 
 // One line per language: "code<TAB>name<TAB>1 when selected".

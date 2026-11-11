@@ -33,10 +33,6 @@ enum edit_kind {
     EDIT_DELETING,
 };
 
-// The side of a cursor at a boundary of text directions, as `sticky` of CodeMirror 5: attached to the
-// character before it or after it.
-enum sticky { STICKY_NONE, STICKY_BEFORE, STICKY_AFTER };
-
 // The text between anchor and cursor; an empty selection is a caret.
 struct selection {
     size_t cursor;
@@ -44,7 +40,6 @@ struct selection {
     size_t goal_column; // the column (visual with wrap) that up and down motions keep
     bool has_goal_column;
     bool primary;
-    enum sticky sticky;
 };
 
 static inline size_t selection_start(const struct selection *selection) {
@@ -58,12 +53,6 @@ static inline size_t selection_end(const struct selection *selection) {
 // A character of a JavaScript identifier (ASCII).
 static inline bool is_identifier_char(unsigned char c) { return isalnum(c) || c == '_' || c == '$'; }
 
-// A grapheme cluster of a row with right-to-left text, in visual order: its bytes, grid column, width and level.
-struct editor_cell {
-    size_t start, end;
-    size_t column, width;
-    unsigned char level;
-};
 
 struct editor_range {
     size_t start, end;
@@ -91,7 +80,6 @@ struct editor {
     size_t anchor;
     size_t goal_column;
     bool has_goal_column;
-    enum sticky sticky;
     // Further selections of multiple cursors, sorted, without overlaps.
     struct selection *extra;
     size_t extra_count;
@@ -217,11 +205,6 @@ size_t editor_words(const struct editor *editor, const char *prefix, size_t pref
 // Soft wrap: visual rows of a line with editor->wrap_columns columns and the hanging indent.
 size_t editor_wrap_rows(const struct editor *editor, size_t line, size_t *row_starts, size_t capacity);
 size_t editor_row_indent(const struct editor *editor, size_t line); // columns of the indent of wrapped rows
-// The visual row of `offset` in its line and its column; in a row with right-to-left text, x is the visual column
-// of the caret on the side `sticky`.
-void editor_caret_position(const struct editor *editor, size_t offset, enum sticky sticky, size_t *row, size_t *x);
-bool editor_line_has_rtl(const struct editor *editor, size_t line);
-// The cells of the row [row_start, row_end) of `line` in visual order, from column `indent` on (malloc'd).
-size_t editor_row_cells(const struct editor *editor, size_t line, size_t row_start, size_t row_end, size_t indent,
-                        struct editor_cell **cells);
+// The visual row of `offset` in its line and its column.
+void editor_caret_position(const struct editor *editor, size_t offset, size_t *row, size_t *x);
 size_t editor_offset_at_visual(const struct editor *editor, size_t line, size_t row, size_t x);

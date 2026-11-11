@@ -85,6 +85,10 @@ the hydra-text extension (see [Text](docs/manual.md#text)). They need about 400 
 Thus sketches that use `P5` or draw on a canvas of their own do not run: `getContext()` gives `null`.
 `fetch()` does not apply the CORS rules of a web page.
 
+The editor draws one glyph for each code point, from left to right. It has no right-to-left text (Arabic,
+Hebrew), and it does not join the parts of an emoji sequence or place combining marks, because that needed two
+dependencies (HarfBuzz and SheenBidi) and the only C++ of the Linux build. Emoji show in one color.
+
 ## Release
 
 1. Run `make check` on a machine with a GPU, and `tools/release-tests.sh` in a desktop session.

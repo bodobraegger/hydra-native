@@ -36,7 +36,7 @@ The AGPL-3.0 requires the complete source for each person who gets the program. 
   which CMake downloads. A public repository with the pinned URLs and hashes covers this; else attach a source
   archive with vendor/ to each release.
 - licenses/ has no text of the Unicode License v3 (src/unicode_tables.h) and of the MIT license of CodeMirror 5
-  (code ported in src/bidi.c and src/editor.c). THIRD_PARTY.md names both.
+  (code ported in src/editor.c). THIRD_PARTY.md names both.
 - licenses/node has only the license of the Node.js module @roamhq/wrtc, not the licenses of the WebRTC library
   of Google in wrtc.node.
 

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(hydra-native VERSION 0.1.0 LANGUAGES C CXX)
+project(hydra-native VERSION 0.1.0 LANGUAGES C)
 
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE RelWithDebInfo)
@@ -14,8 +14,6 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY $<1:${CMAKE_BINARY_DIR}>)
 
 set(VENDOR ${CMAKE_SOURCE_DIR}/vendor CACHE PATH "Downloaded sources; the program finds its emoji font in vendor/fonts")
 set(QUICKJS_VERSION 2026-06-04)
-set(HARFBUZZ_VERSION 14.6.0)
-set(SHEENBIDI_VERSION 2.9.0)
 set(STB_COMMIT 4e9b368bfc071e97206ea5c6adba68dd0cbf8897)
 set(LIBREMIDI_VERSION 5.4.3)
 set(EMOJI_FONT_COMMIT 8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5)
@@ -79,14 +77,6 @@ endfunction()
 
 vendor_archive(quickjs https://bellard.org/quickjs/quickjs-${QUICKJS_VERSION}.tar.xz
   b376e839b322978313d929fd20663b11ba58b75df5a46c126dd19ea2fa70ad2a quickjs.c)
-vendor_archive(harfbuzz
-  https://github.com/harfbuzz/harfbuzz/releases/download/${HARFBUZZ_VERSION}/harfbuzz-${HARFBUZZ_VERSION}.tar.xz
-  d07a007327277708a2a73ae437887cdbaf282937f6d03ca5467723e9099af586 src/harfbuzz.cc)
-# The build needs only src/; the tests and the tools of the archive are 100 MB.
-file(REMOVE_RECURSE ${VENDOR}/harfbuzz/test ${VENDOR}/harfbuzz/perf ${VENDOR}/harfbuzz/util ${VENDOR}/harfbuzz/docs)
-vendor_archive(sheenbidi https://github.com/Tehreer/SheenBidi/archive/refs/tags/v${SHEENBIDI_VERSION}.tar.gz
-  e90ae142c6fc8b94366f3526f84b349a2c10137f87093db402fe51f6eace6d13 Source/SheenBidi.c)
-file(REMOVE_RECURSE ${VENDOR}/sheenbidi/Tools) # 19 MB of Unicode data for its generators
 set(STB_stb_image_SHA256 594c2fe35d49488b4382dbfaec8f98366defca819d916ac95becf3e75f4200b3)
 set(STB_stb_image_write_SHA256 cbd5f0ad7a9cf4468affb36354a1d2338034f2c12473cf1a8e32053cb6914a05)
 set(STB_stb_truetype_SHA256 ecd30b05e0dd4fea3a13c26810dd9e1992dc379049482c393d5a19e6b5090aab)
@@ -154,15 +144,6 @@ target_compile_options(quickjs PRIVATE ${QUIET})
 target_include_directories(quickjs PUBLIC ${VENDOR}/quickjs)
 endif()
 
-add_library(harfbuzz STATIC ${VENDOR}/harfbuzz/src/harfbuzz.cc)
-target_compile_options(harfbuzz PRIVATE ${QUIET} $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-fno-exceptions -fno-rtti>)
-target_include_directories(harfbuzz PUBLIC ${VENDOR}/harfbuzz/src)
-
-add_library(sheenbidi STATIC ${VENDOR}/sheenbidi/Source/SheenBidi.c)
-target_compile_definitions(sheenbidi PRIVATE SB_CONFIG_UNITY)
-target_compile_options(sheenbidi PRIVATE ${QUIET})
-target_include_directories(sheenbidi PUBLIC ${VENDOR}/sheenbidi/Headers)
-
 if(MSVC)
   set(WARNINGS /W3)
 else()
@@ -190,6 +171,7 @@ if(APPLE)
   target_link_libraries(hydra-native-capture PRIVATE "-framework ScreenCaptureKit" "-framework CoreMedia"
     "-framework CoreVideo" "-framework CoreGraphics" "-framework Accelerate" "-framework AppKit")
 elseif(WIN32)
+  enable_language(CXX)
   add_executable(hydra-native-capture src/capture_main.c src/capture_windows.cpp ${PROCESS_SOURCE})
   # C++/WinRT of current Visual Studio needs C++20 coroutines; with C++17 it asks for the removed /await.
   set_target_properties(hydra-native-capture PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
@@ -217,6 +199,7 @@ if(HYDRA_LINUX AND NOT HYDRA_SDL_AUDIO_LIBREMIDI)
   target_link_libraries(hydra-audio-midi PUBLIC PkgConfig::AUDIO_MIDI)
 else()
   target_sources(hydra-audio-midi PRIVATE src/audio_input_sdl.c)
+  enable_language(CXX) # libremidi; the Linux program is C only
 
   # libremidi in its header-only mode, with only the backend of the system: CoreMIDI, WinMM, or the ALSA
   # sequencer (opened at run time) for the test build of Linux.
@@ -258,15 +241,16 @@ endif()
 
 add_executable(hydra-native src/main.c src/engine.c src/bindings.c src/sandbox.c src/snapshot.c src/code_socket.c
   src/text.c src/video.c src/fetch.c
-  src/thumbnails.c src/recorder.c src/patch_bay.c src/editor.c src/bidi.c src/ui.c src/settings.c src/overlay.c
+  src/thumbnails.c src/recorder.c src/patch_bay.c src/editor.c src/ui.c src/settings.c src/overlay.c
   src/keymap.c src/programs.c src/signature.c src/window.c ${PROCESS_SOURCE})
 target_compile_options(hydra-native PRIVATE ${WARNINGS})
 target_compile_definitions(hydra-native PRIVATE HYDRA_NATIVE_VERSION="${PROJECT_VERSION}")
 target_include_directories(hydra-native PRIVATE ${VENDOR}/stb)
-target_link_libraries(hydra-native PRIVATE quickjs harfbuzz sheenbidi hydra-audio-midi SDL3::SDL3 gles
+target_link_libraries(hydra-native PRIVATE quickjs hydra-audio-midi SDL3::SDL3 gles
   m dl pthread)
-# harfbuzz is C++, so the C++ driver links the program.
-set_target_properties(hydra-native PROPERTIES LINKER_LANGUAGE CXX)
+if(TARGET libremidi) # C++, so the C++ driver links the program
+  set_target_properties(hydra-native PROPERTIES LINKER_LANGUAGE CXX)
+endif()
 
 # Starts the shader compile of src/programs.c next to a hidden window and compiles two programs.
 add_executable(programs-test test/programs_test.c src/programs.c src/window.c)
@@ -296,13 +280,12 @@ add_custom_target(javascript ALL DEPENDS ${CMAKE_BINARY_DIR}/hydra-bundle.js)
 enable_testing()
 set(SANITIZERS -fsanitize=address,undefined)
 
-add_executable(editor-test EXCLUDE_FROM_ALL test/editor_test.c src/editor.c src/bidi.c)
-add_executable(ui-test EXCLUDE_FROM_ALL test/ui_test.c src/ui.c src/keymap.c src/editor.c src/bidi.c src/settings.c
+add_executable(editor-test EXCLUDE_FROM_ALL test/editor_test.c src/editor.c)
+add_executable(ui-test EXCLUDE_FROM_ALL test/ui_test.c src/ui.c src/keymap.c src/editor.c src/settings.c
   src/signature.c)
 add_executable(audio-test EXCLUDE_FROM_ALL test/audio_test.c src/audio_processing.c)
 add_executable(process-test EXCLUDE_FROM_ALL test/process_test.c ${PROCESS_SOURCE})
-target_link_libraries(editor-test PRIVATE sheenbidi)
-target_link_libraries(ui-test PRIVATE sheenbidi quickjs SDL3::SDL3 m dl pthread)
+target_link_libraries(ui-test PRIVATE quickjs SDL3::SDL3 m dl pthread)
 target_link_libraries(audio-test PRIVATE m)
 set(UNIT_TESTS editor-test ui-test audio-test process-test)
 if(HYDRA_LINUX)
