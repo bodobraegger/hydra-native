@@ -43,6 +43,7 @@
 #define CLOSE_WAIT_MS 1000 // for the close handshake of the signalling WebSocket
 #define ID_LENGTH 8 // pb.id, the start of a random UUID as in rtc-patch-bay.js
 #define MAX_FRAME_SIDE 16384
+#define MAX_PEERS 256 // the newest peers of the room in the tables: the signalling server tells no peer that leaves
 #define RGBA_BYTES 4
 #define DEFAULT_PAYLOAD_TYPE 96
 #define NO_VIDEO (-1)
@@ -228,7 +229,19 @@ static void set_name(const char *name) {
     g_free(previous);
 }
 
+static void forget_peer(const char *id) {
+    const char *name = member_string(nick_from_id, id);
+    if (name && !g_strcmp0(member_string(id_from_nick, name), id)) json_object_remove_member(id_from_nick, name);
+    json_object_remove_member(nick_from_id, id);
+    json_object_remove_member(peer_list, id);
+}
+
 static void new_peer(const char *id) {
+    if (!json_object_has_member(peer_list, id) && json_object_get_size(peer_list) >= MAX_PEERS) {
+        GList *members = json_object_get_members(peer_list);
+        forget_peer(members->data);
+        g_list_free(members);
+    }
     json_object_set_null_member(peer_list, id);
     json_object_set_string_member(nick_from_id, id, id);
     json_object_set_string_member(id_from_nick, id, id);
@@ -242,7 +255,7 @@ static void receive_broadcast(JsonNode *data) {
     JsonObject *update = node_object(data);
     const char *id = member_string(update, "id"), *name = member_string(update, "nick");
     if (g_strcmp0(member_string(update, "type"), "update-nick") || !id || !name ||
-        !g_strcmp0(member_string(update, "previous"), name))
+        !json_object_has_member(peer_list, id) || !g_strcmp0(member_string(update, "previous"), name))
         return;
     const char *old = member_string(nick_from_id, id);
     if (old) json_object_remove_member(id_from_nick, old);
