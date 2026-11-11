@@ -74,7 +74,8 @@ DWORD main_thread;
 }
 
 void create_device() {
-    winrt::check_hresult(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, D3D11_CREATE_DEVICE_BGRA_SUPPORT, nullptr, 0,
+    winrt::check_hresult(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr,
+        D3D11_CREATE_DEVICE_BGRA_SUPPORT, nullptr, 0,
                                            D3D11_SDK_VERSION, state.d3d_device.put(), nullptr, state.context.put()));
     auto dxgi_device = state.d3d_device.as<IDXGIDevice>();
     winrt::com_ptr<::IInspectable> inspectable;
@@ -85,7 +86,8 @@ void create_device() {
 GraphicsCaptureItem item_for_monitor(HMONITOR monitor) {
     auto interop = winrt::get_activation_factory<GraphicsCaptureItem, IGraphicsCaptureItemInterop>();
     GraphicsCaptureItem item{ nullptr };
-    winrt::check_hresult(interop->CreateForMonitor(monitor, winrt::guid_of<winrt::Windows::Graphics::Capture::IGraphicsCaptureItem>(),
+    winrt::check_hresult(interop->CreateForMonitor(monitor,
+        winrt::guid_of<winrt::Windows::Graphics::Capture::IGraphicsCaptureItem>(),
                                                    winrt::put_abi(item)));
     return item;
 }
@@ -93,7 +95,8 @@ GraphicsCaptureItem item_for_monitor(HMONITOR monitor) {
 GraphicsCaptureItem item_for_window(HWND window) {
     auto interop = winrt::get_activation_factory<GraphicsCaptureItem, IGraphicsCaptureItemInterop>();
     GraphicsCaptureItem item{ nullptr };
-    winrt::check_hresult(interop->CreateForWindow(window, winrt::guid_of<winrt::Windows::Graphics::Capture::IGraphicsCaptureItem>(),
+    winrt::check_hresult(interop->CreateForWindow(window,
+        winrt::guid_of<winrt::Windows::Graphics::Capture::IGraphicsCaptureItem>(),
                                                   winrt::put_abi(item)));
     return item;
 }
@@ -110,7 +113,8 @@ HWND create_owner_window() {
     window_class.hInstance = GetModuleHandleW(nullptr);
     window_class.lpszClassName = L"hydra-native-capture";
     RegisterClassW(&window_class);
-    return CreateWindowExW(WS_EX_TOOLWINDOW, window_class.lpszClassName, L"hydra-native capture", WS_POPUP, 0, 0, 0, 0, nullptr,
+    return CreateWindowExW(WS_EX_TOOLWINDOW, window_class.lpszClassName, L"hydra-native capture", WS_POPUP, 0, 0, 0,
+        0, nullptr,
                            nullptr, window_class.hInstance, nullptr);
 }
 
@@ -118,7 +122,8 @@ GraphicsCaptureItem pick_item() {
     GraphicsCapturePicker picker;
     picker.as<IInitializeWithWindow>()->Initialize(create_owner_window());
     auto operation = picker.PickSingleItemAsync();
-    operation.Completed([](auto const &, winrt::Windows::Foundation::AsyncStatus) { PostThreadMessageW(main_thread, WM_PICKED, 0, 0); });
+    operation.Completed([](auto const &, winrt::Windows::Foundation::AsyncStatus) { PostThreadMessageW(main_thread,
+        WM_PICKED, 0, 0); });
     MSG message;
     while (GetMessageW(&message, nullptr, 0, 0) > 0 && message.message != WM_PICKED) {
         TranslateMessage(&message);
@@ -137,7 +142,8 @@ bool convert_frame(ID3D11Texture2D *texture, SizeInt32 content) {
     if (content_width <= 0 || content_height <= 0) return false;
     D3D11_TEXTURE2D_DESC staging_description{};
     if (state.staging) state.staging->GetDesc(&staging_description);
-    if (!state.staging || staging_description.Width != description.Width || staging_description.Height != description.Height) {
+    if (!state.staging || staging_description.Width != description.Width
+        || staging_description.Height != description.Height) {
         description.Usage = D3D11_USAGE_STAGING;
         description.BindFlags = 0;
         description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
@@ -197,7 +203,8 @@ void frame_arrived(Direct3D11CaptureFramePool const &pool, winrt::Windows::Found
 void start_capture(GraphicsCaptureItem const &item) {
     state.item = item;
     state.pool_size = item.Size();
-    state.pool = Direct3D11CaptureFramePool::CreateFreeThreaded(state.device, FRAME_FORMAT, FRAME_BUFFER_COUNT, state.pool_size);
+    state.pool = Direct3D11CaptureFramePool::CreateFreeThreaded(state.device, FRAME_FORMAT, FRAME_BUFFER_COUNT,
+        state.pool_size);
     state.pool.FrameArrived(frame_arrived);
     state.item.Closed([](auto const &, auto const &) { finish(0); });
     state.session = state.pool.CreateCaptureSession(state.item);

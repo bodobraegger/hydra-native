@@ -32,11 +32,13 @@ API_AVAILABLE(macos(12.3))
 @end
 
 @implementation CaptureOutput
-- (void)stream:(SCStream *)stream didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer ofType:(SCStreamOutputType)type {
+- (void)stream:(SCStream *)stream didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer
+    ofType:(SCStreamOutputType)type {
     if (type != SCStreamOutputTypeScreen || !CMSampleBufferIsValid(sampleBuffer)) return;
     // Frames without changes (SCFrameStatusIdle) carry no image.
     CFArrayRef attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, false);
-    NSDictionary *info = attachments && CFArrayGetCount(attachments) ? (__bridge NSDictionary *)CFArrayGetValueAtIndex(attachments, 0) : nil;
+    NSDictionary *info = attachments && CFArrayGetCount(attachments)
+        ? (__bridge NSDictionary *)CFArrayGetValueAtIndex(attachments, 0) : nil;
     NSNumber *status = info[SCStreamFrameInfoStatus];
     if (!status || status.integerValue != SCFrameStatusComplete) return;
     CVPixelBufferRef pixels = CMSampleBufferGetImageBuffer(sampleBuffer);
@@ -93,7 +95,8 @@ API_AVAILABLE(macos(14.0))
 @end
 
 @implementation PickerObserver
-- (void)contentSharingPicker:(SCContentSharingPicker *)picker didUpdateWithFilter:(SCContentFilter *)filter forStream:(SCStream *)stream {
+- (void)contentSharingPicker:(SCContentSharingPicker *)picker didUpdateWithFilter:(SCContentFilter *)filter
+    forStream:(SCStream *)stream {
     if (capture_stream) return; // the first choice starts the stream; the helper captures one source
     picker.active = NO;
     start_stream(filter, CGRectNull);
@@ -130,7 +133,8 @@ static void present_picker(void) {
 // The ID of the frontmost normal window (layer 0) of the screen; CGWindowListCopyWindowInfo lists the windows
 // from front to back.
 static CGWindowID front_window(void) {
-    CFArrayRef windows = CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements,
+    CFArrayRef windows = CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly |
+        kCGWindowListExcludeDesktopElements,
                                                     kCGNullWindowID);
     CGWindowID found = kCGNullWindowID;
     for (NSDictionary *window in (__bridge NSArray *)windows) {
@@ -176,7 +180,8 @@ static void capture_content(const struct capture_request *request, SCShareableCo
         fprintf(stderr, "capture: no display\n");
         finish(1);
     }
-    CGRect area = CGRectMake(request->x - display.frame.origin.x, request->y - display.frame.origin.y, request->area_width,
+    CGRect area = CGRectMake(request->x - display.frame.origin.x, request->y - display.frame.origin.y,
+        request->area_width,
                              request->area_height);
     start_stream([[SCContentFilter alloc] initWithDisplay:display excludingWindows:@[]], area);
 }
@@ -249,7 +254,8 @@ API_AVAILABLE(macos(13.0))
 
 @implementation AudioOutput
 // The mean of the channels of each frame, interleaved or one buffer per channel, as 32-bit floats.
-- (void)stream:(SCStream *)stream didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer ofType:(SCStreamOutputType)type {
+- (void)stream:(SCStream *)stream didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer
+    ofType:(SCStreamOutputType)type {
     if (type != SCStreamOutputTypeAudio || !CMSampleBufferIsValid(sampleBuffer)) return;
     const AudioStreamBasicDescription *format =
         CMAudioFormatDescriptionGetStreamBasicDescription(CMSampleBufferGetFormatDescription(sampleBuffer));
@@ -261,11 +267,13 @@ API_AVAILABLE(macos(13.0))
     AudioBufferList *list = malloc(list_size);
     CMBlockBufferRef block = NULL;
     OSStatus status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
-        sampleBuffer, NULL, list, list_size, NULL, NULL, kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment, &block);
+        sampleBuffer, NULL, list, list_size, NULL, NULL, kCMSampleBufferFlag_AudioBufferList_Assure16ByteAlignment,
+            &block);
     UInt32 channels = format->mChannelsPerFrame;
     bool planar = format->mFormatFlags & kAudioFormatFlagIsNonInterleaved;
     size_t frames = (size_t)CMSampleBufferGetNumSamples(sampleBuffer);
-    float *mono = status == noErr && (!planar || list->mNumberBuffers >= channels) ? malloc(frames * sizeof(float)) : NULL;
+    float *mono = status == noErr && (!planar || list->mNumberBuffers >= channels)
+        ? malloc(frames * sizeof(float)) : NULL;
     for (size_t i = 0; mono && i < frames; i++) {
         float sum = 0;
         for (UInt32 channel = 0; channel < channels; channel++)
@@ -329,7 +337,8 @@ int capture_system_audio(int output) {
         if (@available(macOS 13.0, *)) {
             require_permission();
             [SCShareableContent getShareableContentExcludingDesktopWindows:YES onScreenWindowsOnly:YES
-                                                         completionHandler:^(SCShareableContent *content, NSError *error) {
+                                                         completionHandler:^(SCShareableContent *content,
+                                                             NSError *error) {
                 if (!content) {
                     fprintf(stderr, "capture: %s\n", error.localizedDescription.UTF8String);
                     finish(1);

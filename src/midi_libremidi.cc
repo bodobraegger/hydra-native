@@ -116,7 +116,8 @@ void update_ports() {
 void fill(midi_port &entry, int client, int port, const libremidi::port_information &info) {
     entry.client = client;
     entry.port = port;
-    snprintf(entry.name, sizeof entry.name, "%s", (info.display_name.empty() ? info.port_name : info.display_name).c_str());
+    snprintf(entry.name, sizeof entry.name, "%s",
+        (info.display_name.empty() ? info.port_name : info.display_name).c_str());
     snprintf(entry.manufacturer, sizeof entry.manufacturer, "%s", info.manufacturer.c_str());
 }
 
