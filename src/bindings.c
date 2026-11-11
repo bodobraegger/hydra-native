@@ -14,6 +14,7 @@
 #include "midi.h"
 #include "native.h"
 #include "process.h"
+#include "quickjs-libc.h"
 #include "sandbox.h"
 #include "snapshot.h"
 #include "ui.h"
@@ -669,6 +670,26 @@ static JSValue js_record_stop(JSContext *ctx, JSValueConst this, int argc, JSVal
     return JS_NewString(ctx, recording_path);
 }
 
+static JSValue fetch_done_callback = JS_UNDEFINED;
+
+// onFetchDone(callback): the one receiver of download results, callback(id, ok, text, bytes).
+static JSValue js_on_fetch_done(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    JS_FreeValue(ctx, fetch_done_callback);
+    fetch_done_callback = JS_DupValue(ctx, argv[0]);
+    return JS_UNDEFINED;
+}
+
+void bindings_fetch_done(JSContext *ctx, int id, bool ok, const char *data, size_t length) {
+    if (!JS_IsFunction(ctx, fetch_done_callback)) return;
+    // The text for scripts and JSON, the bytes for binary files.
+    JSValue arguments[4] = { JS_NewInt32(ctx, id), JS_NewBool(ctx, ok), JS_NewStringLen(ctx, data, length),
+                             JS_NewArrayBufferCopy(ctx, (const uint8_t *)data, length) };
+    JSValue result = JS_Call(ctx, fetch_done_callback, JS_UNDEFINED, 4, arguments);
+    if (JS_IsException(result)) js_std_dump_error(ctx);
+    JS_FreeValue(ctx, result);
+    for (int i = 0; i < 4; i++) JS_FreeValue(ctx, arguments[i]);
+}
+
 static const JSCFunctionListEntry native_functions[] = {
     JS_CFUNC_DEF("createProgram", 2, js_create_program),
     JS_CFUNC_DEF("programStatus", 2, js_program_status),
@@ -701,6 +722,7 @@ static const JSCFunctionListEntry native_functions[] = {
     JS_CFUNC_DEF("audioStart", 0, js_audio_start),
     JS_CFUNC_DEF("audioFeatures", 0, js_audio_features),
     JS_CFUNC_DEF("fetchStart", 1, js_fetch_start),
+    JS_CFUNC_DEF("onFetchDone", 1, js_on_fetch_done),
     JS_CFUNC_DEF("shareDone", 2, js_share_done),
     JS_CFUNC_DEF("patchBayStart", 1, js_patch_bay_start),
     JS_CFUNC_DEF("patchBaySend", 1, js_patch_bay_send),

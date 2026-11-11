@@ -94,10 +94,7 @@ static void update_text_input_rect(int drawable_width) {
 
 static void fetch_done(int id, bool ok, const char *data, size_t length) {
     if (thumbnails_fetch_done(id, ok, data, length)) return;
-    // The text for scripts and JSON, the bytes for binary files.
-    JSValue arguments[4] = { JS_NewInt32(js, id), JS_NewBool(js, ok), JS_NewStringLen(js, data, length),
-                             JS_NewArrayBufferCopy(js, (const uint8_t *)data, length) };
-    engine_call("__fetchDone", 4, arguments);
+    bindings_fetch_done(js, id, ok, data, length);
 }
 
 // ---------------------------------------------------------------- input events

@@ -13,12 +13,12 @@ const READY_STATES = { UNSENT: 0, OPENED: 1, HEADERS_RECEIVED: 2, LOADING: 3, DO
 // Callbacks of native.fetchStart() downloads by id, also for js/main.js, js/l10n.js and js/extensions.js.
 export const pendingFetches = new Map()
 
-// src/main.c calls this when a download of native.fetchStart() ends.
-window.__fetchDone = (id, ok, text, buffer) => {
+// Called when a download of native.fetchStart() ends. It is no global, so that a sketch cannot give a false result.
+native.onFetchDone((id, ok, text, buffer) => {
   const callback = pendingFetches.get(id)
   pendingFetches.delete(id)
   if (callback) callback(ok, text, buffer)
-}
+})
 
 class Headers {
   constructor (init) {
