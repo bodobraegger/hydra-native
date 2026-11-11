@@ -86,6 +86,7 @@ vendor_archive(harfbuzz
 file(REMOVE_RECURSE ${VENDOR}/harfbuzz/test ${VENDOR}/harfbuzz/perf ${VENDOR}/harfbuzz/util ${VENDOR}/harfbuzz/docs)
 vendor_archive(sheenbidi https://github.com/Tehreer/SheenBidi/archive/refs/tags/v${SHEENBIDI_VERSION}.tar.gz
   e90ae142c6fc8b94366f3526f84b349a2c10137f87093db402fe51f6eace6d13 Source/SheenBidi.c)
+file(REMOVE_RECURSE ${VENDOR}/sheenbidi/Tools) # 19 MB of Unicode data for its generators
 set(STB_stb_image_SHA256 594c2fe35d49488b4382dbfaec8f98366defca819d916ac95becf3e75f4200b3)
 set(STB_stb_image_write_SHA256 cbd5f0ad7a9cf4468affb36354a1d2338034f2c12473cf1a8e32053cb6914a05)
 set(STB_stb_truetype_SHA256 ecd30b05e0dd4fea3a13c26810dd9e1992dc379049482c393d5a19e6b5090aab)
