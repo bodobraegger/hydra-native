@@ -45,6 +45,7 @@
 #define ID_LENGTH 8 // pb.id, the start of a random UUID as in rtc-patch-bay.js
 #define MAX_FRAME_SIDE 16384
 #define MAX_PEERS 256 // the newest peers of the room in the tables: the signalling server tells no peer that leaves
+#define MAX_UNSENT 256 // packets while the signalling server is not connected; more are dropped
 #define MAX_CONNECTIONS 16 // peer connections at the same time, each a pipeline with threads of its own
 #define RGBA_BYTES 4
 #define DEFAULT_PAYLOAD_TYPE 96
@@ -198,8 +199,10 @@ static void send_packet(char *text) {
     if (connected && soup_websocket_connection_get_state(signaller) == SOUP_WEBSOCKET_STATE_OPEN) {
         soup_websocket_connection_send_text(signaller, text);
         g_free(text);
-    } else {
+    } else if (unsent->len < MAX_UNSENT) {
         g_ptr_array_add(unsent, text);
+    } else {
+        g_free(text);
     }
 }
 
