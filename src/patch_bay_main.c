@@ -559,6 +559,13 @@ static void set_codec(GstWebRTCRTPTransceiver *transceiver, int payload_type) {
     gst_caps_unref(caps);
 }
 
+static bool has_transceiver(struct peer *peer) {
+    GstWebRTCRTPTransceiver *transceiver = NULL;
+    g_signal_emit_by_name(peer->webrtc, "get-transceiver", 0, &transceiver);
+    if (transceiver) gst_object_unref(transceiver);
+    return transceiver != NULL;
+}
+
 static void add_receiver(struct peer *peer) {
     GstCaps *caps = video_caps(DEFAULT_PAYLOAD_TYPE);
     GstWebRTCRTPTransceiver *transceiver = NULL;
@@ -649,9 +656,10 @@ static void peer_signal(struct peer *peer, JsonObject *signal) {
     if (peer->initiator && renegotiate && JSON_NODE_HOLDS_VALUE(renegotiate) && json_node_get_boolean(renegotiate))
         negotiate(peer);
     JsonObject *request = node_object(json_object_get_member(signal, "transceiverRequest"));
+    // An initiator has its video transceiver from the start: a request adds one only if that failed.
     if (peer->initiator && request) {
-        if (!g_strcmp0(member_string(request, "kind"), "video")) add_receiver(peer); // webrtcbin then negotiates
-        else log_text(false, "the patch bay receives only video");
+        if (g_strcmp0(member_string(request, "kind"), "video")) log_text(false, "the patch bay receives only video");
+        else if (!has_transceiver(peer)) add_receiver(peer); // webrtcbin then negotiates
     }
     JsonObject *candidate = node_object(json_object_get_member(signal, "candidate"));
     const char *text = member_string(candidate, "candidate");
