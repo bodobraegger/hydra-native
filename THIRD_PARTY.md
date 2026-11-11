@@ -41,7 +41,6 @@ a distributed hydra-native binary with its bundle falls under the AGPL-3.0.
   fixes #201, #202, #203 and #205), AGPL-3.0. https://github.com/hydra-synth/hydra-synth
   The renderer and the API; it runs unchanged. js/regl-shim.js, js/raf-loop-shim.js and js/meyda-shim.js
   replace its dependencies regl, raf-loop and meyda.
-- acorn 8.19.0, astring 1.9.0 and astravel 0.5.0, MIT license. The parser and code generator of the mutator.
 - p5.js 1.6.0 (the version of public/p5.min.js in the web editor), LGPL-2.1. `make` copies lib/p5.min.js of
   the npm package to build/p5.min.js; js/p5.js loads it on the first use of P5.
 - esbuild 0.28.2, MIT license. Build tool only, not in the output.
@@ -54,7 +53,7 @@ a distributed hydra-native binary with its bundle falls under the AGPL-3.0.
   On macOS and Windows, pnpm installs the prebuilt binary of that system instead: @roamhq/wrtc-darwin-arm64,
   @roamhq/wrtc-darwin-x64 or @roamhq/wrtc-win32-x64, version 0.8.0, under the same license.
 - simple-peer 9.11.1 and socket.io-client 2.5.0 (the versions of the web editor), MIT license; shortid 2.2.17,
-  MIT license; inherits 2.0.4, ISC license; events 3.3.0, MIT license (also for js/patch-bay.js in the bundle).
+  MIT license; inherits 2.0.4, ISC license.
 - socket.io 2.5.0, MIT license. Only for test/signalling_server.cjs.
 
 ## Code of the hydra web editor

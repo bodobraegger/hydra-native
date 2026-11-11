@@ -11,18 +11,6 @@ importers:
       '@roamhq/wrtc':
         specifier: 0.8.0
         version: 0.8.0
-      acorn:
-        specifier: ^8.19.0
-        version: 8.19.0
-      astravel:
-        specifier: ^0.5.0
-        version: 0.5.0
-      astring:
-        specifier: ^1.9.0
-        version: 1.9.0
-      events:
-        specifier: 3.3.0
-        version: 3.3.0
       hydra-synth:
         specifier: github:hydra-synth/hydra-synth#9d29a9f4fd8f9081b9759943f38db36f05b9a88f
         version: https://codeload.github.com/hydra-synth/hydra-synth/tar.gz/9d29a9f4fd8f9081b9759943f38db36f05b9a88f
@@ -263,23 +251,11 @@ packages:
     resolution: {integrity: sha512-PYAthTa2m2VKxuvSD3DPC/Gy+U+sOA1LAuT8mkmRuvw+NACSaeXEQ+NHcVF7rONl6qcaxV3Uuemwawk+7+SJLw==}
     engines: {node: '>= 0.6'}
 
-  acorn@8.19.0:
-    resolution: {integrity: sha512-oJlA3XiRm7Cyk6qFD2Jn8ak9B7jSy0qy00ADO3+8dpT0LSjFihQYv4C02LFCSYJV3Q37xYwwRy5m+IpIiUzqWw==}
-    engines: {node: '>=0.4.0'}
-    hasBin: true
-
   after@0.8.2:
     resolution: {integrity: sha512-QbJ0NTQ/I9DI3uSJA4cbexiwQeRAfjPScqIbSjUDd9TOrcg6pTkdgziesOqxBMBzit8vFCTwrP27t13vFOORRA==}
 
   arraybuffer.slice@0.0.7:
     resolution: {integrity: sha512-wGUIVQXuehL5TCqQun8OW81jGzAWycqzFF8lFp+GOM5BXLYj3bKNsYC4daB7n6XjCqxQA/qgTJ+8ANR3acjrog==}
-
-  astravel@0.5.0:
-    resolution: {integrity: sha512-bA3cq0dqwjxfUneiAJZW2kE9NPIrv7h6dTaPfGOP0hwO/5yS4CVuZzPxuL5g8V1oeevbUK8Os3Igr+vnOv74pw==}
-
-  astring@1.9.0:
-    resolution: {integrity: sha512-LElXdjswlqjWrPpJFg1Fx4wpkOCxj1TDHlSV4PlaRxHGWko024xICaa97ZkMfs6DRKlCguiAI+rbXv5GWwXIkg==}
-    hasBin: true
 
   babel-plugin-add-module-exports@0.2.1:
     resolution: {integrity: sha512-3AN/9V/rKuv90NG65m4tTHsI04XrCKsWbztIcW7a8H5iIN7WlvWucRtVV0V/rT4QvtA11n5Vmp20fLwfMWqp6g==}
@@ -410,10 +386,6 @@ packages:
   events@1.1.1:
     resolution: {integrity: sha512-kEcvvCBByWXGnZy6JUlgAp2gBIUjfCAV6P6TgT1/aaQKcmuAEC4OZTV1I4EWQLz2gxZw76atuVyvHhTxvi0Flw==}
     engines: {node: '>=0.4.x'}
-
-  events@3.3.0:
-    resolution: {integrity: sha512-mQw+2fkQbALzQ7V0MY0IqdnXNOeTtP4r0lN9z7AAawCXgqea7bDii20AYrIBrFd/Hx0M2Ocz6S111CaFkUcb0Q==}
-    engines: {node: '>=0.8.x'}
 
   fftjs@0.0.4:
     resolution: {integrity: sha512-nIWxQyth1LVD6NH8a+YZUv+McjzbOY6dMe4wv6Pq5cGfP+c8Rd1T8Dsd50DCWlNgzSqA3y9lOkpD6dZD3qHa1A==}
@@ -737,15 +709,9 @@ snapshots:
       mime-types: 2.1.35
       negotiator: 0.6.3
 
-  acorn@8.19.0: {}
-
   after@0.8.2: {}
 
   arraybuffer.slice@0.0.7: {}
-
-  astravel@0.5.0: {}
-
-  astring@1.9.0: {}
 
   babel-plugin-add-module-exports@0.2.1: {}
 
@@ -887,8 +853,6 @@ snapshots:
   estree-walker@2.0.2: {}
 
   events@1.1.1: {}
-
-  events@3.3.0: {}
 
   fftjs@0.0.4:
     dependencies:

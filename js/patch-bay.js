@@ -1,7 +1,7 @@
 // `pb`, the webRTC patch bay of the web editor (src/lib/patch-bay/pb-live.js): tools/patch-bay.mjs runs that code
 // with @roamhq/wrtc, and this object mirrors it for hydra-synth (initStream) and sketches (pb.list(), pb.setName()).
 // As in the web editor, it exists only with a server (galleryServer, the settings menu), in the room 'iclc'.
-import { EventEmitter } from 'events'
+import { EventEmitter } from './event-emitter.js'
 import { nativeVideo } from './sources.js'
 
 const WEB_EDITOR_ROOM = 'iclc'

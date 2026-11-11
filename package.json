@@ -5,10 +5,6 @@
   "type": "module",
   "dependencies": {
     "@roamhq/wrtc": "0.8.0",
-    "acorn": "^8.19.0",
-    "astravel": "^0.5.0",
-    "astring": "^1.9.0",
-    "events": "3.3.0",
     "hydra-synth": "github:hydra-synth/hydra-synth#9d29a9f4fd8f9081b9759943f38db36f05b9a88f",
     "inherits": "2.0.4",
     "p5": "1.6.0",
