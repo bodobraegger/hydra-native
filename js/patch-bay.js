@@ -22,8 +22,7 @@ export class PatchBay extends EventEmitter {
 
   close () {
     native.patchBayStop()
-    for (const video of this.videos.values()) video.close()
-    this.videos.clear()
+    for (const video of [...this.videos.values()]) video.close()
     this.id = null
     this.removeAllListeners()
   }
@@ -46,12 +45,15 @@ export class PatchBay extends EventEmitter {
   receive (message) {
     switch (message.type) {
       case 'state':
-        Object.assign(this, { id: message.id, streamId: message.streamId, nick: message.nick, nicks: message.nicks, peers: message.peers })
+        Object.assign(this, {
+          id: message.id, streamId: message.streamId, nick: message.nick, nicks: message.nicks, peers: message.peers
+        })
         break
       case 'publish':
         native.patchBayPublish(message.on)
         break
       case 'video': this.receiveVideo(message); break
+      case 'video closed': this.videos.get(message.nick)?.close(); break
       case 'broadcast': this.emit('broadcast', message.data); break
       case 'message': this.emit('message', message.data); break
       case 'log': (message.error ? console.warn : console.log)(`pb: ${message.text}`); break
@@ -59,10 +61,13 @@ export class PatchBay extends EventEmitter {
   }
 
   // The first frame of a stream gives 'got video' as in pb-live.js; a new frame size swaps the channel of the
-  // same video object, and hydra-synth resizes the texture in tick().
-  receiveVideo ({ nick, channel, width, height }) {
+  // same video object, and hydra-synth resizes the texture in tick(). A closed video (the peer left, or the
+  // source was cleared) leaves the list, so that the next stream of that peer gives 'got video' again.
+  receiveVideo ({ nick, channel, width, height, resized }) {
+    const { videos } = this
+    const video = videos.get(nick)
+    if (!video && resized) return // the source of this stream was cleared
     const next = nativeVideo(native.patchBayVideo(channel, width, height), width, height)
-    const video = this.videos.get(nick)
     if (video) {
       video.current.close()
       video.current = next
@@ -74,7 +79,10 @@ export class PatchBay extends EventEmitter {
       get height () { return this.current.height },
       get videoHandle () { return this.current.videoHandle },
       upload (texture) { return this.current.upload(texture) },
-      close () { this.current.close() }
+      close () {
+        this.current.close()
+        if (videos.get(nick) === this) videos.delete(nick)
+      }
     }
     this.videos.set(nick, created)
     this.emit('got video', nick, created)

@@ -8,11 +8,13 @@
 //   output WIDTHxHEIGHT                            hydra-native sends RGBA frames of its output (rows from the bottom)
 //   stream-N-WIDTHxHEIGHT                          the helper sends the RGBA frames of a received stream
 // stdin, one JSON object per line, from src/patch_bay.c:
-//   { type: 'call', method, args }                 a method of pb: initSource, setName, broadcast, list
+//   { type: 'call', method, args }                 a method of pb: initSource, setName, broadcast
 // stdout, one JSON object per line:
 //   { type: 'state', id, nick, nicks, peers }      after each change of the peers or names
 //   { type: 'publish', on }                         whether a peer connection wants the output frames
-//   { type: 'video', nick, channel, width, height } a received stream, whose frames come on `channel`
+//   { type: 'video', nick, channel, width, height, resized } a received stream, whose frames come on `channel`;
+//                                                    `resized` for a new frame size of a stream sent before
+//   { type: 'video closed', nick }                   the peer of a received stream left
 //   { type: 'broadcast', data }, { type: 'message', data }, { type: 'log', text }
 import fs from 'node:fs'
 import net from 'node:net'
@@ -20,6 +22,7 @@ import wrtc from '@roamhq/wrtc'
 
 const [server, room, socketAddress] = process.argv.slice(2)
 const PUBLISH_CHECK_MS = 500
+const CALLS = ['initSource', 'setName', 'broadcast'] // the methods of pb that js/patch-bay.js calls
 const NEWLINE = 10
 const isUnixSocket = process.platform !== 'win32'
 const { RTCVideoSink, RTCVideoSource, i420ToRgba, rgbaToI420 } = wrtc.nonstandard
@@ -67,40 +70,55 @@ Object.assign(globalThis, {
 })
 
 let receivedStreams = 0
+let newestVideo = null // the element that pb-live.js made for the stream of the current 'stream' event
 
 // A <video> element for pb-live.js: its srcObject feeds a channel with RGBA frames, and 'loadedmetadata' comes with
 // the first frame. A later change of the frame size (WebRTC starts small) opens a new channel; frames that come
 // before hydra-native connects to the channel are dropped.
 class VideoElement {
-  constructor () { this.listeners = {} }
+  constructor () {
+    this.listeners = {}
+    newestVideo = this
+  }
+
+  // Ends the frames of a peer that left, or whose stream a newer one replaces.
+  stop () {
+    if (this.sink) this.sink.stop()
+    if (this.output) this.output.destroy()
+    if (this.channel) channels.delete(this.channel)
+  }
+
   addEventListener (type, listener) { (this.listeners[type] ||= []).push(listener) }
   play () {}
   set srcObject (stream) {
     const track = stream.getVideoTracks()[0]
     if (!track) return
-    const sink = new RTCVideoSink(track)
+    const sink = this.sink = new RTCVideoSink(track)
     const number = ++receivedStreams
-    let output = null, rgba = null
+    let rgba = null
     sink.onframe = ({ frame }) => {
-      if (!output || frame.width !== this.videoWidth || frame.height !== this.videoHeight) {
-        if (output) output.destroy()
+      if (!this.output || frame.width !== this.videoWidth || frame.height !== this.videoHeight) {
+        if (this.output) this.output.destroy()
         if (this.channel) channels.delete(this.channel)
-        output = null
+        this.output = null
         this.videoWidth = frame.width
         this.videoHeight = frame.height
         const channel = this.channel = `stream-${number}-${frame.width}x${frame.height}`
         channels.set(channel, (socket) => {
-          if (output) output.destroy()
-          output = socket
+          if (this.output) this.output.destroy()
+          this.output = socket
         })
         rgba = new Uint8ClampedArray(frame.width * frame.height * 4)
-        if (this.loaded) send({ type: 'video', nick: this.nick, channel, width: frame.width, height: frame.height })
+        if (this.loaded) {
+          send({ type: 'video', nick: this.nick, channel, width: frame.width, height: frame.height, resized: true })
+        }
         else {
           this.loaded = true
           for (const listener of this.listeners.loadedmetadata || []) listener()
         }
       }
       // Not connected (yet), or hydra-native reads slower than frames come: drop this frame.
+      const { output } = this
       if (!output || output.destroyed || output.writableNeedDrain) return
       i420ToRgba(frame, { width: frame.width, height: frame.height, data: rgba })
       output.write(Buffer.from(rgba.buffer.slice(0)))
@@ -149,14 +167,34 @@ pb.init(stream, { server, room })
 
 // streamId: the socket id, which the other peers list in pb.peers and pass to s0.initStream; pb.id (random) is
 // only the default nickname.
-const sendState = () => send({ type: 'state', id: pb.id, streamId: pb.signaller.id, nick: pb.nick, nicks: Object.keys(pb.idFromNick),
-  peers: Object.keys(pb.peers) })
+const sendState = () => send({
+  type: 'state',
+  id: pb.id,
+  streamId: pb.signaller.id,
+  nick: pb.nick,
+  nicks: Object.keys(pb.idFromNick),
+  peers: Object.keys(pb.peers)
+})
 for (const event of ['ready', 'new peer', 'broadcast', 'connect', 'close']) pb.on(event, () => setImmediate(sendState))
 pb.on('broadcast', (data) => send({ type: 'broadcast', data }))
 pb.on('message', (data) => send({ type: 'message', data }))
 pb.on('got video', (nick, video) => {
   video.nick = nick
   send({ type: 'video', nick, channel: video.channel, width: video.videoWidth, height: video.videoHeight })
+})
+// pb-live.js keeps the video elements for ever. Here each one reads frames and holds a channel, so the one of a
+// peer ends when a newer stream of that peer comes or the peer leaves.
+const peerVideos = new Map()
+pb.on('stream', (id) => {
+  peerVideos.get(id)?.stop()
+  peerVideos.set(id, newestVideo)
+})
+pb.on('close', (id) => {
+  const video = peerVideos.get(id)
+  if (!video) return
+  video.stop()
+  peerVideos.delete(id)
+  if (video.nick) send({ type: 'video closed', nick: video.nick })
 })
 
 let publishing = false
@@ -173,7 +211,7 @@ process.stdin.on('data', (chunk) => {
   while ((end = input.indexOf('\n')) >= 0) {
     const message = JSON.parse(input.slice(0, end))
     input = input.slice(end + 1)
-    if (message.type === 'call' && typeof pb[message.method] === 'function') {
+    if (message.type === 'call' && CALLS.includes(message.method)) {
       pb[message.method](...(message.args || []))
       setImmediate(sendState)
     }
