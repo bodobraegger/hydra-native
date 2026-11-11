@@ -32,6 +32,12 @@ for (const code of untouched) assert.equal(rewriteDeclarations(code), code, code
 assert.equal(rewriteDeclarations('x = `${(() => { const a = 1; return a })()}`\nconst b = 2'),
   'x = `${(() => { const a = 1; return a })()}`\nvar   b = 2')
 
+// A "/" after a block starts a regular expression, after an object literal it divides.
+assert.equal(rewriteDeclarations("if (x) { y() }\n/'/.test(s); const c = 2"),
+  "if (x) { y() }\n/'/.test(s); var   c = 2")
+assert.equal(rewriteDeclarations("f = () => {}\n/'/.test(s); const c = 2"), "f = () => {}\n/'/.test(s); var   c = 2")
+assert.equal(rewriteDeclarations("x = {} / 2; y = '/'; const c = 2"), "x = {} / 2; y = '/'; var   c = 2")
+
 // An error has the same line and column with and without the rewrite.
 const position = (code) => {
   try {

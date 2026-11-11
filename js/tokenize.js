@@ -9,16 +9,25 @@ const DECIMAL_NUMBER = /(?:\d[\d_]*\.?[\d_]*|\.\d[\d_]*)(?:[eE][+-]?\d[\d_]*)?n?
 const NUMBER = new RegExp(`${PREFIXED_NUMBER.source}|${DECIMAL_NUMBER.source}`, 'y')
 const NAME = /[A-Za-z_$\u00a0-\uffff][\w$\u00a0-\uffff]*/y
 
+// Whether `token` can be the last token of an expression, so that a "/" after it divides. A "}" ends an object
+// literal there, and a block is followed by a new statement.
+const endsExpression = (token) => Boolean(token) && (token.kind === 'number' || token.kind === 'string' ||
+  (token.kind === 'name' && !EXPRESSION_KEYWORDS.has(token.text)) || [')', ']'].includes(token.text) ||
+  (token.text === '}' && !token.block))
+
 // The tokens of `text`: numbers, names and single punctuation characters, with their offsets. Strings, template
-// literals and regular expressions are "string" tokens; comments are skipped.
+// literals and regular expressions are "string" tokens; comments are skipped. A "}" of a block has `block`.
 export function tokenize (text) {
   const tokens = []
   const templateDepths = [] // the brace depth of each open ${ in a template literal
+  const blocks = [] // for each open "{", whether it opens a block instead of an object literal
   let depth = 0
   let i = 0
   const last = () => tokens[tokens.length - 1]
-  const endsExpression = (token) => token && (token.kind === 'number' || token.kind === 'string' ||
-    (token.kind === 'name' && !EXPRESSION_KEYWORDS.has(token.text)) || [')', ']', '}'].includes(token.text))
+  // After these a "{" opens a block: a statement, a body (after ")", "=>", a class name, else, do, try, finally).
+  const opensBlock = (token) => !token || [';', '{', '}', ')'].includes(token.text) ||
+    (token.text === '>' && text[token.start - 1] === '=') ||
+    (token.kind === 'name' && (!EXPRESSION_KEYWORDS.has(token.text) || ['else', 'do'].includes(token.text)))
   const add = (kind, start) => tokens.push({ kind, start, end: i, text: text.slice(start, i) })
   // From inside a template literal to its end, or to a ${, which opens a brace.
   const templateRest = (start) => {
@@ -71,10 +80,15 @@ export function tokenize (text) {
       i = NAME.lastIndex
       add('name', start)
     } else {
-      if (c === '{') depth++
+      const block = c === '{' ? opensBlock(last()) : c === '}' && blocks.pop()
+      if (c === '{') {
+        depth++
+        blocks.push(block)
+      }
       if (c === '}') depth--
       i++
       add('punct', start)
+      if (c === '}' && block) last().block = true
     }
   }
   return tokens
