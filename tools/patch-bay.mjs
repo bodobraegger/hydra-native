@@ -25,6 +25,7 @@ const isUnixSocket = process.platform !== 'win32'
 const { RTCVideoSink, RTCVideoSource, i420ToRgba, rgbaToI420 } = wrtc.nonstandard
 
 const send = (message) => process.stdout.write(JSON.stringify(message) + '\n')
+process.stdout.on('error', () => process.exit(0)) // hydra-native ended without closing the helper
 console.log = console.info = (...parts) => send({ type: 'log', text: parts.map(String).join(' ') })
 console.warn = console.error = (...parts) => send({ type: 'log', text: parts.map(String).join(' '), error: true })
 

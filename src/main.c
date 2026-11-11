@@ -731,7 +731,15 @@ static JSValue js_share_done(JSContext *ctx, JSValueConst this, int argc, JSValu
 
 static unsigned char *read_window_pixels(int width, int height);
 
-static void set_window_title(const char *url) { SDL_SetWindowTitle(window, url); }
+// A Wayland request holds at most 4096 bytes, and the compositor disconnects a client that sends more. The URL
+// of a long sketch is longer, so the title gets its start only (ASCII, so any byte is a boundary).
+#define MAX_TITLE 1024
+
+static void set_window_title(const char *title) {
+    char text[MAX_TITLE];
+    snprintf(text, sizeof text, "%s", title);
+    SDL_SetWindowTitle(window, text);
+}
 
 // Tells the input method where the cursor is, so that its candidate window opens there, as in the browser.
 static void update_text_input_rect(int drawable_width) {
