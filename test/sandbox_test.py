@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Checks the sandbox of shared code (src/main.c): a local sketch runs first and may load a local script; then the
+"""Checks the sandbox of shared code (src/sandbox.c): a local sketch runs first and may load a local script; then the
 code of a sketch URL tries each way to a file or a shell, also with changed builtins of JavaScript, and each must
 fail. Run with `make check` (it needs build/hydra-native and ffmpeg)."""
 import base64

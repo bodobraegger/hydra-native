@@ -1,6 +1,6 @@
 // Replaces the DOM media inputs of HydraSource (s0..s3) with native video sources:
 // a child process writes raw RGBA frames to a pipe, src/video.c uploads the newest frame.
-// src/main.c builds the commands from numbers and URLs (gst-launch-1.0 for cameras on Linux, ffmpeg, yt-dlp and
+// src/sandbox.c builds the commands from numbers and URLs (gst-launch-1.0 for cameras on Linux, ffmpeg, yt-dlp and
 // build/hydra-native-capture), so that they hold no code of a sketch; only initCommand runs a command of the sketch,
 // and the sandbox of shared code turns it off. On macOS and Windows, the cameras come from SDL in the process.
 

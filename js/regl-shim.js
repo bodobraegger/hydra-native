@@ -1,6 +1,6 @@
 // The subset of regl that hydra-synth (output.js, hydra-source.js, hydra-synth.js) and the
 // hydra-extensions use, implemented with the GLES calls of the `native` object.
-// Every draw is one full-screen triangle with the attribute `position` at location 0 (see src/main.c).
+// Every draw is one full-screen triangle with the attribute `position` at location 0 (see src/bindings.c).
 
 const WRAP_CODES = { clamp: 0, repeat: 1, mirror: 2 }
 // hydra-synth replaces the texture of a source at each init call and never destroys the old one, so the GL

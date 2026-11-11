@@ -14,7 +14,7 @@ import urllib.parse
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 BUILD = pathlib.Path(os.environ.get("HYDRA_NATIVE_BUILD", ROOT / "build"))
-# The sketch shares a fake PNG and prints the answer that src/main.c would show.
+# The sketch shares a fake PNG and prints the answer that src/snapshot.c would show.
 SKETCH = """
 native.shareDone = (ok, text) => { console.log('RESULT ' + JSON.stringify([ok, text])); native.exit(0) }
 __shareSketch('%s', 'osc(10, 0.1, 1.2).out() // \\u00e4', new Uint8Array([0x89, 80, 78, 71, 32, 109, 111, 99, 107]).buffer, 'a name')

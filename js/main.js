@@ -62,7 +62,7 @@ outputPrototype.tick = function (props) {
   }
   tickOutput.call(this, props)
 }
-// screencap() of hydra-synth saves through a DOM link; src/main.c writes PNG and code files instead.
+// screencap() of hydra-synth saves through a DOM link; src/snapshot.c writes PNG and code files instead.
 hydra.synth.screencap = window.screencap = () => native.screencap()
 // vidRecorder of hydra-synth uses MediaRecorder; here src/recorder.c sends the frames to ffmpeg (WebM, VP9).
 hydra.synth.vidRecorder = window.vidRecorder = { start: () => native.recordStart(), stop: () => native.recordStop() }

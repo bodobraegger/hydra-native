@@ -17,7 +17,7 @@ a porter needs. docs/manual.md describes what a user sees on each system.
 ## Open work for Windows
 
 - QuickJS does not build with MSVC. quickjs-ng does.
-- src/main.c uses Unix sockets and POSIX calls. The code socket (`--send`) must become a named pipe, as the
+- src/code_socket.c and src/bindings.c use Unix sockets and POSIX calls. The code socket (`--send`) must become a named pipe, as the
   socket of the patch bay already is (`\\.\pipe\hydra-native-patch-bay-PID`).
 - src/fetch.c puts the body of a request into a temporary file in /tmp outside of Linux.
 - SIGINT and SIGTERM end the program; Windows needs SDL_EVENT_QUIT and a console control handler.

@@ -1,5 +1,5 @@
 // The toolbar actions of the web editor that need JavaScript: random examples and the mutator.
-// The code of a sketch URL and of the gallery turns on the sandbox (native.sandbox() of src/main.c).
+// The code of a sketch URL and of the gallery turns on the sandbox (native.sandbox() of src/sandbox.c).
 // src/ui.c calls the window.__* functions through the `call` host function.
 import Mutator from './hydra-editor/Mutator.js'
 import examples from './hydra-editor/examples.json'
@@ -65,7 +65,7 @@ const query = (entries) => entries.map(([key, value]) =>
 const asciiBytes = (text) => Uint8Array.from(text, (character) => character.charCodeAt(0))
 
 // shareSketch of gallery.js in the web editor: POST /sketch?code=...&parent answers the sketch id, then POST
-// /image?url=...&sketch_id=...&name=... sends the screenshot as the multipart field "previewImage". src/main.c
+// /image?url=...&sketch_id=...&name=... sends the screenshot as the multipart field "previewImage". src/snapshot.c
 // calls this with the PNG of the next frame; the answer goes to native.shareDone(ok, sketch URL or error).
 window.__shareSketch = (server, code, image, name) => {
   const base64 = encodeBase64(encodeURIComponent(code))

@@ -2,7 +2,7 @@ import { parseColor } from './color.js'
 import { Element, EventTarget } from './element.js'
 
 // The browser globals that hydra-synth, its lib/audio.js and the user's sketches use,
-// backed by the `native` object that src/main.c installs.
+// backed by the `native` object that src/bindings.c installs.
 
 globalThis.window = globalThis
 globalThis.self = globalThis
