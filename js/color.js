@@ -14,11 +14,12 @@ function hexColor (hex) {
 export function parseColor (value) {
   const text = String(value).trim().toLowerCase()
   if (text === 'transparent') return [0, 0, 0, 0]
-  if (NAMED_COLORS[text]) return hexColor(NAMED_COLORS[text])
+  if (Object.hasOwn(NAMED_COLORS, text)) return hexColor(NAMED_COLORS[text])
   if (/^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/.test(text)) return hexColor(text.slice(1))
   const match = /^rgba?\(([^)]*)\)$/.exec(text)
   if (!match) return null
   const parts = match[1].split(/[\s,/]+/).filter(Boolean)
   const channel = (part, scale) => part.endsWith('%') ? parseFloat(part) / 100 : parseFloat(part) / scale
-  return [...parts.slice(0, 3).map((part) => channel(part, 255)), parts.length > 3 ? channel(parts[3], 1) : 1]
+  const color = [...parts.slice(0, 3).map((part) => channel(part, 255)), parts.length > 3 ? channel(parts[3], 1) : 1]
+  return color.length === 4 && color.every(Number.isFinite) ? color : null
 }

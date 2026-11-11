@@ -2,7 +2,8 @@
 // src/ui.c. out, render and setResolution come from types/index.d.ts of hydra-synth pull request #169 (by the
 // author of hydra-native), written as there; `out` takes an output such as o1 instead of the number of that file.
 // The others are in the same notation: the methods of hydra-synth that the file lacks, and the sources of
-// hydra-native (initMonitor, initArea, initWindow, initCommand, and the text sources of js/text.js). Each entry is "kind name(parameters)".
+// hydra-native (initMonitor, initArea, initWindow, initCommand, and the text sources of js/text.js). Each entry is
+// "kind name(parameters)".
 const API_SIGNATURES = [
   'output out(output?: HydraOutput)',
   'synth render(source?: HydraSource)',
@@ -33,7 +34,7 @@ const API_SIGNATURES = [
   'audio hide()'
 ]
 
-// The lines of __functionSignatures (js/main.js): "name<TAB>kind<TAB>input:type:default".
+// The entries as lines of __functionSignatures, whose format js/main.js describes.
 export const apiSignatureLines = () => API_SIGNATURES.map((entry) => {
   const [, kind, name, parameters] = entry.match(/^(\w+) (\w+)\((.*)\)$/)
   const inputs = parameters ? parameters.split(', ').map((parameter) => parameter.replace(': ', ':') + ':') : []

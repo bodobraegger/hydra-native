@@ -63,7 +63,10 @@ function indexOfHeaderEnd (bytes, start) {
 function parseResponse (url, text, buffer, redirected) {
   const bytes = new Uint8Array(buffer)
   let offset = 0, status = 0, statusText = '', headers = new Headers(), blocks = 0
-  while (bytes[offset] === 72 && String.fromCharCode(...bytes.subarray(offset, offset + 5)) === 'HTTP/') { // "H"
+  // Another header block follows only an informational answer or a redirect, so a body that starts with "HTTP/"
+  // stays a body.
+  const moreHeaders = () => blocks === 0 || status < 200 || (status >= 300 && status < 400)
+  while (moreHeaders() && String.fromCharCode(...bytes.subarray(offset, offset + 5)) === 'HTTP/') {
     const end = indexOfHeaderEnd(bytes, offset)
     if (end < 0) break
     const [statusLine, ...lines] = String.fromCharCode(...bytes.subarray(offset, end)).split('\r\n')
@@ -139,6 +142,15 @@ window.fetch = (input, options = {}) => {
 window.Headers = Headers
 window.Response = Response
 
+// The response of responseType 'json' is null for a body that is no JSON, as in the browser.
+function parseJson (text) {
+  try {
+    return JSON.parse(text)
+  } catch {
+    return null
+  }
+}
+
 class XMLHttpRequest extends EventTarget {
   constructor () {
     super()
@@ -180,7 +192,7 @@ class XMLHttpRequest extends EventTarget {
       const body = binary ? await response.arrayBuffer() : await response.text()
       Object.assign(this, { status: response.status, statusText: response.statusText, responseURL: this.url })
       this.responseHeaders = response.headers
-      this.response = this.responseType === 'json' ? JSON.parse(body) : body
+      this.response = this.responseType === 'json' ? parseJson(body) : body
       if (!binary && this.responseType !== 'json') this.responseText = body
       this.change(READY_STATES.DONE)
       this.event('load')

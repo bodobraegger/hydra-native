@@ -82,6 +82,7 @@ function runScript (code, url) {
 // Like hydra-synth's loadScript (a <script> tag): runs the file in the global scope and always resolves.
 // Paths, file:// URLs and http(s) URLs work; downloads use curl.
 window.loadScript = (url = '') => new Promise((resolve) => {
+  url = String(url)
   if (!URL_PATTERN.test(url)) {
     const path = url.replace(/^file:\/\//, '')
     try {
@@ -112,25 +113,32 @@ onAfterFrame(() => {
   const [windowWidth, windowHeight] = native.drawableSize()
   const left = windowWidth - audio.canvas.width
   const top = windowHeight - audio.canvas.height
-  native.fillRects(audio.ctx.rects.flatMap(([x, y, width, height, ...color]) => [left + x, top + y, width, height, ...color]))
+  native.fillRects(audio.ctx.rects.flatMap(([x, y, width, height, ...color]) =>
+    [left + x, top + y, width, height, ...color]))
 })
 
 // Names for the autocomplete of src/ui.c: hydra sources, transforms (also those of setFunction and
 // extensions) and the globals of hydra-synth, one per line.
 const HYDRA_GLOBALS = ['hush', 'render', 'speed', 'bpm', 'time', 'mouse', 'update', 'afterUpdate', 'setResolution',
-  'loadScript', 'screencap', 'vidRecorder', 'text', 'strokeText', 'fillStrokeText', 'strokeFillText', 'width', 'height', 'fps', 'setFunction', 'src', 'o0', 'o1', 'o2', 'o3', 's0', 's1', 's2',
-  's3', 'a', 'initCam', 'initScreen', 'initVideo', 'initImage', 'initArea', 'initWindow', 'initMonitor', 'out',
-  'smooth', 'fast', 'ease', 'offset', 'fit', 'setBins', 'setSmooth', 'setScale', 'setCutoff', 'show', 'hide', 'fft']
-window.__completionNames = () => [...new Set([...Object.keys(hydra.generator.glslTransforms), ...HYDRA_GLOBALS])].join('\n')
+  'loadScript', 'screencap', 'vidRecorder', 'text', 'strokeText', 'fillStrokeText', 'strokeFillText', 'width',
+  'height', 'fps', 'setFunction', 'src', 'o0', 'o1', 'o2', 'o3', 's0', 's1', 's2', 's3', 'a', 'initCam',
+  'initScreen', 'initVideo', 'initImage', 'initArea', 'initWindow', 'initMonitor', 'out', 'smooth', 'fast', 'ease',
+  'offset', 'fit', 'setBins', 'setSmooth', 'setScale', 'setCutoff', 'show', 'hide', 'fft']
+// A sketch names the functions of setFunction: only a name is a line of these lists.
+const IDENTIFIER = /^[A-Za-z_$][\w$]*$/
+const transforms = () => Object.values(hydra.generator.glslTransforms).filter(({ name }) => IDENTIFIER.test(name))
+window.__completionNames = () => [...new Set([...transforms().map(({ name }) => name), ...HYDRA_GLOBALS])].join('\n')
 
 // The definitions of the hydra functions for the signature help and the typed completions of src/ui.c
 // (src/signature.h): "name<TAB>kind<TAB>input:type:default" per line, also for functions of setFunction.
 // hydra-synth adds the texture input of combine and combineCoord functions as _c1 or _c0 (generator-factory.js).
 const formatDefault = (value) => typeof value === 'number' && !Number.isNaN(value) ? String(value) : ''
 const inputName = (name) => /^_c\d$/.test(name) ? 'texture' : name
-// The functions outside the glsl list follow in the notation of js/api-signatures.js.
-window.__functionSignatures = () => Object.values(hydra.generator.glslTransforms).map(({ name, type, inputs = [] }) =>
-  [name, type, ...inputs.map((input) => `${inputName(input.name)}:${input.type}:${formatDefault(input.default)}`)].join('\t'))
+const field = (text) => String(text).replace(/[\t\n:]/g, '') // the separators of the format
+// The functions outside the glsl list follow, from js/api-signatures.js.
+window.__functionSignatures = () => transforms().map(({ name, type, inputs = [] }) =>
+  [name, field(type), ...inputs.map((input) =>
+    `${field(inputName(input.name))}:${field(input.type)}:${formatDefault(input.default)}`)].join('\t'))
   .concat(apiSignatureLines()).join('\n')
 
 // The helpers of a setup file (such as setup-hydra.js) that the completions of a number argument offer, when they

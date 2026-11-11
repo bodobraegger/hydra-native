@@ -25,7 +25,8 @@ const LINKS = {
 }
 
 // Translations are stored under the first part of the code, as i18next does in the web editor ("pt-br" as "pt").
-const resources = { en: english.en.translation }
+// Without a prototype, so that a language code such as "constructor" finds nothing.
+const resources = Object.assign(Object.create(null), { en: english.en.translation })
 const key = (language) => language.split('-')[0]
 let selected = 'en'
 
@@ -90,12 +91,12 @@ window.__infoText = () => {
 // One line per language: "code<TAB>name<TAB>1 when selected".
 window.__languages = () => ['en', ...LANGUAGES].filter((language) => resources[key(language)])
   .map((language) => {
-    const name = lookup(key(language), 'language-name') || language
+    const name = plain(lookup(key(language), 'language-name') || language)
     return `${key(language)}\t${name}\t${key(language) === selected ? 1 : 0}`
   }).join('\n')
 
 window.__setLanguage = (language) => {
-  if (resources[key(language)]) selected = key(language)
+  if (resources[key(String(language))]) selected = key(String(language))
   return selected
 }
 

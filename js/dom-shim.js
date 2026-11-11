@@ -13,7 +13,15 @@ console.info = console.debug = (...parts) => console.log(...parts)
 console.warn = console.error = (...parts) => native.consoleMessage(parts.map(String).join(' '))
 
 window.performance = { now: () => native.now() }
-window.location = { href: 'hydra-native://local/', protocol: 'hydra-native:', host: 'local', hostname: 'local', pathname: '/', search: '', hash: '' }
+window.location = {
+  href: 'hydra-native://local/',
+  protocol: 'hydra-native:',
+  host: 'local',
+  hostname: 'local',
+  pathname: '/',
+  search: '',
+  hash: ''
+}
 
 // ---------------------------------------------------------------- events
 
@@ -26,16 +34,15 @@ function updateWindowSize () {
 }
 updateWindowSize()
 
-// Called by src/main.c for keyboard, mouse and resize events.
+// Called by src/main.c for keyboard, mouse and resize events. The handler property of the window (such as
+// window.onkeydown) runs first, then the listeners; an error in one of them does not stop the others.
 window.__dispatchEvent = (type, event) => {
   if (type === 'resize') updateWindowSize()
   Object.assign(event, { type, target: window, preventDefault () {}, stopPropagation () {} })
-  for (const listener of (windowEvents.listeners.get(type) || []).slice()) {
-    try {
-      listener(event)
-    } catch (error) {
-      console.error(`${type} listener:`, error, error.stack)
-    }
+  const handler = window[`on${type}`]
+  const listeners = windowEvents.listeners.get(type) || []
+  for (const listener of typeof handler === 'function' ? [handler, ...listeners] : [...listeners]) {
+    run(`${type} listener`, listener, event)
   }
 }
 
@@ -146,7 +153,6 @@ class CanvasElement extends Element {
   }
 
   getContext (type) { return type === '2d' && recordsCanvases ? new RecordingContext2D(this) : null }
-  toDataURL () { return '' }
 }
 
 const documentElement = new Element('html')
@@ -158,22 +164,17 @@ window.document = {
   createElement: (tagName) => {
     return String(tagName).toLowerCase() === 'canvas' ? new CanvasElement() : new Element(tagName)
   },
-  createElementNS: (namespace, tagName) => window.document.createElement(tagName),
-  createTextNode: (text) => ({ nodeType: 3, textContent: String(text) }),
   getElementById: (id) => documentElement.getElementById(id),
   getElementsByTagName: (name) => documentElement.getElementsByTagName(name),
   getElementsByClassName: (name) => documentElement.getElementsByClassName(name),
   querySelector: (selector) => documentElement.querySelector(selector),
   querySelectorAll: (selector) => documentElement.querySelectorAll(selector),
-  hasFocus: () => true,
   addEventListener,
   removeEventListener
 }
 window.devicePixelRatio = 1
 window.screen = { get width () { return window.innerWidth }, get height () { return window.innerHeight } }
-window.scrollX = window.scrollY = window.pageXOffset = window.pageYOffset = 0
-window.matchMedia = () => ({ matches: false, addListener () {}, removeListener () {}, addEventListener () {} })
-window.getComputedStyle = (element) => ({ ...element.style, getPropertyValue: (name) => element.style[name] || '' })
+window.scrollX = window.scrollY = 0
 
 // ---------------------------------------------------------------- media
 

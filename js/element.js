@@ -40,10 +40,15 @@ export class Element extends EventTarget {
     this.className = ''
     const element = this
     this.classList = {
-      add: (...names) => { for (const name of names) if (!element.classList.contains(name)) element.className = `${element.className} ${name}`.trim() },
-      remove: (...names) => { element.className = element.className.split(/\s+/).filter((item) => !names.includes(item)).join(' ') },
-      contains: (name) => element.className.split(/\s+/).includes(name),
-      toggle: (name) => element.classList.contains(name) ? (element.classList.remove(name), false) : (element.classList.add(name), true)
+      add: (...names) => {
+        for (const name of names) {
+          if (!element.classList.contains(name)) element.className = `${element.className} ${name}`.trim()
+        }
+      },
+      remove: (...names) => {
+        element.className = element.className.split(/\s+/).filter((item) => !names.includes(item)).join(' ')
+      },
+      contains: (name) => element.className.split(/\s+/).includes(name)
     }
   }
 
@@ -55,10 +60,10 @@ export class Element extends EventTarget {
   }
 
   insertBefore (child, reference) {
-    const index = this.children.indexOf(reference)
-    if (index < 0) return this.appendChild(child)
+    if (!this.children.includes(reference)) return this.appendChild(child)
+    if (child.parentNode) child.parentNode.removeChild(child)
     child.parentNode = child.parentElement = this
-    this.children.splice(index, 0, child)
+    this.children.splice(this.children.indexOf(reference), 0, child)
     return child
   }
 
@@ -73,8 +78,11 @@ export class Element extends EventTarget {
 
   get innerHTML () { return '' }
   set innerHTML (markup) { for (const child of this.children.slice()) this.removeChild(child) }
-  insertAdjacentHTML () {}
-  setAttribute (name, value) { this.attributes[name] = String(value); if (name === 'id' || name === 'class') this[name === 'class' ? 'className' : 'id'] = String(value) }
+  setAttribute (name, value) {
+    this.attributes[name] = String(value)
+    if (name === 'id' || name === 'class') this[name === 'class' ? 'className' : 'id'] = String(value)
+  }
+
   getAttribute (name) { return name in this.attributes ? this.attributes[name] : null }
   hasAttribute (name) { return name in this.attributes }
   removeAttribute (name) { delete this.attributes[name] }
@@ -98,8 +106,6 @@ export class Element extends EventTarget {
     return { x: 0, y: 0, top: 0, left: 0, right: width, bottom: height, width, height }
   }
 
-  focus () {}
-  blur () {}
   get offsetWidth () { return this.width || 0 }
   get offsetHeight () { return this.height || 0 }
   get clientWidth () { return this.width || 0 }
