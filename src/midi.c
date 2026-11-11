@@ -71,6 +71,12 @@ bool midi_start(void) {
                                                  SND_SEQ_PORT_CAP_READ | SND_SEQ_PORT_CAP_SUBS_READ,
                                                  SND_SEQ_PORT_TYPE_MIDI_GENERIC | SND_SEQ_PORT_TYPE_APPLICATION);
     queue = snd_seq_alloc_named_queue(sequencer, "hydra-native");
+    if (own_port < 0 || own_output_port < 0 || queue < 0) {
+        fprintf(stderr, "midi: cannot create the ports or the queue of the ALSA sequencer\n");
+        snd_seq_close(sequencer);
+        sequencer = NULL;
+        return false;
+    }
     snd_seq_port_info_t *port_info;
     snd_seq_port_info_alloca(&port_info);
     snd_seq_get_port_info(sequencer, own_port, port_info);
