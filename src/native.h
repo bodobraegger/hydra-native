@@ -70,8 +70,8 @@ bool recorder_stop(void); // waits for ffmpeg; false when it failed
 // The output frames for the patch bay (25 fps, rows from the bottom) into `stream`, which the publisher closes.
 bool publisher_start(int stream, int width, int height);
 void publisher_stop(void);
-// The webRTC patch bay (tools/patch-bay.mjs): one helper process with JSON lines in and out.
-bool patch_bay_start(const char *script, const char *server, const char *room);
+// The webRTC patch bay (src/patch_bay_main.c): one helper process with JSON lines in and out.
+bool patch_bay_start(const char *program, const char *server, const char *room);
 bool patch_bay_send(const char *line);
 void patch_bay_poll(void (*line)(const char *text));
 bool patch_bay_publish(bool on, int width, int height); // opens or closes the output channel of the helper

@@ -1,4 +1,4 @@
-// The process of tools/patch-bay.mjs (Node.js with @roamhq/wrtc): JSON lines go to its stdin, its stdout lines go to
+// The process of hydra-native-patch-bay (src/patch_bay_main.c): JSON lines go to its stdin, its stdout lines go to
 // js/patch-bay.js. Frames go through a local socket of the helper (a Unix socket, or a named pipe on Windows): each
 // connection starts with one line that names its channel, "output WIDTHxHEIGHT" for the output of hydra-native
 // while a peer receives it, or the channel of a received stream, whose frames then come back.
@@ -40,10 +40,10 @@ static bool flush_pending(void) {
     return true;
 }
 
-bool patch_bay_start(const char *script, const char *server, const char *room) {
+bool patch_bay_start(const char *program, const char *server, const char *room) {
     if (helper.process) return true;
     stream_local_address(helper.address, sizeof helper.address, SOCKET_NAME);
-    const char *argv[] = { "node", script, server, room, helper.address, NULL };
+    const char *argv[] = { program, server, room, helper.address, NULL };
     helper.process = process_start(argv, &helper.input, &helper.output);
     if (!helper.process) return false;
     helper.buffer = malloc(MAX_LINE);

@@ -14,7 +14,7 @@
 
 #define RECORD_FRAME_MS (1000.0 / RECORD_FPS)
 
-// Frames of the output for a pipe: ffmpeg for the recording, and the webRTC patch bay (tools/patch-bay.mjs)
+// Frames of the output for a pipe: ffmpeg for the recording, and the webRTC patch bay (hydra-native-patch-bay)
 // while a peer receives the output.
 struct frame_writer {
     bool active;

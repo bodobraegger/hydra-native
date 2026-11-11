@@ -395,13 +395,13 @@ static JSValue js_http_request(JSContext *ctx, JSValueConst this, int argc, JSVa
     return JS_NewInt32(ctx, id);
 }
 
-// ---------------------------------------------------------------- webRTC patch bay (tools/patch-bay.mjs)
+// ---------------------------------------------------------------- webRTC patch bay (hydra-native-patch-bay)
 
 static JSValue js_patch_bay_start(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
     const char *room = JS_ToCString(ctx, argv[0]);
-    char script[PATH_MAX + 64];
-    snprintf(script, sizeof script, "%s/../tools/patch-bay.mjs", executable_path_directory);
-    bool ok = room && share_server()[0] && patch_bay_start(script, share_server(), room);
+    char program[PATH_MAX + 64];
+    snprintf(program, sizeof program, "%s/hydra-native-patch-bay", executable_path_directory);
+    bool ok = room && share_server()[0] && patch_bay_start(program, share_server(), room);
     JS_FreeCString(ctx, room);
     return JS_NewBool(ctx, ok);
 }
