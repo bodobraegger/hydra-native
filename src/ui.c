@@ -34,7 +34,7 @@
 #define MAX_NAME_COMPLETIONS 12 // the list of names and words; typed lists (textures) may be longer
 #define MAX_SIGNATURES 512
 #define MAX_SNIPPET 512
-#define OPACITY_STEP 10 // percent, for the - and + of "background opacity" in the settings menu
+#define OPACITY_STEP 10 // percent, for the - and + of the opacities in the settings menu
 #define GAIN_STEP 10 // percent, for the - and + of "input gain"
 #define MIN_COMPLETION_PREFIX 2
 #define MAX_PALETTE_ROWS 12
@@ -200,10 +200,46 @@ static bool settings_visible;
 static bool gallery_enabled; // the web editor shows "share" only with a gallery server
 #define MAX_PANEL_BUTTONS 256
 #define EXTENSION_ROWS 3
-// Clickable areas of the extensions and settings panels, with the action of a click.
-static struct {
+
+// What a click on a button of the extensions panel or the settings menu does.
+enum panel_action {
+    ACTION_EXTENSION_CATEGORY, // the argument is the index of the category
+    ACTION_EXTENSION_ADD, // the index of the extension, also for the next two
+    ACTION_EXTENSION_DOCS,
+    ACTION_EXTENSION_EXAMPLE, // `second` is the index of the example
+    ACTION_OPEN_FILE,
+    ACTION_WATCH, // 0 or 1, as for the other switches
+    ACTION_THEME, // the index of the theme
+    ACTION_AUTOCOMPLETE_STYLE, // the value of the enum of the setting, as for the other choices
+    ACTION_AUTOCOMPLETE_TRIGGER,
+    ACTION_SIGNATURE_HELP,
+    ACTION_EDIT_NUMBER, // the number_kind that becomes a text field
+    ACTION_STEP_NUMBER, // the number_kind; `second` is the change
+    ACTION_BACKGROUND_BLEND,
+    ACTION_TEXT_BLEND,
+    ACTION_CODE_AT_START,
+    ACTION_WHITESPACE,
+    ACTION_WRAP,
+    ACTION_SERVER_OFF,
+    ACTION_SERVER_WEB_EDITOR,
+    ACTION_SERVER_CUSTOM,
+    ACTION_COPY_STREAM_ID,
+    ACTION_FULLSCREEN,
+    ACTION_VSYNC,
+    ACTION_AUDIO_DEFAULT,
+    ACTION_AUDIO_NONE,
+    ACTION_AUDIO, // the index of the audio input
+    ACTION_LANGUAGE, // the index of the language
+    ACTION_L10N_URL,
+    ACTION_FONT_FILE,
+    ACTION_FONT, // the index of the font
+};
+
+// Clickable areas of the extensions and settings panels.
+static struct panel_button {
     float x, y, width, height;
-    char action[32]; // "category N", "add N", "docs N", "example N M"
+    enum panel_action action;
+    int argument, second;
 } panel_buttons[MAX_PANEL_BUTTONS];
 static size_t panel_button_count;
 
@@ -1045,15 +1081,14 @@ static uint32_t code_background_color(void) {
 enum number_kind { NUMBER_OPACITY, NUMBER_FONT_SIZE, NUMBER_AUDIO_GAIN, NUMBER_COMPLETION_OPACITY };
 static const struct {
     const char *unit; // accepted after the number, and shown after it
-    const char *action; // the panel action of a click on the value
     double minimum, maximum;
+    int button_step; // of the - and + buttons
 } number_specs[] = {
-    [NUMBER_OPACITY] = { "%", "edit opacity", 0, 100 },
-    [NUMBER_FONT_SIZE] = { "px", "edit size", OVERLAY_MIN_FONT_SIZE, OVERLAY_MAX_FONT_SIZE },
-    [NUMBER_AUDIO_GAIN] = { "%", "edit gain", 0, SETTINGS_MAX_AUDIO_GAIN },
-    [NUMBER_COMPLETION_OPACITY] = { "%", "edit list opacity", 0, 100 },
+    [NUMBER_OPACITY] = { "%", 0, 100, OPACITY_STEP },
+    [NUMBER_FONT_SIZE] = { "px", OVERLAY_MIN_FONT_SIZE, OVERLAY_MAX_FONT_SIZE, (int)FONT_SIZE_STEP },
+    [NUMBER_AUDIO_GAIN] = { "%", 0, SETTINGS_MAX_AUDIO_GAIN, GAIN_STEP },
+    [NUMBER_COMPLETION_OPACITY] = { "%", 0, 100, OPACITY_STEP },
 };
-#define NUMBER_KIND_COUNT (sizeof number_specs / sizeof number_specs[0])
 #define MAX_NUMBER_TEXT 16
 #define LARGE_STEPS 10
 
@@ -1793,21 +1828,20 @@ static void draw_info(void) {
     free(text);
 }
 
-static void add_panel_button(float x, float y, float width, float height, const char *action) {
+static void add_panel_button(float x, float y, float width, float height, enum panel_action action, int argument,
+                             int second) {
     if (panel_button_count == MAX_PANEL_BUTTONS) return;
-    panel_buttons[panel_button_count].x = x;
-    panel_buttons[panel_button_count].y = y;
-    panel_buttons[panel_button_count].width = width;
-    panel_buttons[panel_button_count].height = height;
-    snprintf(panel_buttons[panel_button_count++].action, sizeof panel_buttons[0].action, "%s", action);
+    panel_buttons[panel_button_count++] = (struct panel_button){ x, y, width, height, action, argument, second };
 }
 
-static float panel_label(float x, float y, const char *text, bool selected, const char *action) {
+// A button of the extensions panel; returns the x of the next one.
+static float panel_label(float x, float y, const char *text, bool selected, enum panel_action action, int argument,
+                         int second) {
     size_t columns = overlay_text_columns(text, strlen(text)) + 1;
     float width = (float)columns * overlay_char_width();
     overlay_rect(x, y, width, overlay_line_height(), selected ? theme->popup_selected : theme->toolbar);
     overlay_text(x + overlay_char_width() / 2, y, text, strlen(text), 0, columns, NULL, theme->text);
-    add_panel_button(x, y, width, overlay_line_height(), action);
+    add_panel_button(x, y, width, overlay_line_height(), action, argument, second);
     return x + width + overlay_char_width();
 }
 
@@ -1833,10 +1867,8 @@ static void draw_extensions(void) {
             field = strchr(field, '\t');
             if (field) *field++ = '\0';
         }
-        char action[32];
         if (!strcmp(fields[0], "category") && count >= 3) {
-            snprintf(action, sizeof action, "category %zu", entry++);
-            x = panel_label(x, y, fields[1], fields[2][0] == '1', action);
+            x = panel_label(x, y, fields[1], fields[2][0] == '1', ACTION_EXTENSION_CATEGORY, (int)entry++, 0);
         } else if (!strcmp(fields[0], "state") && count >= 2) {
             entry = 0;
             const char *state = !strcmp(fields[1], "loading") ? "loading the list from github..."
@@ -1845,8 +1877,8 @@ static void draw_extensions(void) {
             overlay_text(left + char_width, y + 1.5f * line_height, state, strlen(state), 0, text_columns, NULL, theme->info);
             row = 1;
         } else if (!strcmp(fields[0], "entry") && count >= 5) {
-            size_t index = entry++;
-            if (index < info_scroll) continue;
+            int index = (int)entry++;
+            if ((size_t)index < info_scroll) continue;
             if (row + EXTENSION_ROWS > rows) continue;
             float entry_top = y + line_height * (float)(row + 1);
             unsigned texture = count >= 6 && fields[5][0] ? thumbnail_texture(fields[5]) : 0;
@@ -1855,16 +1887,13 @@ static void draw_extensions(void) {
             snprintf(title, sizeof title, "%s - %s", fields[1], fields[2]);
             overlay_text(text_left, entry_top, title, strlen(title), 0, text_columns, NULL, theme->help_keys);
             overlay_text(text_left, entry_top + line_height, fields[3], strlen(fields[3]), 0, text_columns, NULL, theme->text);
-            float button_x = text_left;
-            snprintf(action, sizeof action, "add %zu", index);
-            button_x = panel_label(button_x, entry_top + 2 * line_height, "+", false, action);
-            snprintf(action, sizeof action, "docs %zu", index);
-            button_x = panel_label(button_x, entry_top + 2 * line_height, "docs", false, action);
-            for (long example = 0; example < atol(fields[4]); example++) {
+            float button_y = entry_top + 2 * line_height;
+            float button_x = panel_label(text_left, button_y, "+", false, ACTION_EXTENSION_ADD, index, 0);
+            button_x = panel_label(button_x, button_y, "docs", false, ACTION_EXTENSION_DOCS, index, 0);
+            for (int example = 0; example < atoi(fields[4]); example++) {
                 char label[24];
-                snprintf(label, sizeof label, "%ld", example + 1);
-                snprintf(action, sizeof action, "example %zu %ld", index, example);
-                button_x = panel_label(button_x, entry_top + 2 * line_height, label, false, action);
+                snprintf(label, sizeof label, "%d", example + 1);
+                button_x = panel_label(button_x, button_y, label, false, ACTION_EXTENSION_EXAMPLE, index, example);
             }
             row += EXTENSION_ROWS + 1;
         }
@@ -1873,12 +1902,16 @@ static void draw_extensions(void) {
 }
 
 
-static void run_panel_action(const char *action) {
+// The actions of the extensions panel; js/extensions.js takes the indexes as text.
+static void run_extension_action(const struct panel_button *button) {
+    char index[32];
     char *result = NULL;
-    if (!strncmp(action, "category ", 9)) {
+    if (button->action == ACTION_EXTENSION_EXAMPLE) snprintf(index, sizeof index, "%d %d", button->argument, button->second);
+    else snprintf(index, sizeof index, "%d", button->argument);
+    if (button->action == ACTION_EXTENSION_CATEGORY) {
         info_scroll = 0;
-        free(host.call("__extensionsPanel", action + 9));
-    } else if (!strncmp(action, "add ", 4) && (result = host.call("__extensionLoadCode", action + 4))) {
+        free(host.call("__extensionsPanel", index));
+    } else if (button->action == ACTION_EXTENSION_ADD && (result = host.call("__extensionLoadCode", index))) {
         // 'editor: add code to top' of the web editor (CodeMirror 5 version).
         size_t length = strlen(result) + editor.length + 4;
         char *code = malloc(length + 1);
@@ -1886,9 +1919,9 @@ static void run_panel_action(const char *action) {
         editor_replace_text(&editor, code, strlen(code));
         free(code);
         extensions_visible = false;
-    } else if (!strncmp(action, "docs ", 5) && (result = host.call("__extensionDocumentation", action + 5))) {
+    } else if (button->action == ACTION_EXTENSION_DOCS && (result = host.call("__extensionDocumentation", index))) {
         SDL_OpenURL(result);
-    } else if (!strncmp(action, "example ", 8) && (result = host.call("__extensionExample", action + 8))) {
+    } else if (button->action == ACTION_EXTENSION_EXAMPLE && (result = host.call("__extensionExample", index))) {
         editor_replace_text(&editor, result, strlen(result));
         evaluate_range(0, editor.length);
         extensions_visible = false;
@@ -1902,11 +1935,7 @@ static bool extensions_click(float x, float y) {
         return false;
     }
     size_t button = panel_button_at(x, y);
-    if (button < panel_button_count) {
-        char action[32];
-        snprintf(action, sizeof action, "%s", panel_buttons[button].action);
-        run_panel_action(action);
-    }
+    if (button < panel_button_count) run_extension_action(&panel_buttons[button]);
     return true;
 }
 
@@ -2054,17 +2083,30 @@ static float flow_place(struct panel_flow *flow, const char *text, size_t *colum
     return x;
 }
 
-static void flow_label(struct panel_flow *flow, const char *text, bool selected, const char *action) {
+static void flow_button(struct panel_flow *flow, const char *text, bool selected, enum panel_action action, int argument,
+                        int second) {
     size_t columns;
     float x = flow_place(flow, text, &columns), width = (float)columns * overlay_char_width();
     if (!flow_visible(flow)) return;
     overlay_rect(x, flow->y, width, flow->height, selected ? theme->popup_selected : theme->toolbar);
     flow_text_in(flow, x + overlay_char_width() / 2, text, columns - 1, theme->text);
-    add_panel_button(x, flow->y, width, flow->height, action);
+    add_panel_button(x, flow->y, width, flow->height, action, argument, second);
 }
 
-// A number of the settings menu: a button that opens its text field, or the open field with the typed text.
+static void flow_label(struct panel_flow *flow, const char *text, bool selected, enum panel_action action, int argument) {
+    flow_button(flow, text, selected, action, argument, 0);
+}
+
+// The two choices of a switch.
+static void flow_switch(struct panel_flow *flow, const char *on, const char *off, bool value, enum panel_action action) {
+    flow_label(flow, on, value, action, 1);
+    flow_label(flow, off, !value, action, 0);
+}
+
+// A number of the settings menu between its - and + buttons: a button that opens its text field, or the open field
+// with the typed text.
 static void flow_number(struct panel_flow *flow, enum number_kind kind) {
+    flow_button(flow, "-", false, ACTION_STEP_NUMBER, (int)kind, -number_specs[kind].button_step);
     char text[MAX_NUMBER_TEXT + 2];
     bool editing = number_field.open && number_field.kind == kind;
     if (editing) snprintf(text, sizeof text, "%s%s", number_field.text, number_field.selected ? "" : "|");
@@ -2072,13 +2114,15 @@ static void flow_number(struct panel_flow *flow, enum number_kind kind) {
     size_t columns;
     float x = flow_place(flow, text, &columns), width = (float)columns * overlay_char_width();
     float text_width = (float)overlay_text_columns(text, strlen(text)) * overlay_char_width();
-    if (!flow_visible(flow)) return;
-    overlay_rect(x, flow->y, width, flow->height, editing ? theme->popup_background : theme->toolbar);
-    if (editing && number_field.selected)
-        overlay_rect(x + overlay_char_width() / 2, flow->y, text_width, flow->height, theme->selection);
-    overlay_text(x + overlay_char_width() / 2, flow_text_y(flow), text, strlen(text), 0, columns - 1, NULL,
-                 editing && number_field.invalid ? theme->error : theme->text);
-    add_panel_button(x, flow->y, width, flow->height, number_specs[kind].action);
+    if (flow_visible(flow)) {
+        overlay_rect(x, flow->y, width, flow->height, editing ? theme->popup_background : theme->toolbar);
+        if (editing && number_field.selected)
+            overlay_rect(x + overlay_char_width() / 2, flow->y, text_width, flow->height, theme->selection);
+        overlay_text(x + overlay_char_width() / 2, flow_text_y(flow), text, strlen(text), 0, columns - 1, NULL,
+                     editing && number_field.invalid ? theme->error : theme->text);
+        add_panel_button(x, flow->y, width, flow->height, ACTION_EDIT_NUMBER, (int)kind, 0);
+    }
+    flow_button(flow, "+", false, ACTION_STEP_NUMBER, (int)kind, number_specs[kind].button_step);
 }
 
 static void flow_text(struct panel_flow *flow, const char *text, uint32_t color) {
@@ -2119,212 +2163,182 @@ static void draw_settings(void) {
     float first_y = top + line_height / 2 - (float)info_scroll * line_height;
     struct panel_flow flow = { 0, first_y, left + (LABEL_COLUMNS + 1) * char_width, left + width - char_width, 0, top,
                                top + height };
-    char action[32];
     // The open sketch file; a click chooses another one. Its reload is dim while no file is open.
     flow_row(&flow, label_x, "file");
-    flow_label(&flow, file_path ? file_path : "                              ", false, "file open");
+    flow_label(&flow, file_path ? file_path : "                              ", false, ACTION_OPEN_FILE, 0);
     flow_row(&flow, label_x, " \xE2\x94\x94 reload on change");
     if (file_path) {
-        flow_label(&flow, "on", settings.watch, "watch 1");
-        flow_label(&flow, "off", !settings.watch, "watch 0");
+        flow_switch(&flow, "on", "off", settings.watch, ACTION_WATCH);
     } else {
         flow_label_disabled(&flow, "on", settings.watch);
         flow_label_disabled(&flow, "off", !settings.watch);
     }
     flow_row(&flow, label_x, "theme");
-    for (size_t i = 0; i < theme_count; i++) {
-        snprintf(action, sizeof action, "theme %zu", i);
-        flow_label(&flow, themes[i].name, theme == &themes[i], action);
-    }
+    for (size_t i = 0; i < theme_count; i++) flow_label(&flow, themes[i].name, theme == &themes[i], ACTION_THEME, (int)i);
     flow_row(&flow, label_x, "autocomplete");
-    flow_label(&flow, "list", settings.autocomplete_style == AUTOCOMPLETE_LIST, "style 0");
-    flow_label(&flow, "ghost text", settings.autocomplete_style == AUTOCOMPLETE_GHOST, "style 1");
+    flow_label(&flow, "list", settings.autocomplete_style == AUTOCOMPLETE_LIST, ACTION_AUTOCOMPLETE_STYLE, AUTOCOMPLETE_LIST);
+    flow_label(&flow, "ghost text", settings.autocomplete_style == AUTOCOMPLETE_GHOST, ACTION_AUTOCOMPLETE_STYLE,
+               AUTOCOMPLETE_GHOST);
     flow_row(&flow, label_x, " \xE2\x94\x9C list opacity");
-    flow_label(&flow, "-", false, "list opacity -");
     flow_number(&flow, NUMBER_COMPLETION_OPACITY);
-    flow_label(&flow, "+", false, "list opacity +");
     flow_row(&flow, label_x, " \xE2\x94\x9C trigger");
-    flow_label(&flow, "Ctrl+Space", settings.autocomplete_trigger == AUTOCOMPLETE_MANUAL, "trigger 0");
-    flow_label(&flow, "while typing", settings.autocomplete_trigger == AUTOCOMPLETE_TYPING, "trigger 1");
+    flow_label(&flow, "Ctrl+Space", settings.autocomplete_trigger == AUTOCOMPLETE_MANUAL, ACTION_AUTOCOMPLETE_TRIGGER,
+               AUTOCOMPLETE_MANUAL);
+    flow_label(&flow, "while typing", settings.autocomplete_trigger == AUTOCOMPLETE_TYPING, ACTION_AUTOCOMPLETE_TRIGGER,
+               AUTOCOMPLETE_TYPING);
     flow_row(&flow, label_x, " \xE2\x94\x94 signatures");
-    flow_label(&flow, "Ctrl+Shift+Space", settings.signature_help == SIGNATURE_HELP_MANUAL, "signature 0");
-    flow_label(&flow, "on (", settings.signature_help == SIGNATURE_HELP_PAREN, "signature 1");
+    flow_label(&flow, "Ctrl+Shift+Space", settings.signature_help == SIGNATURE_HELP_MANUAL, ACTION_SIGNATURE_HELP,
+               SIGNATURE_HELP_MANUAL);
+    flow_label(&flow, "on (", settings.signature_help == SIGNATURE_HELP_PAREN, ACTION_SIGNATURE_HELP, SIGNATURE_HELP_PAREN);
     flow_row(&flow, label_x, "code display");
     flow_row(&flow, label_x, " \xE2\x94\x9C background opacity");
-    flow_label(&flow, "-", false, "opacity -");
     flow_number(&flow, NUMBER_OPACITY);
-    flow_label(&flow, "+", false, "opacity +");
     flow_row(&flow, label_x, " \xE2\x94\x9C background blend");
-    flow_label(&flow, "normal", settings.code_background_blend == CODE_BLEND_NORMAL, "box 0");
-    flow_label(&flow, "difference", settings.code_background_blend == CODE_BLEND_DIFFERENCE, "box 1");
+    flow_label(&flow, "normal", settings.code_background_blend == CODE_BLEND_NORMAL, ACTION_BACKGROUND_BLEND, CODE_BLEND_NORMAL);
+    flow_label(&flow, "difference", settings.code_background_blend == CODE_BLEND_DIFFERENCE, ACTION_BACKGROUND_BLEND, CODE_BLEND_DIFFERENCE);
     flow_row(&flow, label_x, " \xE2\x94\x94 text blend");
-    flow_label(&flow, "normal", settings.code_text_blend == CODE_BLEND_NORMAL, "text 0");
-    flow_label(&flow, "difference", settings.code_text_blend == CODE_BLEND_DIFFERENCE, "text 1");
+    flow_label(&flow, "normal", settings.code_text_blend == CODE_BLEND_NORMAL, ACTION_TEXT_BLEND, CODE_BLEND_NORMAL);
+    flow_label(&flow, "difference", settings.code_text_blend == CODE_BLEND_DIFFERENCE, ACTION_TEXT_BLEND, CODE_BLEND_DIFFERENCE);
     flow_row(&flow, label_x, "code at start");
-    flow_label(&flow, "shown", settings.code_visible, "start 1");
-    flow_label(&flow, "hidden", !settings.code_visible, "start 0");
+    flow_switch(&flow, "shown", "hidden", settings.code_visible, ACTION_CODE_AT_START);
     flow_text(&flow, "(next start)", theme->help_keys);
     flow_row(&flow, label_x, "whitespace");
-    for (int i = WHITESPACE_NONE; i <= WHITESPACE_ALL; i++) {
-        snprintf(action, sizeof action, "whitespace %d", i);
+    for (int i = WHITESPACE_NONE; i <= WHITESPACE_ALL; i++)
         flow_label(&flow, settings_whitespace_name((enum render_whitespace)i),
-                   settings.render_whitespace == (enum render_whitespace)i, action);
-    }
+                   settings.render_whitespace == (enum render_whitespace)i, ACTION_WHITESPACE, i);
     flow_row(&flow, label_x, "line wrap");
-    flow_label(&flow, "on", wrap, "wrap 1");
-    flow_label(&flow, "off", !wrap, "wrap 0");
+    flow_switch(&flow, "on", "off", wrap, ACTION_WRAP);
     flow_row(&flow, label_x, "server");
     const char *server = settings.gallery_server;
-    flow_label(&flow, "off", !server[0], "server off");
-    flow_label(&flow, "hydra.ojack.xyz", !strcmp(server, WEB_EDITOR_SERVER), "server web");
+    flow_label(&flow, "off", !server[0], ACTION_SERVER_OFF, 0);
+    flow_label(&flow, "hydra.ojack.xyz", !strcmp(server, WEB_EDITOR_SERVER), ACTION_SERVER_WEB_EDITOR, 0);
     bool custom = server[0] && strcmp(server, WEB_EDITOR_SERVER);
-    flow_label(&flow, custom ? server : "custom", custom, "server custom");
+    flow_label(&flow, custom ? server : "custom", custom, ACTION_SERVER_CUSTOM, 0);
     char *stream_id = patch_bay_stream_id();
     if (stream_id[0]) { // while the patch bay is connected: the id for s0.initStream, with a button that copies it
         char label[160];
         snprintf(label, sizeof label, "stream id %s", stream_id);
         flow_text(&flow, label, theme->help_keys);
-        flow_label(&flow, "copy", false, "copy id");
+        flow_label(&flow, "copy", false, ACTION_COPY_STREAM_ID, 0);
     }
     free(stream_id);
     flow_row(&flow, label_x, "window");
     bool fullscreen = host.is_fullscreen();
-    flow_label(&flow, "fullscreen", fullscreen, fullscreen ? "fullscreen 0" : "fullscreen 1");
-    flow_label(&flow, "vsync on", settings.vsync, "vsync 1");
-    flow_label(&flow, "vsync off", !settings.vsync, "vsync 0");
+    flow_label(&flow, "fullscreen", fullscreen, ACTION_FULLSCREEN, !fullscreen);
+    flow_switch(&flow, "vsync on", "vsync off", settings.vsync, ACTION_VSYNC);
     flow_row(&flow, label_x, "audio input");
     const char *audio = settings.audio_source;
-    flow_label(&flow, "default", !audio[0], "audio default");
-    for (int i = 0; i < audio_choice_count; i++) {
-        snprintf(action, sizeof action, "audio %d", i);
-        flow_label(&flow, audio_choices[i].label, !strcmp(audio, audio_choices[i].name), action);
-    }
-    flow_label(&flow, "none", !strcmp(audio, AUDIO_NONE), "audio none");
+    flow_label(&flow, "default", !audio[0], ACTION_AUDIO_DEFAULT, 0);
+    for (int i = 0; i < audio_choice_count; i++)
+        flow_label(&flow, audio_choices[i].label, !strcmp(audio, audio_choices[i].name), ACTION_AUDIO, i);
+    flow_label(&flow, "none", !strcmp(audio, AUDIO_NONE), ACTION_AUDIO_NONE, 0);
     flow_row(&flow, label_x, " \xE2\x94\x94 input gain");
-    flow_label(&flow, "-", false, "gain -");
     flow_number(&flow, NUMBER_AUDIO_GAIN);
-    flow_label(&flow, "+", false, "gain +");
     flow_row(&flow, label_x, "language");
-    for (size_t i = 0; i < language_choice_count; i++) {
-        snprintf(action, sizeof action, "language %zu", i);
-        flow_label(&flow, language_choices[i].name, !strcmp(selected_language, language_choices[i].code), action);
-    }
-    flow_label(&flow, settings.l10n_url[0] ? settings.l10n_url : "translation URL...", false, "l10n url");
+    for (size_t i = 0; i < language_choice_count; i++)
+        flow_label(&flow, language_choices[i].name, !strcmp(selected_language, language_choices[i].code), ACTION_LANGUAGE,
+                   (int)i);
+    flow_label(&flow, settings.l10n_url[0] ? settings.l10n_url : "translation URL...", false, ACTION_L10N_URL, 0);
     flow_row(&flow, label_x, "font size");
-    flow_label(&flow, "-", false, "size -");
     flow_number(&flow, NUMBER_FONT_SIZE);
-    flow_label(&flow, "+", false, "size +");
     flow_row(&flow, label_x, "font");
-    flow_label(&flow, "file...", false, "font path");
+    flow_label(&flow, "file...", false, ACTION_FONT_FILE, 0);
     for (size_t i = 0; i < font_choice_count; i++) {
-        snprintf(action, sizeof action, "font %zu", i);
         flow.x = flow.start;
         next_line(&flow, SUB_ROW_HEIGHT);
-        flow_label(&flow, font_choices[i].family, !strcmp(font_choices[i].file, settings.font), action);
+        flow_label(&flow, font_choices[i].family, !strcmp(font_choices[i].file, settings.font), ACTION_FONT, (int)i);
     }
     // The wheel scrolls until the last row is in the panel.
     float below = flow.y + flow.height + line_height / 2 - (top + height);
     settings_scroll_limit = info_scroll + (below > 0 ? (size_t)ceilf(below / line_height) : 0);
 }
 
-static void run_settings_action(const char *action) {
-    for (enum number_kind kind = NUMBER_OPACITY; kind < NUMBER_KIND_COUNT; kind++)
-        if (!strcmp(action, number_specs[kind].action)) {
-            if (!number_field.open || number_field.kind != kind) open_number_field(kind);
-            return;
-        }
+// Opens `kind` with `text` selected, so that typing replaces it.
+static void open_prompt_with(enum prompt_kind kind, const char *text) {
+    settings_visible = false;
+    open_prompt(kind);
+    snprintf(prompt.query, sizeof prompt.query, "%.*s", (int)sizeof prompt.query - 1, text);
+    prompt.query_selected = prompt.query[0] != '\0';
+}
+
+static void set_audio_source(const char *name) {
+    snprintf(settings.audio_source, sizeof settings.audio_source, "%s", name);
+    host.set_audio(name);
+    save_settings();
+}
+
+static void run_settings_action(const struct panel_button *button) {
+    int argument = button->argument;
+    size_t index = (size_t)argument;
+    if (button->action == ACTION_EDIT_NUMBER) {
+        if (!number_field.open || number_field.kind != (enum number_kind)argument) open_number_field((enum number_kind)argument);
+        return;
+    }
     number_field.open = false; // a click on another button leaves the field without a change
-    size_t index = (size_t)atol(strchr(action, ' ') + 1);
-    if (!strncmp(action, "theme ", 6) && index < theme_count) set_theme(&themes[index]);
-    else if (!strncmp(action, "style ", 6)) set_autocomplete((enum autocomplete_style)index, settings.autocomplete_trigger);
-    else if (!strncmp(action, "trigger ", 8)) set_autocomplete(settings.autocomplete_style, (enum autocomplete_trigger)index);
-    else if (!strncmp(action, "signature ", 10) && index <= SIGNATURE_HELP_PAREN) set_signature_help((enum signature_help)index);
-    else if (!strncmp(action, "fullscreen ", 11)) {
-        if (host.is_fullscreen() != (index == 1)) host.toggle_fullscreen();
-        settings.fullscreen = index == 1;
-        save_settings();
-    } else if (!strncmp(action, "vsync ", 6)) {
-        settings.vsync = index == 1;
+    switch (button->action) {
+    case ACTION_EXTENSION_CATEGORY:
+    case ACTION_EXTENSION_ADD:
+    case ACTION_EXTENSION_DOCS:
+    case ACTION_EXTENSION_EXAMPLE:
+    case ACTION_EDIT_NUMBER: return;
+    case ACTION_OPEN_FILE:
+        settings_visible = false;
+        host.choose_file(false);
+        return;
+    case ACTION_THEME: set_theme(&themes[index]); return;
+    case ACTION_AUTOCOMPLETE_STYLE: set_autocomplete((enum autocomplete_style)argument, settings.autocomplete_trigger); return;
+    case ACTION_AUTOCOMPLETE_TRIGGER: set_autocomplete(settings.autocomplete_style, (enum autocomplete_trigger)argument); return;
+    case ACTION_SIGNATURE_HELP: set_signature_help((enum signature_help)argument); return;
+    case ACTION_STEP_NUMBER: set_number((enum number_kind)argument, number_value((enum number_kind)argument) + button->second); return;
+    case ACTION_SERVER_OFF: set_server(""); return;
+    case ACTION_SERVER_WEB_EDITOR: set_server(WEB_EDITOR_SERVER); return;
+    case ACTION_SERVER_CUSTOM:
+        settings_visible = false;
+        run_command(COMMAND_SET_SERVER, false);
+        return;
+    case ACTION_COPY_STREAM_ID: copy_patch_bay_id(); return;
+    case ACTION_AUDIO_DEFAULT: set_audio_source(""); return;
+    case ACTION_AUDIO_NONE: set_audio_source(AUDIO_NONE); return;
+    case ACTION_AUDIO: set_audio_source(audio_choices[index].name); return;
+    case ACTION_L10N_URL: open_prompt_with(PROMPT_L10N_URL, settings.l10n_url); return;
+    case ACTION_FONT_FILE: open_prompt_with(PROMPT_FONT_PATH, settings.font); return;
+    case ACTION_FONT: set_font(font_choices[index].file); return;
+    // The other actions change one setting, which is saved below.
+    case ACTION_WATCH: settings.watch = argument; break;
+    case ACTION_BACKGROUND_BLEND: settings.code_background_blend = (enum code_blend)argument; break;
+    case ACTION_TEXT_BLEND: settings.code_text_blend = (enum code_blend)argument; break;
+    case ACTION_CODE_AT_START:
+        settings.code_visible = argument;
+        ui_show_message("code at start: applies at the next start", false);
+        break;
+    case ACTION_WHITESPACE: settings.render_whitespace = (enum render_whitespace)argument; break;
+    case ACTION_WRAP:
+        wrap = settings.word_wrap = argument;
+        layout.valid = false;
+        break;
+    case ACTION_FULLSCREEN:
+        if (host.is_fullscreen() != (bool)argument) host.toggle_fullscreen();
+        settings.fullscreen = argument;
+        break;
+    case ACTION_VSYNC:
+        settings.vsync = argument;
         host.set_vsync(settings.vsync);
-        save_settings();
-    } else if (!strncmp(action, "audio ", 6)) {
-        const char *name = !strcmp(action, "audio default") ? ""
-                           : !strcmp(action, "audio none")  ? AUDIO_NONE
-                           : (int)index < audio_choice_count ? audio_choices[index].name
-                                                              : NULL;
-        if (name) {
-            snprintf(settings.audio_source, sizeof settings.audio_source, "%s", name);
-            host.set_audio(name);
-            save_settings();
-        }
-    } else if (!strncmp(action, "language ", 9) && index < language_choice_count) {
+        break;
+    case ACTION_LANGUAGE:
         free(host.call("__setLanguage", language_choices[index].code));
         snprintf(selected_language, sizeof selected_language, "%s", language_choices[index].code);
         snprintf(settings.language, sizeof settings.language, "%s", selected_language);
-        save_settings();
-    } else if (!strcmp(action, "l10n url")) {
-        settings_visible = false;
-        open_prompt(PROMPT_L10N_URL);
-        snprintf(prompt.query, sizeof prompt.query, "%.*s", (int)sizeof prompt.query - 1, settings.l10n_url);
-        prompt.query_selected = prompt.query[0] != '\0';
-    } else if (!strncmp(action, "start ", 6)) {
-        settings.code_visible = index == 1;
-        save_settings();
-        ui_show_message("code at start: applies at the next start", false);
-    } else if (!strncmp(action, "watch ", 6)) {
-        settings.watch = index == 1;
-        save_settings();
-    } else if (!strcmp(action, "font path")) {
-        settings_visible = false;
-        open_prompt(PROMPT_FONT_PATH);
-        snprintf(prompt.query, sizeof prompt.query, "%.*s", (int)sizeof prompt.query - 1, settings.font);
-        prompt.query_selected = true;
+        break;
     }
-    else if (!strcmp(action, "opacity -") || !strcmp(action, "opacity +")) {
-        set_number(NUMBER_OPACITY, code_background_percent() + (action[8] == '+' ? OPACITY_STEP : -OPACITY_STEP));
-    } else if (!strcmp(action, "list opacity -") || !strcmp(action, "list opacity +")) {
-        set_number(NUMBER_COMPLETION_OPACITY,
-                   settings.completion_opacity + (action[13] == '+' ? OPACITY_STEP : -OPACITY_STEP));
-    } else if (!strcmp(action, "gain -") || !strcmp(action, "gain +")) {
-        set_number(NUMBER_AUDIO_GAIN, settings.audio_gain + (action[5] == '+' ? GAIN_STEP : -GAIN_STEP));
-    } else if (!strcmp(action, "file open")) {
-        settings_visible = false;
-        host.choose_file(false);
-    } else if (!strncmp(action, "box ", 4) && index <= CODE_BLEND_DIFFERENCE) {
-        settings.code_background_blend = (enum code_blend)index;
-        save_settings();
-    } else if (!strncmp(action, "text ", 5) && index <= CODE_BLEND_DIFFERENCE) {
-        settings.code_text_blend = (enum code_blend)index;
-        save_settings();
-    }
-    else if (!strncmp(action, "whitespace ", 11) && index <= WHITESPACE_ALL) {
-        settings.render_whitespace = (enum render_whitespace)index;
-        save_settings();
-    } else if (!strcmp(action, "server off")) {
-        set_server("");
-    } else if (!strcmp(action, "server web")) {
-        set_server(WEB_EDITOR_SERVER);
-    } else if (!strcmp(action, "server custom")) {
-        settings_visible = false;
-        run_command(COMMAND_SET_SERVER, false);
-    } else if (!strcmp(action, "copy id")) {
-        copy_patch_bay_id();
-    } else if (!strncmp(action, "wrap ", 5)) {
-        wrap = settings.word_wrap = index != 0;
-        layout.valid = false;
-        save_settings();
-    } else if (!strcmp(action, "size -")) change_font_size(-FONT_SIZE_STEP);
-    else if (!strcmp(action, "size +")) change_font_size(FONT_SIZE_STEP);
-    else if (!strncmp(action, "font ", 5) && index < font_choice_count) set_font(font_choices[index].file);
+    save_settings();
 }
 
 // The buttons take a click first; a click outside the panel and its buttons closes it.
 static bool settings_click(float x, float y) {
     size_t button = panel_button_at(x, y);
     if (button < panel_button_count) {
-        char action[32];
-        snprintf(action, sizeof action, "%s", panel_buttons[button].action);
-        run_settings_action(action);
+        struct panel_button clicked = panel_buttons[button]; // the action may draw the panel again
+        run_settings_action(&clicked);
         return true;
     }
     if (!in_info_panel(x, y)) settings_visible = false;
@@ -2421,17 +2435,10 @@ static bool wheel_number(int lines) {
         step_number(number_field.kind, steps);
         return true;
     }
-    for (size_t i = 0; i < panel_button_count; i++) {
-        if (pointer_x < panel_buttons[i].x || pointer_x > panel_buttons[i].x + panel_buttons[i].width ||
-            pointer_y < panel_buttons[i].y || pointer_y > panel_buttons[i].y + panel_buttons[i].height)
-            continue;
-        for (enum number_kind kind = NUMBER_OPACITY; kind < NUMBER_KIND_COUNT; kind++)
-            if (!strcmp(panel_buttons[i].action, number_specs[kind].action)) {
-                step_number(kind, steps);
-                return true;
-            }
-    }
-    return false;
+    size_t button = panel_button_at(pointer_x, pointer_y);
+    if (button == panel_button_count || panel_buttons[button].action != ACTION_EDIT_NUMBER) return false;
+    step_number((enum number_kind)panel_buttons[button].argument, steps);
+    return true;
 }
 
 void ui_wheel(int lines) {
