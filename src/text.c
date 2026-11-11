@@ -19,6 +19,9 @@
 #define DEFAULT_FAMILY "sans-serif"
 #define SDF_ON_EDGE 128
 #define SDF_MARGIN 2 // pixels around the outline in the distance field of a glyph
+// A sketch gives the sizes. These limits keep the allocations and the time of one call in bounds.
+#define MAX_TEXTURE_DIMENSION 16384
+#define MAX_LINE_WIDTH 256.0f
 
 static struct text_font {
     char key[FONT_KEY_SIZE];
@@ -55,7 +58,8 @@ static const stbtt_fontinfo *find_font(const char *family, bool bold, bool itali
     struct text_font *font = &fonts[font_count++];
     snprintf(font->key, sizeof font->key, "%s", key);
     char pattern[FONT_KEY_SIZE + 48];
-    snprintf(pattern, sizeof pattern, "%s:weight=%s:slant=%s", name, bold ? "bold" : "regular", italic ? "italic" : "roman");
+    snprintf(pattern, sizeof pattern, "%s:weight=%s:slant=%s", name, bold ? "bold" : "regular",
+             italic ? "italic" : "roman");
     const char *arguments[] = { "fc-match", "-f", "%{index} %{file}", pattern, NULL };
     SDL_Process *process = SDL_CreateProcess(arguments, true);
     char *found = process ? SDL_ReadProcess(process, NULL, NULL) : NULL;
@@ -74,7 +78,8 @@ static float walk_line(const stbtt_fontinfo *font, const char *line, size_t leng
     float pen = 0;
     int previous = 0;
     for (size_t offset = 0, size; offset < length; offset += size) {
-        int index = stbtt_FindGlyphIndex(font, unicode_decode((const unsigned char *)line + offset, length - offset, &size));
+        int codepoint = unicode_decode((const unsigned char *)line + offset, length - offset, &size);
+        int index = stbtt_FindGlyphIndex(font, codepoint);
         int advance;
         stbtt_GetGlyphHMetrics(font, index, &advance, NULL);
         if (previous) pen += (float)stbtt_GetGlyphKernAdvance(font, previous, index);
@@ -93,7 +98,7 @@ float text_width(const char *family, bool bold, bool italic, const char *line) {
 struct pass {
     const struct text_options *options;
     const stbtt_fontinfo *font;
-    float scale, left, baseline;
+    float scale, left, baseline, line_width;
     float color[4];
     bool outline;
     unsigned char *pixels; // premultiplied RGBA
@@ -103,10 +108,11 @@ static void draw_glyph(float pen, int index, void *data) {
     const struct pass *pass = data;
     const struct text_options *options = pass->options;
     int width, height, x_offset, y_offset;
-    int margin = (int)ceilf(options->line_width / 2) + SDF_MARGIN;
+    int margin = (int)ceilf(pass->line_width / 2) + SDF_MARGIN;
     float distance_scale = (float)(SDF_ON_EDGE - 1) / (float)margin;
     unsigned char *bitmap = pass->outline
-        ? stbtt_GetGlyphSDF(pass->font, pass->scale, index, margin, SDF_ON_EDGE, distance_scale, &width, &height, &x_offset, &y_offset)
+        ? stbtt_GetGlyphSDF(pass->font, pass->scale, index, margin, SDF_ON_EDGE, distance_scale, &width, &height,
+                            &x_offset, &y_offset)
         : stbtt_GetGlyphBitmap(pass->font, pass->scale, pass->scale, index, &width, &height, &x_offset, &y_offset);
     if (!bitmap) return;
     int left = (int)lroundf(pass->left + pen * pass->scale) + x_offset, top = (int)lroundf(pass->baseline) + y_offset;
@@ -117,12 +123,13 @@ static void draw_glyph(float pen, int index, void *data) {
             float coverage = (float)bitmap[y * width + x] / 255;
             if (pass->outline) {
                 float distance = fabsf((float)(bitmap[y * width + x] - SDF_ON_EDGE) / distance_scale);
-                coverage = fminf(fmaxf(options->line_width / 2 - distance + 0.5f, 0), 1);
+                coverage = fminf(fmaxf(pass->line_width / 2 - distance + 0.5f, 0), 1);
             }
             float alpha = coverage * pass->color[3];
             unsigned char *pixel = pass->pixels + ((size_t)(top + y) * (size_t)options->width + (size_t)(left + x)) * 4;
             for (int i = 0; i < 4; i++)
-                pixel[i] = (unsigned char)lroundf((i < 3 ? pass->color[i] : 1) * alpha * 255 + (float)pixel[i] * (1 - alpha));
+                pixel[i] = (unsigned char)lroundf((i < 3 ? pass->color[i] : 1) * alpha * 255 +
+                                                  (float)pixel[i] * (1 - alpha));
         }
     }
     stbtt_FreeBitmap(bitmap, NULL);
@@ -130,12 +137,20 @@ static void draw_glyph(float pen, int index, void *data) {
 
 bool text_draw(unsigned texture, const struct text_options *options) {
     const stbtt_fontinfo *font = find_font(options->family, options->bold, options->italic);
-    if (options->width <= 0 || options->height <= 0) return false;
+    bool found = font != NULL;
+    if (options->width <= 0 || options->height <= 0 || options->width > MAX_TEXTURE_DIMENSION ||
+        options->height > MAX_TEXTURE_DIMENSION)
+        return false;
     unsigned char *pixels = calloc((size_t)options->width * (size_t)options->height, 4);
-    struct pass pass = { .options = options, .font = font, .pixels = pixels };
+    if (!pixels) return false;
+    // The comparisons are false for NaN, which then draws nothing.
+    float size = options->size > 0 ? fminf(options->size, (float)MAX_TEXTURE_DIMENSION) : 0;
+    struct pass pass = { .options = options, .font = size > 0 ? font : NULL, .pixels = pixels,
+                         .line_width = options->line_width > 0 ? fminf(options->line_width, MAX_LINE_WIDTH) : 0 };
+    font = pass.font;
     int ascent = 0, descent = 0, line_count = 1;
     if (font) {
-        pass.scale = stbtt_ScaleForMappingEmToPixels(font, options->size);
+        pass.scale = stbtt_ScaleForMappingEmToPixels(font, size);
         stbtt_GetFontVMetrics(font, &ascent, &descent, NULL);
     }
     for (const char *c = options->text; *c; c++) line_count += *c == '\n';
@@ -145,7 +160,8 @@ bool text_draw(unsigned texture, const struct text_options *options) {
         float width = walk_line(font, line, length, NULL, NULL) * pass.scale;
         pass.left = options->x - width * (float)options->align / 2; // left 0, center 1, right 2
         // The lines spread over the height; each has its middle (the middle of the em square) at its position.
-        pass.baseline = (float)options->height / (float)(line_count + 1) * (float)(i + 1) + (float)(ascent + descent) * pass.scale / 2;
+        pass.baseline = (float)options->height / (float)(line_count + 1) * (float)(i + 1) +
+                        (float)(ascent + descent) * pass.scale / 2;
         for (int step = 0; step < TEXT_PASS_COUNT; step++) {
             if (!(options->passes & (1 << step))) continue;
             pass.outline = step == 1;
@@ -155,11 +171,15 @@ bool text_draw(unsigned texture, const struct text_options *options) {
         }
         line += length + 1;
     }
+    // To straight alpha; rounding can leave a color one step above its alpha, which must not wrap around.
     for (size_t i = 0; i < (size_t)options->width * (size_t)options->height * 4; i += 4)
-        for (int k = 0; k < 3 && pixels[i + 3]; k++) pixels[i + k] = (unsigned char)(pixels[i + k] * 255 / pixels[i + 3]);
+        for (int k = 0; k < 3 && pixels[i + 3]; k++) {
+            int value = pixels[i + k] * 255 / pixels[i + 3];
+            pixels[i + k] = (unsigned char)(value > 255 ? 255 : value);
+        }
     glBindTexture(GL_TEXTURE_2D, texture);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, options->width, options->height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
     free(pixels);
-    return font != NULL;
+    return found;
 }
