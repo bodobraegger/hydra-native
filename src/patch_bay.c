@@ -35,6 +35,7 @@ static bool flush_pending(void) {
         if (count == 0) break;
         done += (size_t)count;
     }
+    if (!done) return true; // also before the first line, while pending is NULL
     helper.pending_size -= done;
     memmove(helper.pending, helper.pending + done, helper.pending_size);
     return true;
