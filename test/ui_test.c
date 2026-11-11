@@ -126,6 +126,7 @@ static char *call(const char *function, const char *argument) {
     if (!strcmp(function, "__functionSignatures"))
         return strdup(set_function_called ? SIGNATURES "wobble\tcolor\tamount:float:0.5\n" : SIGNATURES);
     if (!strcmp(function, "__numberHelpers")) return strdup("cc[]\ntime");
+    if (!strcmp(function, "__propertyNames")) return strdup(!strcmp(argument, "Math") ? "PI\nsin()" : "");
     if (!strcmp(function, "__languages")) return strdup("en\tEnglish\t1\nde\tDeutsch\t0");
     if (!strcmp(function, "__setLanguage")) {
         snprintf(language_now, sizeof language_now, "%s", argument);
@@ -585,13 +586,13 @@ static void test_signatures(void) {
     key(SDLK_RETURN, SDL_KMOD_LCTRL);
     EXPECT_STRING(evaluated, "osc().modulate(o2, () => cc[3])");
 
-    // The types decide: src() takes outputs and sources only, s0. and a. have their own methods, Math. gets no
-    // hydra names, render() takes an output, and a statement does not start with a transform.
+    // The types decide: src() takes outputs and sources only, s0. and a. have their own methods, Math. gets its
+    // properties from the runtime and no hydra names, render() takes an output, and a statement does not start with a transform.
     struct { const char *code; const char *present; const char *absent; } typed[] = {
         { "src(|)", "o0\no1\no2\no3\ns0\ns1\ns2\ns3\n", "osc\n" },
         { "s0.|", "initCam\n", "modulate\n" },
         { "a.|", "setBins\n", "modulate\n" },
-        { "Math.|", NULL, "modulate\n" },
+        { "Math.|", "PI\nsin\n", "modulate\n" },
         { "render(|)", "o0\no1\no2\no3\n", "s0\n" },
         { "mod|", NULL, "modulate\n" },
         { "osc().mod|", "modulate\n", NULL },
@@ -614,6 +615,15 @@ static void test_signatures(void) {
         }
         key(SDLK_ESCAPE, 0);
     }
+
+    // A function of a global object goes in as a call with the cursor inside the parentheses.
+    ui_set_code("Math.s");
+    key(SDLK_END, 0);
+    key(SDLK_SPACE, SDL_KMOD_LCTRL);
+    key(SDLK_RETURN, 0);
+    type("time");
+    key(SDLK_RETURN, SDL_KMOD_LCTRL);
+    EXPECT_STRING(evaluated, "Math.sin(time)");
 
     // Tab stops: the transform with its defaults, Tab and Shift+Tab between the arguments, the last Tab leaves.
     ui_set_code("osc().");

@@ -119,14 +119,16 @@ there is no room below. "autocompleteOpacity" sets how much its box covers the c
 text" shows the rest of the best candidate after the cursor, like the inline suggestions of VS Code: Tab accepts
 it, Escape dismisses it, Alt+] and Alt+[ show the other candidates.
 
-The completions follow the type of the place. After a ".", the list has the transforms of a chain (color,
-coord, combine and combineCoord functions, and `out`), and no source functions. In a texture argument (`src()`,
-the first argument of combine and combineCoord functions), it has o0 to o3, s0 to s3, `src()` and the source
-functions. In a number argument, it has the default value, `() => `, `[ ]`, and the helpers of a setup file when
-they exist at run time: `cc[]`, `hit()`, `midi.beat`, `midi.bpm`, `time` and `a.fft[]`. A helper goes into an
-arrow function, because a plain value would not change. A function from these lists comes with its arguments
-and their defaults, for example `modulate(o0, 0.1)`. Tab and Shift+Tab select the next and the previous argument,
-the last Tab goes behind the call, and Escape ends the tab stops.
+The completions follow the type of the place. After a "." behind a chain, the list has the transforms of a chain
+(color, coord, combine and combineCoord functions, and `out`), and no source functions. After the name of an
+object of the running JavaScript, such as `Math.`, `JSON.` or a user object such as `midi.`, the list has the
+properties of that object; a function goes in as a call with the cursor inside the parentheses. In a texture
+argument (`src()`, the first argument of combine and combineCoord functions), it has o0 to o3, s0 to s3, `src()`
+and the source functions. In a number argument, it has the default value, `() => `, `[ ]`, `time`,
+`Math.sin(time)`, and the helpers of a setup file when they exist at run time: `cc[]`, `hit()`, `midi.beat`,
+`midi.bpm` and `a.fft[]`. A helper goes into an arrow function, because a plain value would not change. A function
+from these lists comes with its arguments and their defaults, for example `modulate(o0, 0.1)`. Tab and Shift+Tab
+select the next and the previous argument, the last Tab goes behind the call, and Escape ends the tab stops.
 
 Ctrl+Shift+Space shows the signature help of the hydra function around the cursor, as in VS Code: the call with
 its parameters and defaults, the current parameter marked, and its type and default on a second line. It follows

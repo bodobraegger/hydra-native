@@ -133,6 +133,37 @@ const IDENTIFIER = /^[A-Za-z_$][\w$]*$/
 const transforms = () => Object.values(hydra.generator.glslTransforms).filter(({ name }) => IDENTIFIER.test(name))
 window.__completionNames = () => [...new Set([...transforms().map(({ name }) => name), ...HYDRA_GLOBALS])].join('\n')
 
+// The property names of a global object for the completions after "Name." (Math, JSON, a user object such as midi),
+// one per line, a function with "()" behind its name. Only a dotted path of names is read: no code runs, and a getter
+// on the path or among the properties is not called.
+const PROPERTY_PATH = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*$/
+const BASE_PROTOTYPES = [Object.prototype, Function.prototype] // toString, call and the like fit every object
+const findDescriptor = (object, name) => {
+  for (let level = object; level; level = Object.getPrototypeOf(level)) {
+    const descriptor = Object.getOwnPropertyDescriptor(level, name)
+    if (descriptor) return descriptor
+  }
+}
+window.__propertyNames = (path) => {
+  if (!PROPERTY_PATH.test(path)) return ''
+  let object = globalThis
+  for (const name of path.split('.')) {
+    const descriptor = findDescriptor(object, name)
+    if (!descriptor || !('value' in descriptor)) return ''
+    object = descriptor.value
+    if (object === null || (typeof object !== 'object' && typeof object !== 'function')) return ''
+  }
+  const names = new Set()
+  for (let level = object; level && !BASE_PROTOTYPES.includes(level); level = Object.getPrototypeOf(level)) {
+    for (const name of Object.getOwnPropertyNames(level)) {
+      if (name === 'constructor' || !IDENTIFIER.test(name) || names.has(name) || names.has(`${name}()`)) continue
+      const { value } = Object.getOwnPropertyDescriptor(level, name)
+      names.add(typeof value === 'function' ? `${name}()` : name)
+    }
+  }
+  return [...names].sort().join('\n')
+}
+
 // The definitions of the hydra functions for the signature help and the typed completions of src/ui.c
 // (src/signature.h): "name<TAB>kind<TAB>input:type:default" per line, also for functions of setFunction.
 // hydra-synth adds the texture input of combine and combineCoord functions as _c1 or _c0 (generator-factory.js).
@@ -153,6 +184,7 @@ const NUMBER_HELPERS = [
   ['midi.beat', () => window.midi && 'beat' in window.midi],
   ['midi.bpm', () => window.midi && 'bpm' in window.midi],
   ['time', () => true],
+  ['Math.sin(time)', () => true],
   ['a.fft[]', () => window.a && window.a.fft !== undefined]
 ]
 window.__numberHelpers = () => NUMBER_HELPERS.filter(([, exists]) => exists()).map(([name]) => name).join('\n')

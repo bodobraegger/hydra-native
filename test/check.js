@@ -118,8 +118,24 @@ async function programChecks () {
   return added > 2 ? [`programs: ${added} more after ${DIFFERENT_SHADERS} different shaders`] : []
 }
 
+// An arrow function of `time` in a number argument changes the output from frame to frame, as the helper
+// Math.sin(time) of the completions does. The check sets the time, so that the two frequencies differ.
+async function arrowChecks () {
+  osc(() => 10 + Math.sin(time) * 5, 0, 0).out(o2)
+  for (let frame = 0; frame < PENDING_MAX_FRAMES && o2.pendingDraw; frame++) await frames(1)
+  const pixelAt = async (start) => {
+    hydraSynth.synth.time = start
+    await frames(PENDING_FRAMES)
+    return native.readPixel(o2.getCurrent().id, Math.floor(width / 4), Math.floor(height / 2)).join()
+  }
+  const first = await pixelAt(0)
+  const second = await pixelAt(Math.PI / 2)
+  return first === second ? [`arrow function of time: the pixel stays ${first}`] : []
+}
+
 const checks = Promise.all([networkChecks(), pendingPassChecks()
-  .then(async (failures) => [...failures, ...await textChecks(), ...await programChecks()])])
+  .then(async (failures) => [...failures, ...await textChecks(), ...await programChecks(),
+    ...await arrowChecks()])])
 
 setTimeout(() => checks.then((results) => {
   const failures = results.flat()

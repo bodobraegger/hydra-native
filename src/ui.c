@@ -795,6 +795,29 @@ static enum receiver receiver_before(size_t dot) {
     return RECEIVER_OTHER;
 }
 
+// After "Name." where Name is a dotted path to an object of the running JavaScript (Math, JSON, a user object such
+// as midi): its properties from __propertyNames in js/main.js; a function goes in as a call with the cursor inside
+// the parentheses. False when the runtime knows no such object.
+static bool add_property_names(size_t dot, const char *prefix, size_t length) {
+    size_t start = dot;
+    while (start > 0 && (is_identifier_char((unsigned char)editor.text[start - 1]) || editor.text[start - 1] == '.'))
+        start--;
+    char *path = strndup(editor.text + start, dot - start);
+    char *names = host.call("__propertyNames", path);
+    free(path);
+    bool found = names && names[0];
+    bool call_follows = editor.cursor < editor.length && editor.text[editor.cursor] == '(';
+    for (char *name = found ? strtok(names, "\n") : NULL; name; name = strtok(NULL, "\n")) {
+        size_t name_length = strcspn(name, "(");
+        if (name_length < length || strncmp(name, prefix, length) != 0) continue;
+        char insert[MAX_SNIPPET];
+        snprintf(insert, sizeof insert, "%.*s(${})", (int)name_length, name);
+        add_completion(name, name_length, name[name_length] && !call_follows ? insert : NULL);
+    }
+    free(names);
+    return found;
+}
+
 // Completions by type at the word that starts at `start`: after a ".", the methods of what stands before it; in
 // an argument, what its type allows. False when the place has no type.
 static bool open_typed_completion(const char *prefix, size_t length, size_t start) {
@@ -808,7 +831,7 @@ static bool open_typed_completion(const char *prefix, size_t length, size_t star
             return true;
         case RECEIVER_SOURCE: add_functions_of_kind("source", prefix, length); return true;
         case RECEIVER_AUDIO: add_functions_of_kind("audio", prefix, length); return true;
-        case RECEIVER_OTHER: return false;
+        case RECEIVER_OTHER: return add_property_names(start - 1, prefix, length);
         }
     }
     struct call_context call;
