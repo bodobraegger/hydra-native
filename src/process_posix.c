@@ -5,6 +5,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <poll.h>
 #include <signal.h>
 #include <spawn.h>
@@ -192,6 +193,18 @@ long stream_read_ready(int stream, void *buffer, size_t size) {
     ssize_t bytes = read(stream, buffer, size);
     if (bytes < 0) return errno == EINTR || errno == EAGAIN ? 0 : -1;
     return bytes == 0 ? -1 : (long)bytes;
+}
+
+// A pipe that poll reports as writable takes PIPE_BUF bytes at once, so a write of at most that size does not wait.
+long stream_write_ready(int stream, const void *buffer, size_t size) {
+    struct pollfd ready = { .fd = stream, .events = POLLOUT };
+    int count = poll(&ready, 1, 0);
+    if (count < 0) return errno == EINTR ? 0 : -1;
+    if (count == 0) return 0;
+    if (ready.revents & (POLLERR | POLLHUP | POLLNVAL)) return -1;
+    ssize_t bytes = write(stream, buffer, size < PIPE_BUF ? size : PIPE_BUF);
+    if (bytes < 0) return errno == EINTR || errno == EAGAIN ? 0 : -1;
+    return (long)bytes;
 }
 
 void stream_shutdown(int stream) { shutdown(stream, SHUT_RDWR); }

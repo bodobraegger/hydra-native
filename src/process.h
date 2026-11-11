@@ -40,6 +40,9 @@ bool stream_write_all(int stream, const void *buffer, size_t size);
 // Reads the bytes that are there without waiting: their count, 0 when there are none, or -1 at the end of the
 // stream or on an error.
 long stream_read_ready(int stream, void *buffer, size_t size);
+// Writes the start of `buffer` that the stream takes without waiting (a pipe on POSIX): the count of bytes, 0 when
+// the stream is full, or -1 on an error.
+long stream_write_ready(int stream, const void *buffer, size_t size);
 // Makes a blocking read of another thread on `stream` return: shutdown on POSIX sockets, CancelIoEx on Windows.
 void stream_shutdown(int stream);
 void stream_close(int stream);

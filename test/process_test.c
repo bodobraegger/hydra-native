@@ -100,6 +100,20 @@ int main(int argc, char **argv) {
     check(process && process_wait(process, RUNNING_CHECK_MS) == PROCESS_RUNNING, "a timed wait returns PROCESS_RUNNING");
     process_free(process); // kills the sleeping child
 
+    // A child that does not read its input: stream_write_ready fills the pipe and then returns 0 instead of waiting.
+    input = -1;
+    process = process_start(sleep_argv, &input, NULL);
+    check(process != NULL, "start a child that does not read");
+    if (process) {
+        char block[4096] = { 0 };
+        long count, written = 0;
+        while ((count = stream_write_ready(input, block, sizeof block)) > 0 && written < (64L << 20)) written += count;
+        printf("  the pipe took %ld bytes\n", written);
+        check(count == 0 && written > 0, "stream_write_ready returns 0 for a full pipe");
+        stream_close(input);
+        process_free(process);
+    }
+
     // The shell of the system: /bin/sh -c or cmd.exe /d /s /c.
     output = -1;
     process = process_start_shell("echo shell works", NULL, &output);

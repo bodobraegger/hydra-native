@@ -10,6 +10,7 @@
 #include "process.h"
 
 #define MAX_LINE (1 << 20)
+#define MAX_PENDING (1 << 20) // bytes of lines that wait for the helper; more means that it does not read
 #define STOP_WAIT_MS 2000 // for the helper to leave the room
 #define SOCKET_NAME "hydra-native-patch-bay"
 
@@ -19,7 +20,25 @@ static struct {
     char address[512]; // of its local socket
     char *buffer;
     size_t used;
+    // Lines for the helper that its stdin did not take yet, so that a helper that does not read cannot make the
+    // main thread wait in a write.
+    char *pending;
+    size_t pending_size, pending_capacity;
 } helper = { .input = -1, .output = -1 };
+
+// Writes the waiting lines as far as the helper takes them; false when the helper is gone.
+static bool flush_pending(void) {
+    size_t done = 0;
+    while (done < helper.pending_size) {
+        long count = stream_write_ready(helper.input, helper.pending + done, helper.pending_size - done);
+        if (count < 0) return false;
+        if (count == 0) break;
+        done += (size_t)count;
+    }
+    helper.pending_size -= done;
+    memmove(helper.pending, helper.pending + done, helper.pending_size);
+    return true;
+}
 
 bool patch_bay_start(const char *script, const char *server, const char *room) {
     if (helper.process) return true;
@@ -34,11 +53,29 @@ bool patch_bay_start(const char *script, const char *server, const char *room) {
 
 bool patch_bay_send(const char *line) {
     if (helper.input < 0) return false;
-    return stream_write_all(helper.input, line, strlen(line)) && stream_write_all(helper.input, "\n", 1);
+    size_t length = strlen(line), needed = helper.pending_size + length + 1;
+    if (needed > MAX_PENDING) {
+        fprintf(stderr, "patch bay: the helper does not read its input, stopped\n");
+        patch_bay_stop();
+        return false;
+    }
+    if (needed > helper.pending_capacity) {
+        char *grown = realloc(helper.pending, needed * 2);
+        if (!grown) return false;
+        helper.pending = grown;
+        helper.pending_capacity = needed * 2;
+    }
+    memcpy(helper.pending + helper.pending_size, line, length);
+    helper.pending[needed - 1] = '\n';
+    helper.pending_size = needed;
+    if (flush_pending()) return true;
+    patch_bay_stop();
+    return false;
 }
 
 void patch_bay_poll(void (*line)(const char *text)) {
     if (helper.output < 0) return;
+    if (!flush_pending()) return patch_bay_stop();
     for (;;) {
         long count = stream_read_ready(helper.output, helper.buffer + helper.used, MAX_LINE - 1 - helper.used);
         if (count <= 0) {
@@ -98,6 +135,9 @@ void patch_bay_stop(void) {
     process_wait(helper.process, STOP_WAIT_MS);
     process_free(helper.process); // kills the helper if it still runs
     free(helper.buffer);
+    free(helper.pending);
+    helper.pending = NULL;
+    helper.pending_size = helper.pending_capacity = 0;
     helper.process = NULL;
     helper.input = helper.output = -1;
 }
