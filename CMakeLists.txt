@@ -347,7 +347,7 @@ endif()
 
 # The checks run the program in hidden windows, with a settings folder of their own. Their sketches use the global
 # `native` (HYDRA_NATIVE_TEST, js/native.js); test/sandbox_test.py removes it again.
-add_test(NAME check COMMAND hydra-native --hidden --no-vsync ${CMAKE_SOURCE_DIR}/test/check.js)
+add_test(NAME check COMMAND hydra-native --hidden ${CMAKE_SOURCE_DIR}/test/check.js)
 add_test(NAME window COMMAND window-test)
 add_test(NAME programs COMMAND programs-test)
 foreach(check fetch gallery patch_bay error sandbox)

@@ -44,7 +44,7 @@ code = "osc(10, 0.1, 1.2).out() // ä"
 with tempfile.TemporaryDirectory() as directory:
     sketch = pathlib.Path(directory, "share.js")
     sketch.write_text(SKETCH % f"http://127.0.0.1:{server.server_address[1]}", encoding="utf-8")
-    run = subprocess.run([str(BUILD / "hydra-native"), "--hidden", "--no-vsync", str(sketch)],
+    run = subprocess.run([str(BUILD / "hydra-native"), "--hidden", str(sketch)],
                          capture_output=True, text=True, timeout=60)
 results = [line for line in (run.stdout + run.stderr).splitlines() if line.startswith("RESULT ")]
 ok, url = json.loads(results[0][len("RESULT "):]) if results else (False, run.stdout + run.stderr)

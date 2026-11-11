@@ -1,20 +1,12 @@
 import { EventTarget } from './element.js'
 
 // fetch() and XMLHttpRequest for sketches and libraries (p5.js loadFont, loadJSON): http(s) requests go through
-// curl (src/fetch.c) with method, headers and body, and give the status and headers of the response. As for the
-// page https://hydra.ojack.xyz, mixed content and CORS apply. Other URLs are files relative to the working
-// directory, the native counterpart of the files of the page, so they count as the same origin.
+// curl (src/fetch.c) with method, headers and body, and give the status and headers of the response. The CORS and
+// mixed-content rules of a web page do not apply. Other URLs are files relative to the working directory.
 
 const URL_PATTERN = /^https?:\/\//
 const STATUS_OK = 200
 const HEADER_END = [13, 10, 13, 10] // \r\n\r\n
-const PAGE_ORIGIN = 'https://hydra.ojack.xyz'
-const SIMPLE_METHODS = ['GET', 'HEAD', 'POST']
-const SAFELISTED_REQUEST_HEADERS = ['accept', 'accept-language', 'content-language', 'content-type', 'range']
-const SIMPLE_CONTENT_TYPES = ['application/x-www-form-urlencoded', 'multipart/form-data', 'text/plain']
-const SAFELISTED_RESPONSE_HEADERS = ['cache-control', 'content-language', 'content-length', 'content-type', 'expires',
-  'last-modified', 'pragma']
-const LOOPBACK_HOST = /^(localhost|127(\.\d+){3}|\[::1\])(:\d+)?$/i
 const MAX_PARALLEL_REQUESTS = 32 // src/fetch.c runs at most 64 curl processes; the others wait here
 const READY_STATES = { UNSENT: 0, OPENED: 1, HEADERS_RECEIVED: 2, LOADING: 3, DONE: 4 }
 
@@ -117,79 +109,13 @@ function send (url, method, headers, data) {
   }))
 }
 
-function urlOrigin (url) {
-  const [, scheme, host] = /^(https?):\/\/([^/?#]*)/i.exec(url)
-  const defaultPort = scheme.toLowerCase() === 'https' ? ':443' : ':80'
-  return `${scheme.toLowerCase()}://${host.toLowerCase().replace(defaultPort, '')}`
-}
-
-// Like Chrome: the request fails with a TypeError, and the console tells why.
-function blocked (url, reason) {
-  console.error(`Access to fetch at '${url}' from origin '${PAGE_ORIGIN}' has been blocked by CORS policy: ${reason}`)
-  return new TypeError('Failed to fetch')
-}
-
-const listed = (value, name) => (value || '').split(',').map((item) => item.trim().toLowerCase()).some((item) => item === '*' || item === name)
-
-// The CORS check of a response (the final one after redirects) for the page origin.
-function corsError (response) {
-  const allowed = response.headers.get('access-control-allow-origin')
-  if (allowed === '*' || allowed === PAGE_ORIGIN) return null
-  return allowed ? `The 'Access-Control-Allow-Origin' header has a value '${allowed}' that is not equal to the supplied origin.`
-    : "No 'Access-Control-Allow-Origin' header is present on the requested resource."
-}
-
-// A cross-origin response shows only the safelisted headers and those of Access-Control-Expose-Headers.
-function exposeHeaders (response) {
-  const exposed = response.headers.get('access-control-expose-headers')
-  const headers = new Headers()
-  response.headers.forEach((value, name) => {
-    if (SAFELISTED_RESPONSE_HEADERS.includes(name) || listed(exposed, name)) headers.set(name, value)
-  })
-  response.headers = headers
-  return response
-}
-
-async function request (url, method, headerInit, body, mode) {
-  if (/^http:/i.test(url) && !LOOPBACK_HOST.test(/^http:\/\/([^/?#]*)/i.exec(url)[1])) {
-    console.error(`Mixed Content: The page at '${PAGE_ORIGIN}/' was loaded over HTTPS, but requested an insecure resource '${url}'. This request has been blocked; the content must be served over HTTPS.`)
-    throw new TypeError('Failed to fetch')
-  }
+function request (url, method, headerInit, body) {
   const data = body === undefined || body === null ? null
     : typeof body === 'string' || body instanceof ArrayBuffer || ArrayBuffer.isView(body) ? body : String(body)
   const headers = new Headers(headerInit)
   // The content type of the browser: text for a string, none for bytes ("Content-Type:" removes the one of curl).
   if (data !== null && !headers.has('content-type')) headers.set('content-type', typeof data === 'string' ? 'text/plain;charset=UTF-8' : '')
-  if (urlOrigin(url) === PAGE_ORIGIN) return send(url, method, headers, data)
-  if (mode === 'same-origin') throw new TypeError('Failed to fetch')
-
-  const unsafeHeaders = [...headers.values.keys()].filter((name) => !SAFELISTED_REQUEST_HEADERS.includes(name) ||
-    (name === 'content-type' && headers.get(name) && !SIMPLE_CONTENT_TYPES.includes(headers.get(name).split(';')[0].trim().toLowerCase())))
-  const simple = SIMPLE_METHODS.includes(method) && !unsafeHeaders.length
-  if (mode === 'no-cors') {
-    if (!simple) throw new TypeError(`Failed to execute 'fetch' on 'Window': '${method}' is unsupported in no-cors mode.`)
-    await send(url, method, headers, data)
-    return new Response(url, () => '', () => new ArrayBuffer(0), { status: 0, statusText: '', type: 'opaque' })
-  }
-  headers.set('origin', PAGE_ORIGIN)
-  if (!simple) {
-    const preflightHeaders = new Headers({ origin: PAGE_ORIGIN, 'access-control-request-method': method })
-    if (unsafeHeaders.length) preflightHeaders.set('access-control-request-headers', unsafeHeaders.sort().join(','))
-    const preflight = await send(url, 'OPTIONS', preflightHeaders, null)
-    const reason = !preflight.ok ? "Response to preflight request doesn't pass access control check: It does not have HTTP ok status."
-      : corsError(preflight) ||
-        (!SIMPLE_METHODS.includes(method) && !(preflight.headers.get('access-control-allow-methods') || '').split(',')
-          .map((item) => item.trim()).some((item) => item === '*' || item === method)
-          ? `Method ${method} is not allowed by Access-Control-Allow-Methods in preflight response.` : null) ||
-        unsafeHeaders.filter((name) => !listed(preflight.headers.get('access-control-allow-headers'), name))
-          .map((name) => `Request header field ${name} is not allowed by Access-Control-Allow-Headers in preflight response.`)[0]
-    if (reason) throw blocked(url, reason)
-  }
-  const response = await send(url, method, headers, data)
-  const reason = corsError(response)
-  if (reason) throw blocked(url, reason)
-  response.type = 'cors'
-  return exposeHeaders(response)
+  return send(url, method, headers, data)
 }
 
 function readLocal (url) {
@@ -208,7 +134,7 @@ window.fetch = (input, options = {}) => {
   const url = String(input?.url ?? input)
   const method = String(options.method || input?.method || 'GET').toUpperCase()
   if (!URL_PATTERN.test(url)) return readLocal(url)
-  return request(url, method, options.headers || input?.headers, options.body, options.mode || input?.mode || 'cors')
+  return request(url, method, options.headers || input?.headers, options.body)
 }
 window.Headers = Headers
 window.Response = Response

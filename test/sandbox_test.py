@@ -68,7 +68,7 @@ def main():
         url = "https://hydra.ojack.xyz/?code=" + urllib.parse.quote(encoded, safe="")
         environment = {key: value for key, value in os.environ.items() if key != "HYDRA_NATIVE_TEST"}
         environment["XDG_CONFIG_HOME"] = str(folder / "config")
-        app = subprocess.Popen([HYDRA, "--hidden", "--no-vsync", "--size", "320x240", "--socket",
+        app = subprocess.Popen([HYDRA, "--hidden", "--size", "320x240", "--socket",
                                 str(folder / "hydra.sock"), str(local), url],
                                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, env=environment)
         lines, results = [], None

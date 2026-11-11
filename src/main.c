@@ -62,8 +62,7 @@ struct options {
     bool send;
 };
 
-// The settings of the file (`stored`) and of this run (`active`: the file with the command line on top).
-static struct settings stored_settings, active_settings;
+static struct settings settings; // of the settings file, as they are at the start
 
 #define SWAP_MARGIN_MS 3.0 // time left for the swap after the timers
 #define MIN_FRAME_PERIOD_MS 4.0
@@ -1200,20 +1199,8 @@ static void usage(void) {
     fprintf(stderr,
             "usage: hydra-native [options] [file.js | https://hydra.ojack.xyz/?code=... ...]\n"
             "       hydra-native --send < code.js\n"
-            "  The last file opens in the code overlay; Ctrl+S saves it. See src/keymap.c for all keys.\n"
-            "Settings for one run (the settings menu, Ctrl+, sets them for good in settings.json):\n"
-            "  --watch            reload the last file when it changes on disk\n"
-            "  --font PATH        monospace TrueType font of the overlay (default %s)\n"
-            "  --font-size PIXELS font size of the overlay (default %.0f)\n"
-            "  --theme NAME       color theme of the overlay: hydra (default), contrast, solarized, paper\n"
-            "  --lang CODE        language of the info panel (ja es ar id pt-br ch ko fr de; default: $LANG)\n"
-            "  --l10n-url URL     load the language of --lang from this editor.json\n"
-            "  --gallery-server URL  the hydra gallery and patch bay server\n"
-            "  --hide-code        start with the code overlay hidden (Ctrl+Shift+H shows it)\n"
-            "  --fullscreen       start in fullscreen\n"
-            "  --no-vsync         do not wait for the display refresh\n"
-            "  --audio SOURCE     audio input for `a`: a PulseAudio/PipeWire source on Linux, a part of the device\n"
-            "                     name on macOS and Windows; @DEFAULT_MONITOR@: the system output; none: no input\n"
+            "  The last file opens in the code overlay; Ctrl+S saves it. F1 shows all keys.\n"
+            "  The settings menu (Ctrl+,) sets everything else and saves it in settings.json.\n"
             "For scripts and tests:\n"
             "  --send             send the code on stdin to a running hydra-native and print its answer\n"
             "  --socket PATH      code socket (default $XDG_RUNTIME_DIR/%s; also \"socket\" in settings.json)\n"
@@ -1221,32 +1208,19 @@ static void usage(void) {
             "  --size WxH         window size (default %dx%d)\n"
             "  --bench SECONDS    measure frame rate after a warm-up, print JSON and exit\n"
             "  --screenshot FILE  write the window content with the code as PNG after %d ms and exit\n",
-            SETTINGS_DEFAULT_FONT, (double)SETTINGS_DEFAULT_FONT_SIZE, SOCKET_FILE_NAME, DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT,
+            SOCKET_FILE_NAME, DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT,
             SCREENSHOT_DELAY_MS);
 }
 
-// Fills `options`, and writes the options that are settings into `settings` (they override the settings file).
-static bool parse_options(int argc, char **argv, struct options *options, struct settings *settings) {
+static bool parse_options(int argc, char **argv, struct options *options) {
     *options = (struct options){ .width = DEFAULT_WINDOW_WIDTH, .height = DEFAULT_WINDOW_HEIGHT };
-#define TEXT_OPTION(name, field) \
-    else if (!strcmp(argument, name) && has_value) snprintf(settings->field, sizeof settings->field, "%s", argv[++i]);
     for (int i = 1; i < argc; i++) {
         const char *argument = argv[i];
         bool has_value = i + 1 < argc;
-        if (!strcmp(argument, "--watch")) settings->watch = true;
-        else if (!strcmp(argument, "--no-vsync")) settings->vsync = false;
-        else if (!strcmp(argument, "--hidden")) options->hidden = true;
-        else if (!strcmp(argument, "--fullscreen")) settings->fullscreen = true;
-        else if (!strcmp(argument, "--hide-code")) settings->code_visible = false;
-        TEXT_OPTION("--lang", language)
-        TEXT_OPTION("--gallery-server", gallery_server)
-        TEXT_OPTION("--l10n-url", l10n_url)
-        TEXT_OPTION("--font", font)
-        TEXT_OPTION("--theme", theme)
-        TEXT_OPTION("--audio", audio_source)
-        TEXT_OPTION("--socket", socket)
+        if (!strcmp(argument, "--hidden")) options->hidden = true;
+        else if (!strcmp(argument, "--socket") && has_value)
+            snprintf(settings.socket, sizeof settings.socket, "%s", argv[++i]);
         else if (!strcmp(argument, "--screenshot") && has_value) options->screenshot_path = argv[++i];
-        else if (!strcmp(argument, "--font-size") && has_value) settings->font_size = (float)atof(argv[++i]);
         else if (!strcmp(argument, "--send")) options->send = true;
         else if (!strcmp(argument, "--bench") && has_value) options->bench_seconds = atof(argv[++i]);
         else if (!strcmp(argument, "--size") && has_value) {
@@ -1255,15 +1229,14 @@ static bool parse_options(int argc, char **argv, struct options *options, struct
         else if (options->file_count < (int)(sizeof options->files / sizeof options->files[0]))
             options->files[options->file_count++] = argument;
     }
-#undef TEXT_OPTION
     return true;
 }
 
 static bool create_window(const struct options *options) {
     SDL_WindowFlags flags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
     if (options->hidden) flags |= SDL_WINDOW_HIDDEN;
-    if (active_settings.fullscreen) flags |= SDL_WINDOW_FULLSCREEN;
-    window = window_create("hydra-native", options->width, options->height, flags, active_settings.vsync);
+    if (settings.fullscreen) flags |= SDL_WINDOW_FULLSCREEN;
+    window = window_create("hydra-native", options->width, options->height, flags, settings.vsync);
     if (!window) return false;
     programs_start();
     const SDL_DisplayMode *mode = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(window));
@@ -1507,20 +1480,18 @@ static void request_quit(void) { quit_requested = true; }
 static void handle_quit_signal(int signal_number) { quit_requested = true; }
 
 int main(int argc, char **argv) {
-    // The settings file first: the command line overrides it for this run.
+    // The settings file first: the socket and the window need it.
     char settings_file[PATH_MAX], settings_error[SETTINGS_TEXT] = "";
-    settings_defaults(&stored_settings);
+    settings_defaults(&settings);
     if (!settings_path(settings_file, sizeof settings_file)) settings_file[0] = '\0';
-    else if (!settings_load(&stored_settings, settings_file, settings_error, sizeof settings_error)) settings_defaults(&stored_settings);
-    active_settings = stored_settings;
+    else if (!settings_load(&settings, settings_file, settings_error, sizeof settings_error)) settings_defaults(&settings);
     struct options options;
-    if (!parse_options(argc, argv, &options, &active_settings)) {
+    if (!parse_options(argc, argv, &options)) {
         usage();
         return 2;
     }
-    const struct settings *settings = &active_settings;
     char socket_path[PATH_MAX];
-    if (settings->socket[0]) snprintf(socket_path, sizeof socket_path, "%.*s", (int)sizeof socket_path - 1, settings->socket);
+    if (settings.socket[0]) snprintf(socket_path, sizeof socket_path, "%.*s", (int)sizeof socket_path - 1, settings.socket);
     else default_socket_path(socket_path, sizeof socket_path);
     if (strlen(socket_path) >= sizeof(((struct sockaddr_un *)0)->sun_path)) {
         fprintf(stderr, "socket path too long: %s\n", socket_path);
@@ -1529,9 +1500,9 @@ int main(int argc, char **argv) {
     if (options.send) return send_code(socket_path);
 
     signal(SIGPIPE, SIG_IGN);
-    audio_device_option = settings->audio_source[0] ? settings->audio_source : NULL;
-    audio_set_gain(settings->audio_gain);
-    snprintf(gallery_server_url, sizeof gallery_server_url, "%.*s", (int)sizeof gallery_server_url - 1, settings->gallery_server);
+    audio_device_option = settings.audio_source[0] ? settings.audio_source : NULL;
+    audio_set_gain(settings.audio_gain);
+    snprintf(gallery_server_url, sizeof gallery_server_url, "%.*s", (int)sizeof gallery_server_url - 1, settings.gallery_server);
     if (!create_window(&options)) return 1;
     // After SDL, which installs handlers of its own: the first SIGINT or SIGTERM ends the loop, so that the child
     // processes stop; a second one ends the process at once.
@@ -1553,9 +1524,9 @@ int main(int argc, char **argv) {
     JS_SetPropertyStr(js, native, "directory", JS_NewString(js, directory));
     JS_SetPropertyStr(js, native, "platform", JS_NewString(js, SDL_GetPlatform())); // Linux, macOS, Windows
     JS_SetPropertyStr(js, native, "shaderCompile", JS_NewString(js, programs_method()));
-    JS_SetPropertyStr(js, native, "language", settings->language[0] ? JS_NewString(js, settings->language) : JS_NULL);
+    JS_SetPropertyStr(js, native, "language", settings.language[0] ? JS_NewString(js, settings.language) : JS_NULL);
     JS_SetPropertyStr(js, native, "galleryServer", gallery_server_url[0] ? JS_NewString(js, gallery_server_url) : JS_NULL);
-    JS_SetPropertyStr(js, native, "l10nUrl", settings->l10n_url[0] ? JS_NewString(js, settings->l10n_url) : JS_NULL);
+    JS_SetPropertyStr(js, native, "l10nUrl", settings.l10n_url[0] ? JS_NewString(js, settings.l10n_url) : JS_NULL);
     JS_SetPropertyStr(js, global, "native", native);
     JS_FreeValue(js, global);
     if (!load_bundle(directory)) return 1;
@@ -1604,7 +1575,7 @@ int main(int argc, char **argv) {
     };
     char emoji_font[PATH_MAX + 64];
     snprintf(emoji_font, sizeof emoji_font, "%s/../vendor/fonts/NotoEmoji.ttf", directory);
-    if (!ui_init(&stored_settings, &active_settings, settings_file[0] ? settings_file : NULL, emoji_font, sketch, &host)) return 1;
+    if (!ui_init(&settings, settings_file[0] ? settings_file : NULL, emoji_font, sketch, &host)) return 1;
     if (settings_error[0]) ui_show_message(settings_error, true); // the defaults apply, and the file stays as it is
     if (url_code) {
         ui_set_code(url_code);
@@ -1617,7 +1588,7 @@ int main(int argc, char **argv) {
         ui_show_info();
     }
     if (gallery_server_url[0]) ui_enable_gallery();
-    if (!settings->code_visible) ui_set_visible(false);
+    if (!settings.code_visible) ui_set_visible(false);
     // "watch" of the settings menu applies at once.
     // The open file of the overlay can change through the "file" row and Ctrl+S, so the check follows it.
     char watched[PATH_MAX] = "";
@@ -1645,7 +1616,7 @@ int main(int argc, char **argv) {
                 watched_time = current;
             } else if (current != watched_time) {
                 watched_time = current;
-                if (ui_active_settings()->watch) ui_file_changed();
+                if (ui_settings()->watch) ui_file_changed();
             }
         }
 
@@ -1678,7 +1649,7 @@ int main(int argc, char **argv) {
         // A hidden Wayland surface never releases its buffers, so a swap could block for ever.
         if (!options.hidden) {
             // Until shortly before the next display refresh, run timers and events instead of a blocking swap.
-            if (settings->vsync && frame_period_ms > 0) wait_for_frame(last_swap + frame_period_ms - SWAP_MARGIN_MS, listener);
+            if (settings.vsync && frame_period_ms > 0) wait_for_frame(last_swap + frame_period_ms - SWAP_MARGIN_MS, listener);
             SDL_GL_SwapWindow(window);
             double swapped = now_ms();
             if (last_swap > 0) {
@@ -1702,7 +1673,7 @@ int main(int argc, char **argv) {
                 SDL_GetWindowSizeInPixels(window, &width, &height);
                 printf("{\"width\":%d,\"height\":%d,\"vsync\":%s,\"fps\":%.1f,\"jsFrameMeanMs\":%.3f,"
                        "\"overlayFrameMeanMs\":%.3f,\"renderer\":\"%s\",\"differenceBlend\":\"%s\"}\n",
-                       width, height, settings->vsync ? "true" : "false", (bench_frames - 1) / (elapsed / 1000),
+                       width, height, settings.vsync ? "true" : "false", (bench_frames - 1) / (elapsed / 1000),
                        frame_js_ms / bench_frames, frame_overlay_ms / bench_frames,
                        (const char *)glGetString(GL_RENDERER), overlay_difference_method());
                 quit_requested = true;

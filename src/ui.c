@@ -177,8 +177,7 @@ static const char *const share_confirmation[] = {
 };
 
 static struct ui_host host;
-// The settings file as stored, and the settings of this run (command line options on top).
-static struct settings stored_settings, active_settings;
+static struct settings settings;
 static char *settings_file;
 static struct editor editor;
 static char *file_path;
@@ -673,7 +672,7 @@ static void add_function_completion(const char *name, size_t length) {
 static bool is_identifier_char(unsigned char c) { return isalnum(c) || c == '_' || c == '$'; }
 
 static uint32_t completion_color(uint32_t rgb, uint32_t alpha) {
-    return rgb | (alpha * (uint32_t)active_settings.completion_opacity + 50) / 100;
+    return rgb | (alpha * (uint32_t)settings.completion_opacity + 50) / 100;
 }
 
 static const char *const OUTPUT_NAMES[] = { "o0", "o1", "o2", "o3" };
@@ -952,8 +951,7 @@ static void accept_prompt(int direction) {
         break;
     case PROMPT_L10N_URL:
         prompt.kind = PROMPT_NONE;
-        snprintf(stored_settings.l10n_url, sizeof stored_settings.l10n_url, "%s", prompt.query);
-        snprintf(active_settings.l10n_url, sizeof active_settings.l10n_url, "%s", prompt.query);
+        snprintf(settings.l10n_url, sizeof settings.l10n_url, "%s", prompt.query);
         save_settings();
         ui_show_message("translation URL: applies at the next start", false);
         break;
@@ -977,8 +975,7 @@ static void accept_prompt(int direction) {
 // The gallery and patch bay server ("" is off): js/main.js starts or stops the patch bay at once, and "share"
 // shows only with a server, as in the web editor.
 static void set_server(const char *url) {
-    snprintf(stored_settings.gallery_server, sizeof stored_settings.gallery_server, "%s", url);
-    snprintf(active_settings.gallery_server, sizeof active_settings.gallery_server, "%s", url);
+    snprintf(settings.gallery_server, sizeof settings.gallery_server, "%s", url);
     save_settings();
     free(host.call("__setPatchBayServer", url));
     gallery_enabled = url[0] != '\0';
@@ -1010,7 +1007,7 @@ static void copy_patch_bay_id(void) {
 
 static void save_settings(void) {
     char error[SETTINGS_TEXT];
-    if (settings_file && !settings_save(&stored_settings, settings_file, error, sizeof error))
+    if (settings_file && !settings_save(&settings, settings_file, error, sizeof error))
         ui_show_message(error, true); // a file that does not parse stays as it is
 }
 
@@ -1020,23 +1017,23 @@ static void change_font_size(float step) {
         snprintf(text, sizeof text, "font size %.0f px", overlay_font_size());
         ui_show_message(text, false);
         layout.valid = false;
-        stored_settings.font_size = active_settings.font_size = overlay_font_size();
+        settings.font_size = overlay_font_size();
         save_settings();
     }
 }
 
 // The opacity of the code boxes in percent, from the setting or from the alpha of the theme.
 static int code_background_percent(void) {
-    int opacity = active_settings.code_background_opacity;
+    int opacity = settings.code_background_opacity;
     return opacity == SETTINGS_THEME_OPACITY ? (int)((theme->line_background & 0xFFu) * 100 + 127) / 255 : opacity;
 }
 
 // The box behind a code line: the color of the theme, or white for blend mode difference (which inverts what
 // is below), with the alpha of the theme or of "codeBackgroundOpacity".
 static uint32_t code_background_color(void) {
-    int opacity = active_settings.code_background_opacity;
+    int opacity = settings.code_background_opacity;
     uint32_t alpha = opacity == SETTINGS_THEME_OPACITY ? theme->line_background & 0xFFu : (uint32_t)(opacity * 255 + 50) / 100;
-    uint32_t rgb = active_settings.code_background_blend == CODE_BLEND_DIFFERENCE ? 0xFFFFFF00u : theme->line_background & 0xFFFFFF00u;
+    uint32_t rgb = settings.code_background_blend == CODE_BLEND_DIFFERENCE ? 0xFFFFFF00u : theme->line_background & 0xFFFFFF00u;
     return rgb | alpha;
 }
 
@@ -1071,8 +1068,8 @@ static double number_value(enum number_kind kind) {
     switch (kind) {
     case NUMBER_OPACITY: return code_background_percent();
     case NUMBER_FONT_SIZE: return overlay_font_size();
-    case NUMBER_AUDIO_GAIN: return active_settings.audio_gain;
-    case NUMBER_COMPLETION_OPACITY: return active_settings.completion_opacity;
+    case NUMBER_AUDIO_GAIN: return settings.audio_gain;
+    case NUMBER_COMPLETION_OPACITY: return settings.completion_opacity;
     }
     return 0;
 }
@@ -1086,13 +1083,13 @@ static void set_number(enum number_kind kind, double value) {
     if (value > number_specs[kind].maximum) value = number_specs[kind].maximum;
     switch (kind) {
     case NUMBER_FONT_SIZE: change_font_size((float)value - overlay_font_size()); return;
-    case NUMBER_OPACITY: stored_settings.code_background_opacity = active_settings.code_background_opacity = (int)lround(value); break;
+    case NUMBER_OPACITY: settings.code_background_opacity = (int)lround(value); break;
     case NUMBER_AUDIO_GAIN:
-        stored_settings.audio_gain = active_settings.audio_gain = (int)lround(value);
-        host.set_audio_gain(active_settings.audio_gain);
+        settings.audio_gain = (int)lround(value);
+        host.set_audio_gain(settings.audio_gain);
         break;
     case NUMBER_COMPLETION_OPACITY:
-        stored_settings.completion_opacity = active_settings.completion_opacity = (int)lround(value);
+        settings.completion_opacity = (int)lround(value);
         break;
     }
     save_settings();
@@ -1155,15 +1152,14 @@ static void number_backspace(void) {
 
 static void set_theme(const struct theme *next) {
     theme = next;
-    snprintf(stored_settings.theme, sizeof stored_settings.theme, "%s", next->name);
-    snprintf(active_settings.theme, sizeof active_settings.theme, "%s", next->name);
+    snprintf(settings.theme, sizeof settings.theme, "%s", next->name);
     save_settings();
 }
 
 static void set_autocomplete(enum autocomplete_style style, enum autocomplete_trigger trigger) {
     close_completion();
-    stored_settings.autocomplete_style = active_settings.autocomplete_style = style;
-    stored_settings.autocomplete_trigger = active_settings.autocomplete_trigger = trigger;
+    settings.autocomplete_style = style;
+    settings.autocomplete_trigger = trigger;
     save_settings();
     char text[128];
     snprintf(text, sizeof text, "autocomplete: %s, %s", style == AUTOCOMPLETE_GHOST ? "ghost text" : "list",
@@ -1172,7 +1168,7 @@ static void set_autocomplete(enum autocomplete_style style, enum autocomplete_tr
 }
 
 static void set_signature_help(enum signature_help mode) {
-    stored_settings.signature_help = active_settings.signature_help = mode;
+    settings.signature_help = mode;
     save_settings();
     ui_show_message(mode == SIGNATURE_HELP_PAREN ? "signature help: Ctrl+Shift+Space and after \"(\""
                                                  : "signature help: Ctrl+Shift+Space", false);
@@ -1180,8 +1176,7 @@ static void set_signature_help(enum signature_help mode) {
 
 static void set_font(const char *path) {
     if (!overlay_set_font(path)) return ui_show_message("cannot use this font", true);
-    snprintf(stored_settings.font, sizeof stored_settings.font, "%s", path);
-    snprintf(active_settings.font, sizeof active_settings.font, "%s", path);
+    snprintf(settings.font, sizeof settings.font, "%s", path);
     layout.valid = false;
     save_settings();
 }
@@ -1254,7 +1249,7 @@ static void open_url_from_clipboard(void) {
     SDL_free(url);
 }
 
-const struct settings *ui_active_settings(void) { return &active_settings; }
+const struct settings *ui_settings(void) { return &settings; }
 
 static void escape(void) {
     if (completion.open) close_completion();
@@ -1370,7 +1365,7 @@ static void run_command_body(enum command command, bool extend) {
     case COMMAND_COPY_PATCH_BAY_ID: copy_patch_bay_id(); return;
     case COMMAND_SET_SERVER:
         open_prompt(PROMPT_SERVER);
-        snprintf(prompt.query, sizeof prompt.query, "%.*s", (int)sizeof prompt.query - 1, active_settings.gallery_server);
+        snprintf(prompt.query, sizeof prompt.query, "%.*s", (int)sizeof prompt.query - 1, settings.gallery_server);
         prompt.query_selected = prompt.query[0] != '\0'; // typing replaces the current URL
         return;
     case COMMAND_NEXT_THEME: {
@@ -1381,12 +1376,12 @@ static void run_command_body(enum command command, bool extend) {
         return;
     }
     case COMMAND_TOGGLE_AUTOCOMPLETE_STYLE:
-        set_autocomplete(active_settings.autocomplete_style == AUTOCOMPLETE_LIST ? AUTOCOMPLETE_GHOST : AUTOCOMPLETE_LIST,
-                         active_settings.autocomplete_trigger);
+        set_autocomplete(settings.autocomplete_style == AUTOCOMPLETE_LIST ? AUTOCOMPLETE_GHOST : AUTOCOMPLETE_LIST,
+                         settings.autocomplete_trigger);
         return;
     case COMMAND_TOGGLE_AUTOCOMPLETE_TRIGGER:
-        set_autocomplete(active_settings.autocomplete_style,
-                         active_settings.autocomplete_trigger == AUTOCOMPLETE_MANUAL ? AUTOCOMPLETE_TYPING : AUTOCOMPLETE_MANUAL);
+        set_autocomplete(settings.autocomplete_style,
+                         settings.autocomplete_trigger == AUTOCOMPLETE_MANUAL ? AUTOCOMPLETE_TYPING : AUTOCOMPLETE_MANUAL);
         return;
     case COMMAND_SELECT_NEXT_OCCURRENCE: editor_select_next_occurrence(&editor); break;
     case COMMAND_FIND: open_prompt(PROMPT_FIND); break;
@@ -1516,7 +1511,7 @@ static void run_command_body(enum command command, bool extend) {
 static enum key_context key_context(void) {
     if (!settings_visible) number_field.open = false;
     if (number_field.open) return CONTEXT_NUMBER;
-    if (completion.open) return active_settings.autocomplete_style == AUTOCOMPLETE_GHOST ? CONTEXT_GHOST : CONTEXT_COMPLETION;
+    if (completion.open) return settings.autocomplete_style == AUTOCOMPLETE_GHOST ? CONTEXT_GHOST : CONTEXT_COMPLETION;
     if (prompt.kind != PROMPT_NONE) return CONTEXT_PROMPT;
     follow_snippet(editor.length); // the snippet ends when a mouse click moved the cursor out of it
     if (snippet.active) return CONTEXT_SNIPPET;
@@ -1571,13 +1566,13 @@ void ui_text_input(const char *text) {
     editor_type(&editor, text, strlen(text));
     follow_snippet(old_length);
     struct call_context call;
-    if (!strcmp(text, "(") && active_settings.signature_help == SIGNATURE_HELP_PAREN && call_at(editor.cursor, &call))
+    if (!strcmp(text, "(") && settings.signature_help == SIGNATURE_HELP_PAREN && call_at(editor.cursor, &call))
         signature_help_open = true;
     bool word = isalnum((unsigned char)text[0]) || text[0] == '_' || text[0] == '$';
     // Open suggestions follow the typed word; new ones open only with the trigger "while typing" (the default is
     // Ctrl+Space alone).
     if (completion.open) open_completion(true);
-    else if (word && active_settings.autocomplete_trigger == AUTOCOMPLETE_TYPING) open_completion(false);
+    else if (word && settings.autocomplete_trigger == AUTOCOMPLETE_TYPING) open_completion(false);
     reveal_cursor();
 }
 
@@ -2102,11 +2097,11 @@ static void draw_settings(void) {
     flow_label(&flow, file_path ? file_path : "                              ", false, "file open");
     flow_row(&flow, label_x, " \xE2\x94\x94 reload on change");
     if (file_path) {
-        flow_label(&flow, "on", active_settings.watch, "watch 1");
-        flow_label(&flow, "off", !active_settings.watch, "watch 0");
+        flow_label(&flow, "on", settings.watch, "watch 1");
+        flow_label(&flow, "off", !settings.watch, "watch 0");
     } else {
-        flow_label_disabled(&flow, "on", active_settings.watch);
-        flow_label_disabled(&flow, "off", !active_settings.watch);
+        flow_label_disabled(&flow, "on", settings.watch);
+        flow_label_disabled(&flow, "off", !settings.watch);
     }
     flow_row(&flow, label_x, "theme");
     for (size_t i = 0; i < theme_count; i++) {
@@ -2114,44 +2109,44 @@ static void draw_settings(void) {
         flow_label(&flow, themes[i].name, theme == &themes[i], action);
     }
     flow_row(&flow, label_x, "autocomplete");
-    flow_label(&flow, "list", active_settings.autocomplete_style == AUTOCOMPLETE_LIST, "style 0");
-    flow_label(&flow, "ghost text", active_settings.autocomplete_style == AUTOCOMPLETE_GHOST, "style 1");
+    flow_label(&flow, "list", settings.autocomplete_style == AUTOCOMPLETE_LIST, "style 0");
+    flow_label(&flow, "ghost text", settings.autocomplete_style == AUTOCOMPLETE_GHOST, "style 1");
     flow_row(&flow, label_x, " \xE2\x94\x9C list opacity");
     flow_label(&flow, "-", false, "list opacity -");
     flow_number(&flow, NUMBER_COMPLETION_OPACITY);
     flow_label(&flow, "+", false, "list opacity +");
     flow_row(&flow, label_x, " \xE2\x94\x9C trigger");
-    flow_label(&flow, "Ctrl+Space", active_settings.autocomplete_trigger == AUTOCOMPLETE_MANUAL, "trigger 0");
-    flow_label(&flow, "while typing", active_settings.autocomplete_trigger == AUTOCOMPLETE_TYPING, "trigger 1");
+    flow_label(&flow, "Ctrl+Space", settings.autocomplete_trigger == AUTOCOMPLETE_MANUAL, "trigger 0");
+    flow_label(&flow, "while typing", settings.autocomplete_trigger == AUTOCOMPLETE_TYPING, "trigger 1");
     flow_row(&flow, label_x, " \xE2\x94\x94 signatures");
-    flow_label(&flow, "Ctrl+Shift+Space", active_settings.signature_help == SIGNATURE_HELP_MANUAL, "signature 0");
-    flow_label(&flow, "on (", active_settings.signature_help == SIGNATURE_HELP_PAREN, "signature 1");
+    flow_label(&flow, "Ctrl+Shift+Space", settings.signature_help == SIGNATURE_HELP_MANUAL, "signature 0");
+    flow_label(&flow, "on (", settings.signature_help == SIGNATURE_HELP_PAREN, "signature 1");
     flow_row(&flow, label_x, "code display");
     flow_row(&flow, label_x, " \xE2\x94\x9C background opacity");
     flow_label(&flow, "-", false, "opacity -");
     flow_number(&flow, NUMBER_OPACITY);
     flow_label(&flow, "+", false, "opacity +");
     flow_row(&flow, label_x, " \xE2\x94\x9C background blend");
-    flow_label(&flow, "normal", active_settings.code_background_blend == CODE_BLEND_NORMAL, "box 0");
-    flow_label(&flow, "difference", active_settings.code_background_blend == CODE_BLEND_DIFFERENCE, "box 1");
+    flow_label(&flow, "normal", settings.code_background_blend == CODE_BLEND_NORMAL, "box 0");
+    flow_label(&flow, "difference", settings.code_background_blend == CODE_BLEND_DIFFERENCE, "box 1");
     flow_row(&flow, label_x, " \xE2\x94\x94 text blend");
-    flow_label(&flow, "normal", active_settings.code_text_blend == CODE_BLEND_NORMAL, "text 0");
-    flow_label(&flow, "difference", active_settings.code_text_blend == CODE_BLEND_DIFFERENCE, "text 1");
+    flow_label(&flow, "normal", settings.code_text_blend == CODE_BLEND_NORMAL, "text 0");
+    flow_label(&flow, "difference", settings.code_text_blend == CODE_BLEND_DIFFERENCE, "text 1");
     flow_row(&flow, label_x, "code at start");
-    flow_label(&flow, "shown", active_settings.code_visible, "start 1");
-    flow_label(&flow, "hidden", !active_settings.code_visible, "start 0");
+    flow_label(&flow, "shown", settings.code_visible, "start 1");
+    flow_label(&flow, "hidden", !settings.code_visible, "start 0");
     flow_text(&flow, "(next start)", theme->help_keys);
     flow_row(&flow, label_x, "whitespace");
     for (int i = WHITESPACE_NONE; i <= WHITESPACE_ALL; i++) {
         snprintf(action, sizeof action, "whitespace %d", i);
         flow_label(&flow, settings_whitespace_name((enum render_whitespace)i),
-                   active_settings.render_whitespace == (enum render_whitespace)i, action);
+                   settings.render_whitespace == (enum render_whitespace)i, action);
     }
     flow_row(&flow, label_x, "line wrap");
     flow_label(&flow, "on", wrap, "wrap 1");
     flow_label(&flow, "off", !wrap, "wrap 0");
     flow_row(&flow, label_x, "server");
-    const char *server = active_settings.gallery_server;
+    const char *server = settings.gallery_server;
     flow_label(&flow, "off", !server[0], "server off");
     flow_label(&flow, "hydra.ojack.xyz", !strcmp(server, WEB_EDITOR_SERVER), "server web");
     bool custom = server[0] && strcmp(server, WEB_EDITOR_SERVER);
@@ -2167,10 +2162,10 @@ static void draw_settings(void) {
     flow_row(&flow, label_x, "window");
     bool fullscreen = host.is_fullscreen();
     flow_label(&flow, "fullscreen", fullscreen, fullscreen ? "fullscreen 0" : "fullscreen 1");
-    flow_label(&flow, "vsync on", active_settings.vsync, "vsync 1");
-    flow_label(&flow, "vsync off", !active_settings.vsync, "vsync 0");
+    flow_label(&flow, "vsync on", settings.vsync, "vsync 1");
+    flow_label(&flow, "vsync off", !settings.vsync, "vsync 0");
     flow_row(&flow, label_x, "audio input");
-    const char *audio = active_settings.audio_source;
+    const char *audio = settings.audio_source;
     flow_label(&flow, "default", !audio[0], "audio default");
     for (int i = 0; i < audio_choice_count; i++) {
         snprintf(action, sizeof action, "audio %d", i);
@@ -2186,7 +2181,7 @@ static void draw_settings(void) {
         snprintf(action, sizeof action, "language %zu", i);
         flow_label(&flow, language_choices[i].name, !strcmp(selected_language, language_choices[i].code), action);
     }
-    flow_label(&flow, active_settings.l10n_url[0] ? active_settings.l10n_url : "translation URL...", false, "l10n url");
+    flow_label(&flow, settings.l10n_url[0] ? settings.l10n_url : "translation URL...", false, "l10n url");
     flow_row(&flow, label_x, "font size");
     flow_label(&flow, "-", false, "size -");
     flow_number(&flow, NUMBER_FONT_SIZE);
@@ -2197,7 +2192,7 @@ static void draw_settings(void) {
         snprintf(action, sizeof action, "font %zu", i);
         flow.x = flow.start;
         next_line(&flow, SUB_ROW_HEIGHT);
-        flow_label(&flow, font_choices[i].family, !strcmp(font_choices[i].file, active_settings.font), action);
+        flow_label(&flow, font_choices[i].family, !strcmp(font_choices[i].file, settings.font), action);
     }
     // The wheel scrolls until the last row is in the panel.
     float below = flow.y + flow.height + line_height / 2 - (top + height);
@@ -2213,16 +2208,16 @@ static void run_settings_action(const char *action) {
     number_field.open = false; // a click on another button leaves the field without a change
     size_t index = (size_t)atol(strchr(action, ' ') + 1);
     if (!strncmp(action, "theme ", 6) && index < theme_count) set_theme(&themes[index]);
-    else if (!strncmp(action, "style ", 6)) set_autocomplete((enum autocomplete_style)index, active_settings.autocomplete_trigger);
-    else if (!strncmp(action, "trigger ", 8)) set_autocomplete(active_settings.autocomplete_style, (enum autocomplete_trigger)index);
+    else if (!strncmp(action, "style ", 6)) set_autocomplete((enum autocomplete_style)index, settings.autocomplete_trigger);
+    else if (!strncmp(action, "trigger ", 8)) set_autocomplete(settings.autocomplete_style, (enum autocomplete_trigger)index);
     else if (!strncmp(action, "signature ", 10) && index <= SIGNATURE_HELP_PAREN) set_signature_help((enum signature_help)index);
     else if (!strncmp(action, "fullscreen ", 11)) {
         if (host.is_fullscreen() != (index == 1)) host.toggle_fullscreen();
-        stored_settings.fullscreen = active_settings.fullscreen = index == 1;
+        settings.fullscreen = index == 1;
         save_settings();
     } else if (!strncmp(action, "vsync ", 6)) {
-        stored_settings.vsync = active_settings.vsync = index == 1;
-        host.set_vsync(active_settings.vsync);
+        settings.vsync = index == 1;
+        host.set_vsync(settings.vsync);
         save_settings();
     } else if (!strncmp(action, "audio ", 6)) {
         const char *name = !strcmp(action, "audio default") ? ""
@@ -2230,54 +2225,52 @@ static void run_settings_action(const char *action) {
                            : (int)index < audio_choice_count ? audio_choices[index].name
                                                               : NULL;
         if (name) {
-            snprintf(stored_settings.audio_source, sizeof stored_settings.audio_source, "%s", name);
-            snprintf(active_settings.audio_source, sizeof active_settings.audio_source, "%s", name);
+            snprintf(settings.audio_source, sizeof settings.audio_source, "%s", name);
             host.set_audio(name);
             save_settings();
         }
     } else if (!strncmp(action, "language ", 9) && index < language_choice_count) {
         free(host.call("__setLanguage", language_choices[index].code));
         snprintf(selected_language, sizeof selected_language, "%s", language_choices[index].code);
-        snprintf(stored_settings.language, sizeof stored_settings.language, "%s", selected_language);
-        snprintf(active_settings.language, sizeof active_settings.language, "%s", selected_language);
+        snprintf(settings.language, sizeof settings.language, "%s", selected_language);
         save_settings();
     } else if (!strcmp(action, "l10n url")) {
         settings_visible = false;
         open_prompt(PROMPT_L10N_URL);
-        snprintf(prompt.query, sizeof prompt.query, "%.*s", (int)sizeof prompt.query - 1, active_settings.l10n_url);
+        snprintf(prompt.query, sizeof prompt.query, "%.*s", (int)sizeof prompt.query - 1, settings.l10n_url);
         prompt.query_selected = prompt.query[0] != '\0';
     } else if (!strncmp(action, "start ", 6)) {
-        stored_settings.code_visible = active_settings.code_visible = index == 1;
+        settings.code_visible = index == 1;
         save_settings();
         ui_show_message("code at start: applies at the next start", false);
     } else if (!strncmp(action, "watch ", 6)) {
-        stored_settings.watch = active_settings.watch = index == 1;
+        settings.watch = index == 1;
         save_settings();
     } else if (!strcmp(action, "font path")) {
         settings_visible = false;
         open_prompt(PROMPT_FONT_PATH);
-        snprintf(prompt.query, sizeof prompt.query, "%.*s", (int)sizeof prompt.query - 1, active_settings.font);
+        snprintf(prompt.query, sizeof prompt.query, "%.*s", (int)sizeof prompt.query - 1, settings.font);
         prompt.query_selected = true;
     }
     else if (!strcmp(action, "opacity -") || !strcmp(action, "opacity +")) {
         set_number(NUMBER_OPACITY, code_background_percent() + (action[8] == '+' ? OPACITY_STEP : -OPACITY_STEP));
     } else if (!strcmp(action, "list opacity -") || !strcmp(action, "list opacity +")) {
         set_number(NUMBER_COMPLETION_OPACITY,
-                   active_settings.completion_opacity + (action[13] == '+' ? OPACITY_STEP : -OPACITY_STEP));
+                   settings.completion_opacity + (action[13] == '+' ? OPACITY_STEP : -OPACITY_STEP));
     } else if (!strcmp(action, "gain -") || !strcmp(action, "gain +")) {
-        set_number(NUMBER_AUDIO_GAIN, active_settings.audio_gain + (action[5] == '+' ? GAIN_STEP : -GAIN_STEP));
+        set_number(NUMBER_AUDIO_GAIN, settings.audio_gain + (action[5] == '+' ? GAIN_STEP : -GAIN_STEP));
     } else if (!strcmp(action, "file open")) {
         settings_visible = false;
         host.choose_file(false);
     } else if (!strncmp(action, "box ", 4) && index <= CODE_BLEND_DIFFERENCE) {
-        stored_settings.code_background_blend = active_settings.code_background_blend = (enum code_blend)index;
+        settings.code_background_blend = (enum code_blend)index;
         save_settings();
     } else if (!strncmp(action, "text ", 5) && index <= CODE_BLEND_DIFFERENCE) {
-        stored_settings.code_text_blend = active_settings.code_text_blend = (enum code_blend)index;
+        settings.code_text_blend = (enum code_blend)index;
         save_settings();
     }
     else if (!strncmp(action, "whitespace ", 11) && index <= WHITESPACE_ALL) {
-        stored_settings.render_whitespace = active_settings.render_whitespace = (enum render_whitespace)index;
+        settings.render_whitespace = (enum render_whitespace)index;
         save_settings();
     } else if (!strcmp(action, "server off")) {
         set_server("");
@@ -2289,7 +2282,7 @@ static void run_settings_action(const char *action) {
     } else if (!strcmp(action, "copy id")) {
         copy_patch_bay_id();
     } else if (!strncmp(action, "wrap ", 5)) {
-        wrap = stored_settings.word_wrap = active_settings.word_wrap = index != 0;
+        wrap = settings.word_wrap = index != 0;
         layout.valid = false;
         save_settings();
     } else if (!strcmp(action, "size -")) change_font_size(-FONT_SIZE_STEP);
@@ -2526,7 +2519,7 @@ static void draw_bar(int width, int height, const char *text, uint32_t color, si
 
 // editor.renderWhitespace of VS Code: whether the space or tab at `offset` shows.
 static bool whitespace_shown(size_t line_start, size_t line_end, size_t offset, const struct selection *selections, size_t selection_count) {
-    switch (active_settings.render_whitespace) {
+    switch (settings.render_whitespace) {
     case WHITESPACE_NONE: return false;
     case WHITESPACE_ALL: return true;
     case WHITESPACE_TRAILING: {
@@ -2662,7 +2655,7 @@ static void draw_row(size_t line, size_t row_start, size_t row_end, size_t inden
         size_t column = indent + columns_between(row_start, (size_t)positions[k]);
         column_rect(y, column, column + 1, theme->bracket);
     }
-    if (active_settings.render_whitespace != WHITESPACE_NONE) {
+    if (settings.render_whitespace != WHITESPACE_NONE) {
         size_t line_end = editor_line_end(&editor, line), column = indent;
         for (size_t i = row_start; i < row_end;) {
             size_t next = editor_cluster_end(&editor, i);
@@ -2827,7 +2820,7 @@ static void draw_signature_help(void) {
     float top = MARGIN + (screen_row >= 2 ? (float)(screen_row - 2) : (float)(screen_row + 1)) * line_height;
     float text_left = left + char_width, active_left = text_left + (float)active_start * char_width;
     float active_width = (float)(active_end - active_start) * char_width;
-    if (active_settings.autocomplete_style == AUTOCOMPLETE_GHOST) {
+    if (settings.autocomplete_style == AUTOCOMPLETE_GHOST) {
         overlay_rect(left, top, box_width, box_height, theme->line_background);
         overlay_text(text_left, top, label, strlen(label), 0, columns, NULL, theme->ghost);
         if (active_end > active_start)
@@ -2847,7 +2840,7 @@ static void draw_signature_help(void) {
 
 static void draw_completion(void) {
     if (!completion.open) return;
-    if (active_settings.autocomplete_style == AUTOCOMPLETE_GHOST) draw_completion_ghost();
+    if (settings.autocomplete_style == AUTOCOMPLETE_GHOST) draw_completion_ghost();
     else draw_completion_list();
 }
 
@@ -2918,8 +2911,8 @@ void ui_draw(int width, int height, double now_ms) {
         return;
     }
     update_matches();
-    overlay_set_difference(OVERLAY_CODE_BACKGROUND, active_settings.code_background_blend == CODE_BLEND_DIFFERENCE);
-    overlay_set_difference(OVERLAY_CODE_TEXT, active_settings.code_text_blend == CODE_BLEND_DIFFERENCE);
+    overlay_set_difference(OVERLAY_CODE_BACKGROUND, settings.code_background_blend == CODE_BLEND_DIFFERENCE);
+    overlay_set_difference(OVERLAY_CODE_TEXT, settings.code_text_blend == CODE_BLEND_DIFFERENCE);
     draw_code();
     if (info_visible) draw_info();
     if (extensions_visible) draw_extensions();
@@ -2983,7 +2976,7 @@ void ui_set_code(const char *code) { editor_set_text(&editor, code, strlen(code)
 
 const char *ui_code(void) { return editor.text; }
 
-bool ui_init(const struct settings *stored, const struct settings *active, const char *settings_path,
+bool ui_init(const struct settings *start_settings, const char *settings_path,
              const char *emoji_font_path, const char *path, const struct ui_host *ui_host) {
     // A second call (ui_test starts again without a file) replaces the state of the first.
     free(settings_file);
@@ -2991,24 +2984,23 @@ bool ui_init(const struct settings *stored, const struct settings *active, const
     file_path = NULL;
     if (editor.text) editor_free(&editor);
     host = *ui_host;
-    stored_settings = *stored;
-    active_settings = *active;
+    settings = *start_settings;
     settings_file = settings_path ? strdup(settings_path) : NULL;
     char error[SETTINGS_TEXT] = "";
-    load_themes(&active_settings, error, sizeof error);
-    theme = find_theme(active->theme);
+    load_themes(&settings, error, sizeof error);
+    theme = find_theme(settings.theme);
     if (!theme) {
-        if (!error[0]) snprintf(error, sizeof error, "no theme %s, using %s", active->theme, themes[0].name);
+        if (!error[0]) snprintf(error, sizeof error, "no theme %s, using %s", settings.theme, themes[0].name);
         theme = &themes[0];
     }
     // The "keybindings" of the settings file: command name to key, over the table of src/keymap.c.
-    for (size_t i = 0; i < active->keybinding_count; i++) {
+    for (size_t i = 0; i < settings.keybinding_count; i++) {
         char problem[SETTINGS_TEXT];
-        if (!keymap_bind(active->keybindings[i].key, active->keybindings[i].value, problem, sizeof problem) && !error[0])
+        if (!keymap_bind(settings.keybindings[i].key, settings.keybindings[i].value, problem, sizeof problem) && !error[0])
             snprintf(error, sizeof error, "%s", problem);
     }
     if (error[0]) ui_show_message(error, true);
-    wrap = active->word_wrap;
+    wrap = settings.word_wrap;
     editor_init(&editor);
     if (path) {
         file_path = strdup(path);
@@ -3018,5 +3010,5 @@ bool ui_init(const struct settings *stored, const struct settings *active, const
         free(text);
         show_title(NULL);
     }
-    return overlay_init(active->font, emoji_font_path, active->font_size);
+    return overlay_init(settings.font, emoji_font_path, settings.font_size);
 }

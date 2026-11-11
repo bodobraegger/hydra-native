@@ -3,6 +3,7 @@
 (test/signalling_server.cjs on 127.0.0.1): instance A draws red and publishes it, instance B joins the same room,
 receives A with s0.initStream and reads the color back. The public signalling server is never used.
 Run with `make check` (it needs build/hydra-native and node_modules)."""
+import json
 import os
 import pathlib
 import subprocess
@@ -12,7 +13,7 @@ import tempfile
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 BUILD = pathlib.Path(os.environ.get("HYDRA_NATIVE_BUILD", ROOT / "build"))
 TIMEOUT_SECONDS = 60
-HYDRA = [str(BUILD / "hydra-native"), "--hidden", "--no-vsync", "--size", "320x240"]
+HYDRA = [str(BUILD / "hydra-native"), "--hidden", "--size", "320x240"]
 
 PUBLISHER = """
 solid(1, 0, 0).out()
@@ -70,10 +71,15 @@ try:
         publisher_file, receiver_file = pathlib.Path(directory, "a.js"), pathlib.Path(directory, "b.js")
         publisher_file.write_text(PUBLISHER)
         receiver_file.write_text(RECEIVER)
-        publisher = subprocess.Popen(HYDRA + ["--gallery-server", url, str(publisher_file)], stdout=subprocess.PIPE,
-                                     stderr=subprocess.STDOUT, text=True)
-        receiver = subprocess.run(HYDRA + ["--gallery-server", url, str(receiver_file)], capture_output=True, text=True,
-                                  timeout=TIMEOUT_SECONDS)
+        # The server is a setting: A and B read it from a settings file of their own.
+        settings = pathlib.Path(directory, "config", "hydra-native", "settings.json")
+        settings.parent.mkdir(parents=True)
+        settings.write_text(json.dumps({"galleryServer": url}))
+        with_server = dict(os.environ, XDG_CONFIG_HOME=str(settings.parent.parent))
+        publisher = subprocess.Popen(HYDRA + [str(publisher_file)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                     text=True, env=with_server)
+        receiver = subprocess.run(HYDRA + [str(receiver_file)], capture_output=True, text=True, timeout=TIMEOUT_SECONDS,
+                                  env=with_server)
         publisher.terminate() # SIGTERM: A leaves the room through its normal exit
         publisher_output = publisher.communicate(timeout=TIMEOUT_SECONDS)[0]
         switcher_file = pathlib.Path(directory, "c.js")

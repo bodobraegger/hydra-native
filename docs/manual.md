@@ -9,11 +9,10 @@ The reference of hydra-native: the editor, the settings, the keys and the inputs
 hydra-native sketch.js                             # window, vsync, code overlay, code socket
 hydra-native setup.js sketch.js                    # evaluates setup.js, then shows and evaluates sketch.js
 hydra-native 'https://hydra.ojack.xyz/?code=...'  # a sketch URL of the web editor
-hydra-native --fullscreen --audio @DEFAULT_MONITOR@ sketch.js  # settings for this run only
 ```
 
-Ctrl+, opens the settings menu, which saves to settings.json. Some settings have a flag for one run (see
-"Settings file"). `hydra-native --help` lists all flags.
+Ctrl+, opens the settings menu, which saves to settings.json. `hydra-native --help` lists the flags
+for scripts and tests; `--socket PATH` sets the code socket for one run.
 
 The program evaluates the files in the given order, in the global scope, like the browser console.
 Without a file, it starts like the web editor: with a random example and the info panel.
@@ -63,42 +62,41 @@ Escape cancels. Up, Down and the wheel change it by 1, or by 10 with Shift.
 All settings live in one JSON file: ~/.config/hydra-native/settings.json on Linux,
 ~/Library/Application Support/hydra-native/settings.json on macOS, or $XDG_CONFIG_HOME/hydra-native/settings.json
 when that variable is set. settings.example.json shows every key. hydra-native reads the file at
-the start, and flags override it for one run. Keys that hydra-native does not know stay in the file. When the
+the start. Keys that hydra-native does not know stay in the file. When the
 file is no valid JSON, the defaults apply, the error bar shows the error with its line, and nothing overwrites
 the file.
 
-| Key                   | Default          | Settings menu        | Flag for one run     | Meaning                    |
-| --------------------- | ---------------- | -------------------- | -------------------- | -------------------------- |
-| font                  | DejaVu Sans Mono | font (list, file...) | --font PATH          | monospace font file        |
-| fontSize              | 20               | font size            | --font-size PIXELS   | font size of the overlay   |
-| theme                 | "hydra"          | theme                | --theme NAME         | built-in or custom theme   |
-| renderWhitespace      | "all"            | whitespace           |                      | none to all                |
-| autocompleteStyle     | "list"           | autocomplete         |                      | list or ghost              |
-| autocompleteTrigger   | "manual"         | trigger              |                      | manual or typing           |
-| signatureHelp         | "manual"         | signatures           |                      | manual or paren            |
-| autocompleteOpacity   | 60               | list opacity         |                      | 0 to 100 percent           |
-| codeBackgroundOpacity | theme alpha      | background opacity   |                      | 0 to 100 percent           |
-| codeBackgroundBlend   | "normal"         | background blend     |                      | normal or difference       |
-| codeTextBlend         | "normal"         | text blend           |                      | normal or difference       |
-| wordWrap              | true             | line wrap, Alt+Z     |                      | soft wrap of long lines    |
-| codeVisible           | true             | code at start        | --hide-code          | the code at the start      |
-| fullscreen            | false            | window               | --fullscreen         | fullscreen                 |
-| vsync                 | true             | window               | --no-vsync           | wait for the refresh       |
-| watch                 | false            | reload on change     | --watch              | reload the sketch file     |
-| audioSource           | "" (default)     | audio input          | --audio SOURCE       | input of `a`, or "none"    |
-| audioGain             | 100              | input gain           |                      | 0 to 400 percent           |
-| language              | "" ($LANG)       | language             | --lang CODE          | language of the info panel |
-| galleryServer         | "" (none)        | server               | --gallery-server URL | gallery and patch bay      |
-| l10nUrl               | "" (l10n)        | translation URL...   | --l10n-url URL       | editor.json of a language  |
-| socket                | "" (runtime dir) |                      | --socket PATH        | the code socket (scripts)  |
-| themes                | {}               |                      |                      | custom themes, see below   |
-| keybindings           | {}               |                      |                      | keys, see below            |
+| Key                   | Default          | Settings menu        | Meaning                    |
+| --------------------- | ---------------- | -------------------- | -------------------------- |
+| font                  | DejaVu Sans Mono | font (list, file...) | monospace font file        |
+| fontSize              | 20               | font size            | font size of the overlay   |
+| theme                 | "hydra"          | theme                | built-in or custom theme   |
+| renderWhitespace      | "all"            | whitespace           | none to all                |
+| autocompleteStyle     | "list"           | autocomplete         | list or ghost              |
+| autocompleteTrigger   | "manual"         | trigger              | manual or typing           |
+| signatureHelp         | "manual"         | signatures           | manual or paren            |
+| autocompleteOpacity   | 60               | list opacity         | 0 to 100 percent           |
+| codeBackgroundOpacity | theme alpha      | background opacity   | 0 to 100 percent           |
+| codeBackgroundBlend   | "normal"         | background blend     | normal or difference       |
+| codeTextBlend         | "normal"         | text blend           | normal or difference       |
+| wordWrap              | true             | line wrap, Alt+Z     | soft wrap of long lines    |
+| codeVisible           | true             | code at start        | the code at the start      |
+| fullscreen            | false            | window               | fullscreen                 |
+| vsync                 | true             | window               | wait for the refresh       |
+| watch                 | false            | reload on change     | reload the sketch file     |
+| audioSource           | "" (default)     | audio input          | input of `a`, or "none"    |
+| audioGain             | 100              | input gain           | 0 to 400 percent           |
+| language              | "" ($LANG)       | language             | language of the info panel |
+| galleryServer         | "" (none)        | server               | gallery and patch bay      |
+| l10nUrl               | "" (l10n)        | translation URL...   | editor.json of a language  |
+| socket                | "" (runtime dir) |                      | the code socket (scripts)  |
+| themes                | {}               |                      | custom themes, see below   |
+| keybindings           | {}               |                      | keys, see below            |
 
 "codeBackgroundOpacity" sets the opacity of the box behind each code line; without it, the theme sets it (72 %
 in "hydra"). With "difference", the box or the text inverts the visuals below it, so the code stays readable
 over bright and over dark visuals.
 
-The flag of a boolean switches it only in one direction for the run.
 
 A custom theme in "themes" has a name, an optional "base" (a built-in theme, "hydra" by default) and colors as
 "#rrggbb" or "#rrggbbaa": lineBackground, selection, flash, bracket, cursor, text, keyword, number, string,
@@ -221,8 +219,8 @@ WebGL canvases with `drawImage`. `filter = 'url(#id)'` uses an SVG `<filter>` th
 with `innerHTML` or `createElementNS`, with the primitives feGaussianBlur, feColorMatrix, feComponentTransfer,
 feOffset, feBlend, feComposite, feFlood, feMerge, feMorphology, feTurbulence and feDisplacementMap. `canvas.getContext('webgl')` gives a WebGL 1 context.
 `fetch()` and `XMLHttpRequest` read local files and send HTTP and HTTPS requests with curl, so p5 `loadFont` and `loadJSON` work.
-Requests follow the CORS and mixed-content rules of a page at https://hydra.ojack.xyz, so a server that the web
-editor cannot read fails here too. `vidRecorder.start()` and `vidRecorder.stop()` record the visuals to a WebM file
+The CORS and mixed-content rules of a web page do not apply, so a request can succeed here and fail in the web
+editor. `vidRecorder.start()` and `vidRecorder.stop()` record the visuals to a WebM file
 (VP9, 25 fps) in ~/Downloads. `navigator.requestMIDIAccess()` gives MIDI input and output. The `timeStamp` of a
 MIDI message is its arrival time, in the time of `performance.now()`.
 

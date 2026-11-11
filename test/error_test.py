@@ -19,7 +19,7 @@ with tempfile.TemporaryDirectory() as directory:
     socket = str(pathlib.Path(directory, "hydra.sock"))
     sketch = pathlib.Path(directory, "sketch.js")
     sketch.write_text("osc().out()\nsetTimeout(() => native.exit(0), 30000)\n", encoding="utf-8")
-    app = subprocess.Popen([HYDRA, "--hidden", "--no-vsync", "--size", "320x240", "--socket", socket,
+    app = subprocess.Popen([HYDRA, "--hidden", "--size", "320x240", "--socket", socket,
                             str(sketch)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         deadline = time.monotonic() + SOCKET_WAIT_SECONDS

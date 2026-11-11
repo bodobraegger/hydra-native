@@ -391,7 +391,7 @@ static void test_settings_rows(const char *settings_file) {
     EXPECT(!saved_settings(settings_file).code_visible);
     ui_draw(800, 900, 0);
     EXPECT(click_text("on", 0)); // reload on file change, the first row under "file"
-    EXPECT(ui_active_settings()->watch && saved_settings(settings_file).watch);
+    EXPECT(ui_settings()->watch && saved_settings(settings_file).watch);
 
     ui_draw(800, 900, 0);
     EXPECT(click_text("translation URL...", 0)); // a prompt; the menu closes
@@ -433,12 +433,12 @@ static void test_files(const char *settings_file) {
     settings_defaults(&defaults);
     static const struct ui_host host = { evaluate, toggle_fullscreen, is_fullscreen, nothing, call, nothing, share,
                                          set_title, set_vsync, audio_devices, set_audio, set_audio_gain, choose_file };
-    ui_init(&defaults, &defaults, settings_file, NULL, NULL, &host);
+    ui_init(&defaults, settings_file, NULL, NULL, &host);
     EXPECT(ui_file_path() == NULL);
     key(SDLK_COMMA, SDL_KMOD_LCTRL);
     ui_draw(800, 900, 0);
     EXPECT(click_text("on", 0)); // the dim "on" of the reload has no button
-    EXPECT(!ui_active_settings()->watch);
+    EXPECT(!ui_settings()->watch);
     key(SDLK_ESCAPE, 0);
     ui_set_code("osc(4).out()");
     char saved[] = "/tmp/hydra-native-ui-test-saved-XXXXXX.js";
@@ -676,11 +676,10 @@ int main(void) {
            loaded.autocomplete_trigger == AUTOCOMPLETE_MANUAL && loaded.render_whitespace == WHITESPACE_ALL);
     EXPECT_STRING(loaded.gallery_server, "http://127.0.0.1:9");
     EXPECT(loaded.theme_count == 1 && !strcmp(loaded.themes[0].base, "solarized") && loaded.keybinding_count == 1);
-    struct settings active = loaded;
-    snprintf(active.theme, sizeof active.theme, "contrast"); // like --theme contrast for one run
+    snprintf(loaded.theme, sizeof loaded.theme, "contrast");
     static const struct ui_host host = { evaluate, toggle_fullscreen, is_fullscreen, nothing, call, nothing, share,
                                          set_title, set_vsync, audio_devices, set_audio, set_audio_gain, choose_file };
-    ui_init(&loaded, &active, settings_file, NULL, path, &host);
+    ui_init(&loaded, settings_file, NULL, path, &host);
     ui_draw(800, 600, 0);
 
     key(SDLK_RETURN, SDL_KMOD_LALT); // the block around the cursor (line 0)
@@ -857,8 +856,8 @@ int main(void) {
     key(SDLK_RETURN, SDL_KMOD_LCTRL | SDL_KMOD_LALT);
     EXPECT_STRING(evaluated, "osc() .out()");
 
-    // The settings menu saves at once: the next theme after "contrast" (the theme of this run) is "solarized"; the
-    // stored font size stays, the option of the run is not saved, and the other keys of the file stay.
+    // The settings menu saves at once: the next theme after "contrast" is "solarized"; the font size and the other
+    // keys of the file stay.
     key(SDLK_P, SDL_KMOD_LCTRL | SDL_KMOD_LSHIFT);
     type("next color theme");
     key(SDLK_RETURN, 0);

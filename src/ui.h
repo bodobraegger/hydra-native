@@ -34,12 +34,11 @@ struct ui_host {
 };
 
 // The settings of this run, with the changes of the settings menu (main.c reads "watch" from it).
-const struct settings *ui_active_settings(void);
+const struct settings *ui_settings(void);
 
 // `file_path` may be NULL (no file) or a path that does not exist yet (Ctrl+S creates it).
-// `stored` is the content of the settings file at `settings_file` (NULL: none), `active` the settings of this run
-// (the options --font, --font-size and --theme on top). The settings menu changes both and saves `stored`.
-bool ui_init(const struct settings *stored, const struct settings *active, const char *settings_file,
+// `settings` is the content of the settings file at `settings_file` (NULL: none); the settings menu saves there.
+bool ui_init(const struct settings *settings, const char *settings_file,
              const char *emoji_font_path, const char *file_path, const struct ui_host *host);
 bool ui_key(const SDL_KeyboardEvent *event); // true when the overlay used the key
 void ui_text_input(const char *text);
