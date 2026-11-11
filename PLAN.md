@@ -28,3 +28,15 @@ patch bay and the release CI run `pnpm install` there. These files move with it:
 Then remove the root package.json, pnpm-lock.yaml and pnpm-workspace.yaml, and the pnpm steps of the macOS job in
 .github/workflows/build.yml. Update README.md ("Build"), THIRD_PARTY.md and the license list of tools/package.sh,
 which reads the esbuild metafiles.
+
+## Before the repository becomes public
+
+The AGPL-3.0 requires the complete source for each person who gets the program. Check these points:
+
+- The release archive contains the source of hydra-native (`source/`), but not the source of the C libraries,
+  which CMake downloads. A public repository with the pinned URLs and hashes covers this; else attach a source
+  archive with vendor/ to each release.
+- licenses/ has no text of the Unicode License v3 (src/unicode_tables.h) and of the MIT license of CodeMirror 5
+  (code ported in src/bidi.c and src/editor.c). THIRD_PARTY.md names both.
+- licenses/node has only the license of the Node.js module @roamhq/wrtc, not the licenses of the WebRTC library
+  of Google in wrtc.node.
