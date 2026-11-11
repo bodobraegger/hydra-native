@@ -91,8 +91,7 @@ const NAMED_COLORS = {
 
 function hexColor (hex) {
   if (hex.length <= 4) hex = [...hex].map((digit) => digit + digit).join('')
-  const channels = [0, 2, 4, 6].map((offset) => parseInt(hex.slice(offset, offset + 2) || 'ff', 16) / 255)
-  return channels
+  return [0, 2, 4, 6].map((offset) => parseInt(hex.slice(offset, offset + 2) || 'ff', 16) / 255)
 }
 
 function hslToRgb (hue, saturation, lightness) {
@@ -131,7 +130,7 @@ function parseFont (value) {
   }
 }
 
-// Parses one argument of a filter function into a number, or returns NaN.
+// NaN for an argument that is no number of its unit.
 function filterArgument (name, text) {
   if (text === '') return FILTER_DEFAULTS[name]
   if (name === 'blur') {
@@ -513,15 +512,6 @@ class CanvasRenderingContext2D {
   }
 
   beginPath () { this.path = new Path2D() }
-  moveTo (...args) { this.path.moveTo(...args) }
-  lineTo (...args) { this.path.lineTo(...args) }
-  quadraticCurveTo (...args) { this.path.quadraticCurveTo(...args) }
-  bezierCurveTo (...args) { this.path.bezierCurveTo(...args) }
-  arc (...args) { this.path.arc(...args) }
-  ellipse (...args) { this.path.ellipse(...args) }
-  rect (...args) { this.path.rect(...args) }
-  roundRect (...args) { this.path.roundRect(...args) }
-  closePath () { this.path.closePath() }
 
   pathAndRule (pathOrRule, rule) {
     const path = pathOrRule instanceof Path2D ? pathOrRule : this.path
@@ -627,6 +617,9 @@ class CanvasRenderingContext2D {
     })
   }
 }
+for (const name of ['moveTo', 'lineTo', 'quadraticCurveTo', 'bezierCurveTo', 'arc', 'ellipse', 'rect', 'roundRect', 'closePath']) {
+  CanvasRenderingContext2D.prototype[name] = function (...args) { this.path[name](...args) }
+}
 
 // A canvas holds the newest frame of each video source, for drawImage and createPattern.
 const videoFrames = new Map()
@@ -644,8 +637,7 @@ export function sourceHandle (source) {
   return -1
 }
 
-// Frees the native surface when the canvas object is garbage.
-const surfaces = new FinalizationRegistry((id) => native.canvasDestroy(id))
+export const surfaces = new FinalizationRegistry((id) => native.canvasDestroy(id))
 
 let nextVersion = 1
 
@@ -704,16 +696,9 @@ export class CanvasElement extends Element {
   // Called by the regl shim (Texture.subimage) every frame; uploads only after a change.
   upload (texture) {
     const key = `${texture.id}:${texture.width}x${texture.height}:${this.version}`
-    if (this.uploaded === key) return
-    if (this.webgl) {
-      this.context.copyTo(texture)
-      texture.width = this._width
-      texture.height = this._height
-      this.uploaded = `${texture.id}:${texture.width}x${texture.height}:${this.version}`
-      return
-    }
-    if (this.handle < 0) return
-    native.canvasUpload(this.handle, texture.id)
+    if (this.uploaded === key || (!this.webgl && this.handle < 0)) return
+    if (this.webgl) this.context.copyTo(texture)
+    else native.canvasUpload(this.handle, texture.id)
     texture.width = this._width
     texture.height = this._height
     this.uploaded = `${texture.id}:${texture.width}x${texture.height}:${this.version}`
@@ -724,7 +709,6 @@ export class CanvasElement extends Element {
 
 // <img> and new Image(): src/canvas2d.c decodes the file or the download (stb_image) into a native canvas.
 const images = new Map()
-const imageSurfaces = new FinalizationRegistry((id) => native.canvasDestroy(id))
 
 export class ImageElement extends Element {
   constructor (width, height) {
@@ -744,7 +728,7 @@ export class ImageElement extends Element {
     this._src = String(value)
     this.complete = false
     this.handle = native.canvasImageLoad(this._src)
-    imageSurfaces.register(this, this.handle)
+    surfaces.register(this, this.handle)
     images.set(this.handle, new WeakRef(this))
     const [state, width, height] = native.canvasImageState(this.handle)
     if (state !== 0) setTimeout(() => this.finish(state === 1, width, height), 0) // load events are asynchronous
@@ -760,10 +744,7 @@ export class ImageElement extends Element {
       if (!this.width) this.width = width
       if (!this.height) this.height = height
     }
-    const event = { type: ok ? 'load' : 'error', target: this }
-    const handler = ok ? this.onload : this.onerror
-    if (handler) handler.call(this, event)
-    this.dispatchEvent(event)
+    this.dispatchEvent({ type: ok ? 'load' : 'error', target: this })
   }
 
   decode () {

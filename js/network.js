@@ -213,7 +213,7 @@ window.fetch = (input, options = {}) => {
 window.Headers = Headers
 window.Response = Response
 
-export class XMLHttpRequest extends EventTarget {
+class XMLHttpRequest extends EventTarget {
   constructor () {
     super()
     Object.assign(this, { readyState: READY_STATES.UNSENT, responseType: '', response: null, responseText: '', responseURL: '' })
@@ -244,7 +244,6 @@ export class XMLHttpRequest extends EventTarget {
 
   event (type) {
     const event = { type, target: this, currentTarget: this, lengthComputable: false, loaded: 0, total: 0 }
-    if (typeof this[`on${type}`] === 'function') this[`on${type}`](event)
     this.dispatchEvent(event)
   }
 

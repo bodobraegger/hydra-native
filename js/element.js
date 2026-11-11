@@ -1,7 +1,8 @@
 // A small DOM element for the shims: enough of the node, attribute, class and style API for hydra-synth,
 // its extensions and p5.js. Nothing is shown; the 2D canvas subclass in js/canvas.js draws for real.
 
-// addEventListener and dispatchEvent for elements and XMLHttpRequest; a handler property such as `onload` runs too.
+// addEventListener and dispatchEvent for elements, XMLHttpRequest and MIDI inputs; dispatchEvent first runs the
+// handler property of the event, such as `onload`.
 export class EventTarget {
   constructor () { this.listeners = new Map() }
 
@@ -15,6 +16,7 @@ export class EventTarget {
   }
 
   dispatchEvent (event) {
+    if (typeof this[`on${event.type}`] === 'function') this[`on${event.type}`](event)
     for (const listener of this.listeners.get(event.type) || []) listener.call(this, event)
     return true
   }

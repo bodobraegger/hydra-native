@@ -8,8 +8,8 @@ import { installSources } from './sources.js'
 import './editor-actions.js'
 import './midi.js'
 import './p5.js'
-import { startLanguages } from './l10n.js'
-import { startExtensions } from './extensions.js'
+import './l10n.js'
+import './extensions.js'
 
 const canvas = document.createElement('canvas')
 ;[canvas.width, canvas.height] = native.drawableSize()
@@ -100,9 +100,6 @@ window.loadScript = (url = '') => new Promise((resolve) => {
     resolve()
   })
 })
-
-startLanguages(pendingFetches, native.language, native.l10nUrl)
-startExtensions(pendingFetches)
 
 window.addEventListener('resize', () => {
   const [width, height] = native.drawableSize()

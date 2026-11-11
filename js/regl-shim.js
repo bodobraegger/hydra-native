@@ -66,12 +66,6 @@ function setUniform (location, value, textureUnit) {
   else if (value && value.length) native.uniform(location, ...value)
 }
 
-// The window shows the canvas stretched, as the browser does with CSS, so the screen viewport is the window size
-// even after setResolution().
-function screenSize () {
-  return native.drawableSize()
-}
-
 export default function createRegl () {
   const programs = new Map()
   const context = {}
@@ -116,7 +110,9 @@ export default function createRegl () {
       }
       // regl resolves the framebuffer before the uniforms; hydra's ping-pong buffers depend on this order.
       const target = typeof framebuffer === 'function' ? framebuffer(context, props) : framebuffer
-      const [width, height] = target ? [target.width, target.height] : screenSize()
+      // The window shows the canvas stretched, as the browser does with CSS, so the screen viewport is the
+      // window size even after setResolution().
+      const [width, height] = target ? [target.width, target.height] : native.drawableSize()
       context.viewportWidth = context.drawingBufferWidth = width
       context.viewportHeight = context.drawingBufferHeight = height
       native.bindFramebuffer(target ? target.id : 0, width, height)
@@ -139,7 +135,7 @@ export default function createRegl () {
   regl.framebuffer = (options) => new Framebuffer(options)
   regl.buffer = (data) => data
   regl.clear = ({ color = [0, 0, 0, 0] } = {}) => {
-    native.bindFramebuffer(0, ...screenSize())
+    native.bindFramebuffer(0, ...native.drawableSize())
     native.clear(...color)
   }
   regl._refresh = () => {}

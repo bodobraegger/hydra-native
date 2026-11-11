@@ -1,6 +1,7 @@
 // The extensions panel of the web editor (src/stores/extension-store.js): three categories from the
 // hydra-synth/hydra-extensions repository. src/ui.c draws the panel and calls the window.__* functions.
 // HYDRA_EXTENSIONS_URL replaces the base URL, for tests with a local server.
+import { pendingFetches } from './network.js'
 
 const BASE_URL = native.environment('HYDRA_EXTENSIONS_URL') || 'https://raw.githubusercontent.com/hydra-synth/hydra-extensions/main/'
 const CATEGORIES = [
@@ -9,18 +10,13 @@ const CATEGORIES = [
   { name: 'examples', slug: 'examples' }
 ].map((category) => ({ ...category, entries: [], state: 'new' }))
 
-let fetchCallbacks
 let selectedCategory = 0
-
-export function startExtensions (callbacks) {
-  fetchCallbacks = callbacks
-}
 
 function loadCategory (index) {
   const category = CATEGORIES[index]
   if (category.state !== 'new' && category.state !== 'failed') return
   category.state = 'loading'
-  fetchCallbacks.set(native.fetchStart(BASE_URL + category.slug + '.json'), (ok, text) => {
+  pendingFetches.set(native.fetchStart(BASE_URL + category.slug + '.json'), (ok, text) => {
     try {
       if (!ok) throw new Error('no answer')
       category.entries = JSON.parse(text)

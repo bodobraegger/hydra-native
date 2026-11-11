@@ -20,7 +20,6 @@ export class PatchBay extends EventEmitter {
     window.pb = this
   }
 
-  // Leaves the room: the helper ends, the received streams close.
   close () {
     native.patchBayStop()
     for (const video of this.videos.values()) video.close()

@@ -1,11 +1,12 @@
 // From the hydra web editor (https://github.com/hydra-synth/hydra, src/lib/patch-bay/pb-live.js, commit 680273b),
-// AGPL-3.0-or-later, by the hydra authors; unchanged. tools/patch-bay.mjs runs it in Node.js. See THIRD_PARTY.md.
+// AGPL-3.0-or-later, by the hydra authors. tools/patch-bay.mjs runs it in Node.js. See THIRD_PARTY.md.
+// Change for hydra-native: `inherits` comes from Node.js instead of the package inherits.
 /* globals sessionStorage */
 // Extends rtc-patch-bay to include support for nicknames and persistent session storage
 
 import PatchBay from './rtc-patch-bay.js'
 //var PatchBay from './../../../../rtc-patch-bay'
-import inherits from 'inherits'
+import { inherits } from 'node:util'
 
 var PBLive = function () {
   this.session = {}

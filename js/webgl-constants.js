@@ -1,7 +1,6 @@
 // The constants of WebGL 1: the #define values of the OpenGL ES 2.0 header (GLES2/gl2.h of the Khronos Group) plus
 // the WebGL ones. Generated once from /usr/include/GLES2/gl2.h.
 export default {
-  GLES_PROTOTYPES: 1,
   DEPTH_BUFFER_BIT: 0x00000100,
   STENCIL_BUFFER_BIT: 0x00000400,
   COLOR_BUFFER_BIT: 0x00004000,
@@ -129,7 +128,6 @@ export default {
   INT: 0x1404,
   UNSIGNED_INT: 0x1405,
   FLOAT: 0x1406,
-  FIXED: 0x140C,
   DEPTH_COMPONENT: 0x1902,
   ALPHA: 0x1906,
   RGB: 0x1907,
@@ -261,9 +259,6 @@ export default {
   COMPILE_STATUS: 0x8B81,
   INFO_LOG_LENGTH: 0x8B84,
   SHADER_SOURCE_LENGTH: 0x8B88,
-  SHADER_COMPILER: 0x8DFA,
-  SHADER_BINARY_FORMATS: 0x8DF8,
-  NUM_SHADER_BINARY_FORMATS: 0x8DF9,
   LOW_FLOAT: 0x8DF0,
   MEDIUM_FLOAT: 0x8DF1,
   HIGH_FLOAT: 0x8DF2,

@@ -1,13 +1,15 @@
 // From the hydra web editor (https://github.com/hydra-synth/hydra, src/lib/patch-bay/rtc-patch-bay.js, commit 680273b),
-// AGPL-3.0-or-later, by the hydra authors; unchanged. tools/patch-bay.mjs runs it in Node.js. See THIRD_PARTY.md.
+// AGPL-3.0-or-later, by the hydra authors. tools/patch-bay.mjs runs it in Node.js. See THIRD_PARTY.md.
+// Changes for hydra-native: `inherits` and the random id come from Node.js instead of the packages inherits and
+// shortid.
 // Module for handling connections to multiple peers.
 
 
 import io from 'socket.io-client' 
 import SimplePeer from 'simple-peer' 
 import { EventEmitter as events } from 'events'
-import inherits from 'inherits' 
-import shortid from 'shortid' 
+import { inherits } from 'node:util'
+import { randomUUID } from 'node:crypto'
 
 const extend = Object.assign
 
@@ -17,7 +19,7 @@ var PatchBay = function (options) {
 
   //assign unique id to this peer, or use id passed in
 
-  this.id = options.id || shortid.generate()
+  this.id = options.id || randomUUID().slice(0, 8)
 
   this.stream = options.stream || null
 

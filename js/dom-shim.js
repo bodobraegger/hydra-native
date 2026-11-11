@@ -1,7 +1,6 @@
-import { CanvasElement, CanvasGradient, CanvasPattern, ImageData, ImageElement, Path2D } from './canvas.js'
-import { Element } from './element.js'
+import { CanvasElement, CanvasGradient, CanvasPattern, ImageData, ImageElement, Path2D, parseColor } from './canvas.js'
+import { Element, EventTarget } from './element.js'
 import { WebGLRenderingContext } from './webgl.js'
-import webglConstants from './webgl-constants.js'
 
 // The browser globals that hydra-synth, its lib/audio.js and the user's sketches use,
 // backed by the `native` object that src/main.c installs.
@@ -19,19 +18,9 @@ window.location = { href: 'hydra-native://local/', protocol: 'hydra-native:', ho
 
 // ---------------------------------------------------------------- events
 
-const listeners = new Map()
-
-function addEventListener (type, listener) {
-  if (!listeners.has(type)) listeners.set(type, [])
-  listeners.get(type).push(listener)
-}
-
-function removeEventListener (type, listener) {
-  listeners.set(type, (listeners.get(type) || []).filter((item) => item !== listener))
-}
-
-window.addEventListener = addEventListener
-window.removeEventListener = removeEventListener
+const windowEvents = new EventTarget()
+const addEventListener = window.addEventListener = (type, listener) => windowEvents.addEventListener(type, listener)
+const removeEventListener = window.removeEventListener = (type, listener) => windowEvents.removeEventListener(type, listener)
 
 function updateWindowSize () {
   [window.innerWidth, window.innerHeight] = native.drawableSize()
@@ -42,7 +31,7 @@ updateWindowSize()
 window.__dispatchEvent = (type, event) => {
   if (type === 'resize') updateWindowSize()
   Object.assign(event, { type, target: window, preventDefault () {}, stopPropagation () {} })
-  for (const listener of (listeners.get(type) || []).slice()) {
+  for (const listener of (windowEvents.listeners.get(type) || []).slice()) {
     try {
       listener(event)
     } catch (error) {
@@ -124,14 +113,7 @@ window.__frame = (now) => {
 
 // ---------------------------------------------------------------- document
 
-const COLOR_PATTERN = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i
-
-function parseColor (text) {
-  const match = COLOR_PATTERN.exec(String(text))
-  if (!match) return [1, 1, 1, 1]
-  const hex = match[1].length === 3 ? [...match[1]].map((digit) => digit + digit).join('') : match[1]
-  return [0, 2, 4].map((offset) => parseInt(hex.slice(offset, offset + 2), 16) / 255).concat(1)
-}
+const WHITE = [1, 1, 1, 1]
 
 // Records the fillRect calls and the horizontal strokes that the hydra audio meter draws.
 // The overlay code in main.js draws them with native.fillRects.
@@ -146,7 +128,7 @@ export class RecordingContext2D {
   }
 
   clearRect () { this.rects = [] }
-  fillRect (x, y, width, height) { this.rects.push([x, y, width, height, ...parseColor(this.fillStyle)]) }
+  fillRect (x, y, width, height) { this.rects.push([x, y, width, height, ...(parseColor(this.fillStyle) || WHITE)]) }
   beginPath () { this.path = [] }
   moveTo (x, y) { this.path.push([x, y]) }
   lineTo (x, y) { this.path.push([x, y]) }
@@ -154,7 +136,7 @@ export class RecordingContext2D {
     for (let i = 1; i < this.path.length; i++) {
       const [[x0, y0], [x1, y1]] = [this.path[i - 1], this.path[i]]
       this.rects.push([Math.min(x0, x1), Math.min(y0, y1), Math.max(Math.abs(x1 - x0), 1), Math.max(Math.abs(y1 - y0), 1),
-        ...parseColor(this.strokeStyle)])
+        ...(parseColor(this.strokeStyle) || WHITE)])
     }
   }
 }
@@ -203,7 +185,6 @@ window.navigator = {
 
 window.Path2D = Path2D
 window.WebGLRenderingContext = WebGLRenderingContext
-Object.assign(WebGLRenderingContext, webglConstants)
 window.Image = ImageElement
 window.ImageData = ImageData
 window.CanvasGradient = CanvasGradient

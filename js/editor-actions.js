@@ -32,25 +32,10 @@ window.__randomExample = () => {
   return decodeURIComponent(decodeBase64(examples[index].code))
 }
 
-let mutatorText = ''
-const mutatorEditor = { cm: { getValue: () => mutatorText, setValue: (text) => { mutatorText = text } } }
-let mutator
-
-function mutate (code, changeTransform) {
-  if (!mutator) mutator = new Mutator(mutatorEditor)
-  mutatorText = code
-  mutator.mutate({ reroll: false, changeTransform })
-  return mutatorText
-}
-
-window.__mutate = (code) => mutate(code, false)
-window.__mutateTransform = (code) => mutate(code, true)
-window.__mutateUndo = (code) => {
-  if (!mutator) return code
-  mutatorText = code
-  mutator.doUndo()
-  return mutatorText
-}
+const mutator = new Mutator()
+window.__mutate = (code) => mutator.mutate(code, false)
+window.__mutateTransform = (code) => mutator.mutate(code, true)
+window.__mutateUndo = (code) => mutator.undo(code)
 
 const WEB_EDITOR_URL = 'https://hydra.ojack.xyz/'
 const GALLERY_LICENSE = '// licensed with CC BY-NC-SA 4.0 https://creativecommons.org/licenses/by-nc-sa/4.0/'
@@ -72,8 +57,6 @@ function encodeBase64 (text) {
 // URLSearchParams escapes the base64 characters + / and =.
 window.__webEditorUrl = () => WEB_EDITOR_URL
 window.__urlForCode = (code) => `${WEB_EDITOR_URL}?code=${encodeURIComponent(encodeBase64(encodeURIComponent(code)))}`
-
-// ---------------------------------------------------------------- sharing with the gallery
 
 // The query of superagent in gallery.js: encodeURIComponent, and a null value as a bare key.
 const query = (entries) => entries.map(([key, value]) =>

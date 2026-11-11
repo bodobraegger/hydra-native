@@ -3,6 +3,7 @@
 // ~/.cache/hydra-native/l10n, so that a language also works offline after its first download.
 // src/ui.c calls the window.__* functions through the `call` host function.
 import english from './hydra-editor/text-elements.js'
+import { pendingFetches } from './network.js'
 
 const LANGUAGES = ['ja', 'es', 'ar', 'id', 'pt-br', 'ch', 'ko', 'fr', 'de']
 const RIGHT_TO_LEFT = ['ar']
@@ -40,28 +41,25 @@ function addLanguage (language, text) {
   }
 }
 
-export function startLanguages (fetchCallbacks, requested, customUrl) {
-  for (const language of LANGUAGES) {
-    try {
-      addLanguage(language, native.readFile(`${cacheDirectory()}/${language}.json`))
-    } catch {}
-    fetchCallbacks.set(native.fetchStart(languagePath(language)), (ok, text) => {
-      if (ok && addLanguage(language, text)) native.writeFile(`${cacheDirectory()}/${language}.json`, text)
-    })
-  }
-  if (requested && customUrl) {
-    fetchCallbacks.set(native.fetchStart(customUrl), (ok, text) => { if (ok) addLanguage(requested, text) })
-  }
-  // Like the language detector of the web editor: the requested language, else the one of the system.
-  const system = (native.environment('LANG') || 'en').split(/[._]/)[0].toLowerCase()
-  selected = key(requested || system)
+for (const language of LANGUAGES) {
+  try {
+    addLanguage(language, native.readFile(`${cacheDirectory()}/${language}.json`))
+  } catch {}
+  pendingFetches.set(native.fetchStart(languagePath(language)), (ok, text) => {
+    if (ok && addLanguage(language, text)) native.writeFile(`${cacheDirectory()}/${language}.json`, text)
+  })
 }
+if (native.language && native.l10nUrl) {
+  pendingFetches.set(native.fetchStart(native.l10nUrl), (ok, text) => { if (ok) addLanguage(native.language, text) })
+}
+// Like the language detector of the web editor: the requested language, else the one of the system.
+selected = key(native.language || (native.environment('LANG') || 'en').split(/[._]/)[0].toLowerCase())
 
 function lookup (language, path) {
   return path.split('.').reduce((value, part) => (value == null ? undefined : value[part]), resources[language])
 }
 
-export function translate (path) {
+function translate (path) {
   const value = lookup(selected, path)
   return value === undefined ? lookup('en', path) : value
 }
@@ -74,8 +72,6 @@ function plain (text) {
     .replace(/\s+/g, ' ')
     .trim()
 }
-
-// ---------------------------------------------------------------- the info panel
 
 // The content of src/views/info.js, one paragraph per line in logical order; the first line is "ltr" or "rtl".
 // src/ui.c wraps, shapes (HarfBuzz) and orders the text (bidi).
@@ -104,6 +100,4 @@ window.__setLanguage = (language) => {
 }
 
 // The tooltip of a toolbar button in the selected language (toolbar.run, toolbar.clear, ...).
-window.__translate = (path) => {
-  return plain(translate(path) || '')
-}
+window.__translate = (path) => plain(translate(path) || '')

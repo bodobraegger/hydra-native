@@ -1,7 +1,7 @@
 // WebGLRenderingContext (WebGL 1) for canvas.getContext('webgl'), drawn by src/webgl.c on the GLES 3 context of
 // hydra-native. It covers the calls of p5.js 1.6.0 in WEBGL mode and the usual WebGL 1 API; the canvas is a
 // source for hydra like a 2D canvas. Not covered: compressed textures and copyTexImage2D.
-import { sourceHandle } from './canvas.js'
+import { sourceHandle, surfaces } from './canvas.js'
 import constants from './webgl-constants.js'
 
 // The order of enum simple_call in src/webgl.c.
@@ -21,21 +21,20 @@ const SUPPORTED_EXTENSIONS = ['OES_element_index_uint', 'OES_standard_derivative
 class WebGLObject {
   constructor (id) { this.id = id }
 }
-export class WebGLBuffer extends WebGLObject {}
-export class WebGLTexture extends WebGLObject {}
-export class WebGLProgram extends WebGLObject {}
-export class WebGLShader extends WebGLObject {}
-export class WebGLFramebuffer extends WebGLObject {}
-export class WebGLRenderbuffer extends WebGLObject {}
-export class WebGLUniformLocation {
+class WebGLUniformLocation {
   constructor (location, program) {
     this.location = location
     this.program = program
   }
 }
-export class WebGLActiveInfo {
+class WebGLActiveInfo {
   constructor ([name, size, type]) { Object.assign(this, { name, size, type }) }
 }
+
+// The objects of createBuffer() and deleteBuffer(), and so on; createShader takes the shader type.
+const OBJECT_KINDS = ['Buffer', 'Texture', 'Framebuffer', 'Renderbuffer', 'Program', 'Shader']
+// The order of the `kind` argument of glUniformv in src/webgl.c; the data is the last argument.
+const UNIFORM_VECTORS = ['1fv', '2fv', '3fv', '4fv', '1iv', '2iv', '3iv', '4iv', 'Matrix2fv', 'Matrix3fv', 'Matrix4fv']
 
 const id = (object) => (object ? object.id : 0)
 const location = (uniform) => (uniform ? uniform.location : -1)
@@ -74,18 +73,6 @@ export class WebGLRenderingContext {
 
   isEnabled (capability) { return native.glIsEnabled(this.context, capability) }
 
-  createBuffer () { return new WebGLBuffer(native.glCreateBuffer(this.context)) }
-  createTexture () { return new WebGLTexture(native.glCreateTexture(this.context)) }
-  createFramebuffer () { return new WebGLFramebuffer(native.glCreateFramebuffer(this.context)) }
-  createRenderbuffer () { return new WebGLRenderbuffer(native.glCreateRenderbuffer(this.context)) }
-  createProgram () { return new WebGLProgram(native.glCreateProgram(this.context)) }
-  createShader (type) { return new WebGLShader(native.glCreateShader(this.context, type)) }
-  deleteBuffer (object) { if (object) native.glDeleteBuffer(this.context, object.id) }
-  deleteTexture (object) { if (object) native.glDeleteTexture(this.context, object.id) }
-  deleteFramebuffer (object) { if (object) native.glDeleteFramebuffer(this.context, object.id) }
-  deleteRenderbuffer (object) { if (object) native.glDeleteRenderbuffer(this.context, object.id) }
-  deleteProgram (object) { if (object) native.glDeleteProgram(this.context, object.id) }
-  deleteShader (object) { if (object) native.glDeleteShader(this.context, object.id) }
   bindFramebuffer (target, framebuffer) { native.glBindFramebuffer(this.context, target, id(framebuffer)) }
 
   bufferData (target, dataOrSize, usage) { native.glBufferData(this.context, target, dataOrSize, usage) }
@@ -113,18 +100,6 @@ export class WebGLRenderingContext {
 
   getActiveUniform (program, index) { return new WebGLActiveInfo(native.glActiveInfo(this.context, program.id, index, true)) }
   getActiveAttrib (program, index) { return new WebGLActiveInfo(native.glActiveInfo(this.context, program.id, index, false)) }
-
-  uniform1fv (uniform, data) { native.glUniformv(this.context, 0, location(uniform), Array.from(data)) }
-  uniform2fv (uniform, data) { native.glUniformv(this.context, 1, location(uniform), Array.from(data)) }
-  uniform3fv (uniform, data) { native.glUniformv(this.context, 2, location(uniform), Array.from(data)) }
-  uniform4fv (uniform, data) { native.glUniformv(this.context, 3, location(uniform), Array.from(data)) }
-  uniform1iv (uniform, data) { native.glUniformv(this.context, 4, location(uniform), Array.from(data)) }
-  uniform2iv (uniform, data) { native.glUniformv(this.context, 5, location(uniform), Array.from(data)) }
-  uniform3iv (uniform, data) { native.glUniformv(this.context, 6, location(uniform), Array.from(data)) }
-  uniform4iv (uniform, data) { native.glUniformv(this.context, 7, location(uniform), Array.from(data)) }
-  uniformMatrix2fv (uniform, transpose, data) { native.glUniformv(this.context, 8, location(uniform), Array.from(data)) }
-  uniformMatrix3fv (uniform, transpose, data) { native.glUniformv(this.context, 9, location(uniform), Array.from(data)) }
-  uniformMatrix4fv (uniform, transpose, data) { native.glUniformv(this.context, 10, location(uniform), Array.from(data)) }
 
   pixelStorei (name, value) { native.glPixelStore(this.context, name, Number(value)) }
 
@@ -173,12 +148,25 @@ export class WebGLRenderingContext {
   snapshot () {
     if (this.snapshotHandle === undefined) {
       this.snapshotHandle = native.canvasCreate(1, 1)
-      snapshots.register(this, this.snapshotHandle)
+      surfaces.register(this, this.snapshotHandle)
     }
     native.glContextReadInto(this.context, this.snapshotHandle, this.attributes.premultipliedAlpha)
     return this.snapshotHandle
   }
 }
-const snapshots = new FinalizationRegistry((handle) => native.canvasDestroy(handle))
+for (const kind of OBJECT_KINDS) {
+  WebGLRenderingContext.prototype[`create${kind}`] = function (...args) {
+    return new WebGLObject(native[`glCreate${kind}`](this.context, ...args))
+  }
+  WebGLRenderingContext.prototype[`delete${kind}`] = function (object) {
+    if (object) native[`glDelete${kind}`](this.context, object.id)
+  }
+}
+UNIFORM_VECTORS.forEach((name, kind) => {
+  WebGLRenderingContext.prototype[`uniform${name}`] = function (uniform, ...rest) {
+    native.glUniformv(this.context, kind, location(uniform), Array.from(rest[rest.length - 1]))
+  }
+})
 Object.assign(WebGLRenderingContext.prototype, constants)
+Object.assign(WebGLRenderingContext, constants)
 

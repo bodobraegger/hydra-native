@@ -5,8 +5,6 @@
 // comments. It changes only numbers (the web editor also changed strings and booleans into numbers) and only the
 // calls of hydra transforms (the web editor threw an error for another method call). A syntax error stops the
 // mutation, as the parser of the web editor did.
-import UndoStack from './UndoStack.js'
-import repl from './repl.js'
 import glslFunctions from 'hydra-synth/src/glsl/glsl-functions.js'
 
 const MAX_TRIES = 6 // tries of a mutation until the code evaluates without an error
@@ -109,9 +107,8 @@ export function scanCode (text, transforms) {
 }
 
 export default class Mutator {
-  constructor (editor) {
-    this.editor = editor
-    this.undoStack = new UndoStack()
+  constructor () {
+    this.undoStack = []
     this.initialVector = []
     this.funcTab = {}
     this.transMap = {}
@@ -122,64 +119,49 @@ export default class Mutator {
     }
   }
 
-  mutate (options) {
-    const text = this.editor.cm.getValue()
-    this.undoStack.push({ text, lastLitX: this.lastLitX })
+  // Changes one number of `text`, or the name of one transform, runs the new code and returns it. A change
+  // that fails to run is replaced by another one, MAX_TRIES times.
+  mutate (text, changeTransform) {
     new AsyncFunction(text) // eslint-disable-line no-new
-    for (let tries = 0; tries < MAX_TRIES; tries++) {
-      const code = this.transform(text, options)
-      this.editor.cm.setValue(code)
-      let failed = false
-      repl.eval(code, (_, error) => { failed = error })
-      if (!failed) return
+    this.undoStack.push(text)
+    let code = text
+    for (let tries = 0; tries < MAX_TRIES && !this.run(code = this.transform(text, changeTransform)); tries++);
+    return code
+  }
+
+  // Runs and returns the code before the last mutation, or `text` when there is none.
+  undo (text) {
+    const previous = this.undoStack.pop()
+    if (previous === undefined) return text
+    this.run(previous)
+    return previous
+  }
+
+  run (code) {
+    try {
+      globalThis.eval(code)
+      return true
+    } catch (error) {
+      console.log(`mutator: ${error}`)
+      return false
     }
   }
 
-  doUndo () {
-    // If the current text is unsaved, save it so we can redo if need be.
-    if (this.undoStack.atTop()) this.undoStack.push({ text: this.editor.cm.getValue(), lastLitX: this.lastLitX })
-    if (this.undoStack.canUndo()) {
-      const { text, lastLitX } = this.undoStack.undo()
-      this.editor.cm.setValue(text)
-      repl.eval(text)
-      this.lastLitX = lastLitX
-    }
-  }
-
-  // The text with one change: a number (options.reroll: the same number as the last time) or the name of a
-  // transform (options.changeTransform).
-  transform (text, options) {
+  transform (text, changeTransform) {
     const { numbers, calls } = scanCode(text, this.transMap)
     if (numbers.length !== this.initialVector.length) this.initialVector = numbers.map((number) => number.value)
-    const change = options.changeTransform ? this.glitchTrans(calls) : this.glitchLiteral(numbers, options)
+    const change = changeTransform ? this.glitchTrans(calls) : this.glitchLiteral(numbers)
     return change ? text.slice(0, change.start) + change.text + text.slice(change.end) : text
   }
 
-  glitchLiteral (numbers, options) {
-    let litx = 0
-    if (options.reroll) {
-      if (this.lastLitX !== undefined) litx = this.lastLitX
-    } else {
-      litx = Math.floor(Math.random() * numbers.length)
-      this.lastLitX = litx
-    }
+  // A random value between 0 and twice the value that the number had at first (0.5 for a 0).
+  glitchLiteral (numbers) {
+    const litx = Math.floor(Math.random() * numbers.length)
     const number = numbers[litx]
     if (!number) return null
-    const glitched = this.glitchRelToInit(number.value, this.initialVector[litx])
+    const glitched = Math.round(Math.random() * (this.initialVector[litx] || 0.5) * 2 * 1000) / 1000
     console.log('Literal: ' + litx + ' changed from: ' + number.text + ' to: ' + glitched)
     return { start: number.start, end: number.end, text: String(glitched) }
-  }
-
-  glitchNumber (num) {
-    if (num === 0) num = 1
-    const range = num * 2
-    return Math.round(Math.random() * range * 1000) / 1000
-  }
-
-  glitchRelToInit (num, initVal) {
-    if (initVal === undefined) return this.glitchNumber(num)
-    if (initVal === 0) initVal = 0.5
-    return Math.round(Math.random() * initVal * 2 * 1000) / 1000
   }
 
   glitchTrans (calls) {
@@ -187,8 +169,7 @@ export default class Mutator {
     if (!call) return null
     const others = this.funcTab[this.transMap[call.text].type]
     const become = others[Math.floor(Math.random() * others.length)].name
-    // check blacklisted combinations.
-    if (call.text === 'modulate' && become === 'modulateScrollX') return null
+    if (call.text === 'modulate' && become === 'modulateScrollX') return null // as in the web editor
     console.log('Function: ' + call.text + ' changed to: ' + become)
     return { start: call.start, end: call.end, text: become }
   }

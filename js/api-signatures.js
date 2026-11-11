@@ -3,7 +3,7 @@
 // author of hydra-native), written as there; `out` takes an output such as o1 instead of the number of that file.
 // The others are in the same notation: the methods of hydra-synth that the file lacks, and the sources of
 // hydra-native (initMonitor, initArea, initWindow, initCommand). Each entry is "kind name(parameters)".
-export const API_SIGNATURES = [
+const API_SIGNATURES = [
   'output out(output?: HydraOutput)',
   'synth render(source?: HydraSource)',
   'synth setResolution(width: number, height: number)',

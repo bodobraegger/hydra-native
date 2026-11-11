@@ -1,22 +1,18 @@
 // navigator.requestMIDIAccess() for MIDI input and output, through src/midi.h.
 import { onAfterFrame } from './dom-shim.js'
+import { EventTarget } from './element.js'
 
-class MIDIInput {
+class MIDIInput extends EventTarget {
   constructor (id, name, manufacturer) {
+    super()
     Object.assign(this, { id, name, manufacturer, type: 'input', state: 'connected', connection: 'open' })
-    this.onmidimessage = null
-    this.listeners = []
   }
 
-  addEventListener (type, listener) { if (type === 'midimessage') this.listeners.push(listener) }
-  removeEventListener (type, listener) { this.listeners = this.listeners.filter((item) => item !== listener) }
   open () { return Promise.resolve(this) }
   close () { return Promise.resolve(this) }
 
   receive (bytes, timeStamp) {
-    const event = { data: Uint8Array.from(bytes), timeStamp, target: this, currentTarget: this, type: 'midimessage' }
-    if (this.onmidimessage) this.onmidimessage(event)
-    for (const listener of this.listeners) listener(event)
+    this.dispatchEvent({ data: Uint8Array.from(bytes), timeStamp, target: this, currentTarget: this, type: 'midimessage' })
   }
 }
 
