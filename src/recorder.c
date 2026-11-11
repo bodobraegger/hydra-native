@@ -85,6 +85,8 @@ static bool writer_stop(struct frame_writer *writer) {
     writer->stopping = true;
     SDL_SignalCondition(writer->ready);
     SDL_UnlockMutex(writer->lock);
+    // A patch bay helper that reads no more must not hold the writer thread, and with it this thread, in a write.
+    if (!writer->process) stream_shutdown(writer->stream);
     SDL_WaitThread(writer->thread, NULL);
     stream_close(writer->stream);
     bool ok = !writer->process || process_wait(writer->process, PROCESS_WAIT_FOREVER) == 0;
@@ -103,8 +105,8 @@ bool recorder_start(const char *path, int width, int height) {
     snprintf(size, sizeof size, "%dx%d", width, height);
     snprintf(rate, sizeof rate, "%d", RECORD_FPS);
     const char *argv[] = { "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgba",
-                           "-s", size, "-r", rate, "-i", "-", "-vf", "vflip", "-c:v", "libvpx-vp9", "-deadline", "realtime",
-                           "-cpu-used", "8", "-row-mt", "1", "-b:v", "6M", path, NULL };
+                           "-s", size, "-r", rate, "-i", "-", "-vf", "vflip", "-c:v", "libvpx-vp9", "-deadline",
+                           "realtime", "-cpu-used", "8", "-row-mt", "1", "-b:v", "6M", path, NULL };
     int input;
     struct process *process = process_start(argv, &input, NULL);
     if (!process) return false;

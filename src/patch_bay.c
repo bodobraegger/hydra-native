@@ -53,6 +53,7 @@ void patch_bay_poll(void (*line)(const char *text)) {
         while ((end = memchr(start, '\n', helper.used - (size_t)(start - helper.buffer)))) {
             *end = '\0';
             line(start);
+            if (!helper.process) return; // the line stopped the patch bay, which freed the buffer
             start = end + 1;
         }
         helper.used -= (size_t)(start - helper.buffer);
