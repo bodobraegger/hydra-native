@@ -44,6 +44,7 @@
 #define MAX_FRAME_SIDE 16384
 #define RGBA_BYTES 4
 #define DEFAULT_PAYLOAD_TYPE 96
+#define NO_VIDEO (-1)
 #define STUN_SERVER "stun://stun.l.google.com:19302" // the first STUN server of the defaults of simple-peer
 #define DATA_CHANNEL_LABEL "hydra-native"
 #define VIDEO_CAPS "application/x-rtp,media=video,encoding-name=VP8,clock-rate=90000,payload=%d,rtcp-fb-nack-pli=true"
@@ -317,6 +318,19 @@ static void close_connection(GSocketConnection **connection) {
     g_clear_object(connection);
 }
 
+// simple-peer: a peer that answers an offer without video asks the initiator for a video transceiver. The web
+// editor offers only the data channel, because simple-peer 9 ignores its offerConstraints.
+static void request_video(struct peer *peer, gpointer data) {
+    if (peer->source) return;
+    JsonObject *request = json_object_new();
+    json_object_set_string_member(request, "kind", "video");
+    JsonObject *signal = message_new("transceiverRequest");
+    json_object_set_object_member(signal, "transceiverRequest", request);
+    JsonNode *node = object_node(signal);
+    send_signal(peer, node);
+    json_node_unref(node);
+}
+
 // An offer or an answer of webrtcbin: it becomes the local description and goes to the peer.
 static void on_description_created(GstPromise *promise, gpointer data) {
     struct peer *peer = data;
@@ -330,12 +344,14 @@ static void on_description_created(GstPromise *promise, gpointer data) {
         return;
     }
     g_signal_emit_by_name(peer->webrtc, "set-local-description", description, NULL);
+    bool answer = description->type == GST_WEBRTC_SDP_TYPE_ANSWER;
     JsonObject *signal = message_new(gst_webrtc_sdp_type_to_string(description->type));
     char *sdp = gst_sdp_message_as_text(description->sdp);
     json_object_set_string_member(signal, "sdp", sdp);
     g_free(sdp);
     gst_webrtc_session_description_free(description);
     schedule_signal(peer, signal);
+    if (answer) schedule(peer, request_video, NULL, NULL);
 }
 
 static GstPromise *description_promise(struct peer *peer) {
@@ -556,10 +572,13 @@ static void add_sender(struct peer *peer, int payload_type) {
     gst_element_sync_state_with_parent(sender);
 }
 
+// The payload type of VP8 in a description, DEFAULT_PAYLOAD_TYPE for video without VP8, or NO_VIDEO.
 static int vp8_payload_type(const GstSDPMessage *sdp) {
+    int found = NO_VIDEO;
     for (guint index = 0; index < gst_sdp_message_medias_len(sdp); index++) {
         const GstSDPMedia *media = gst_sdp_message_get_media(sdp, index);
         if (g_strcmp0(gst_sdp_media_get_media(media), "video")) continue;
+        found = DEFAULT_PAYLOAD_TYPE;
         for (guint attribute = 0; attribute < gst_sdp_media_attributes_len(media); attribute++) {
             const GstSDPAttribute *map = gst_sdp_media_get_attribute(media, attribute);
             int payload_type;
@@ -569,7 +588,7 @@ static int vp8_payload_type(const GstSDPMessage *sdp) {
                 return payload_type;
         }
     }
-    return DEFAULT_PAYLOAD_TYPE;
+    return found;
 }
 
 static void on_remote_offer_set(GstPromise *promise, gpointer peer) {
@@ -590,8 +609,8 @@ static void set_remote_description(struct peer *peer, const char *type, const ch
         if (sdp) gst_sdp_message_free(sdp);
         return;
     }
-    if (sdp_type == GST_WEBRTC_SDP_TYPE_OFFER && !peer->initiator && !peer->source)
-        add_sender(peer, vp8_payload_type(sdp));
+    int payload_type = sdp_type == GST_WEBRTC_SDP_TYPE_OFFER ? vp8_payload_type(sdp) : NO_VIDEO;
+    if (payload_type != NO_VIDEO && !peer->initiator && !peer->source) add_sender(peer, payload_type);
     GstWebRTCSessionDescription *description = gst_webrtc_session_description_new(sdp_type, sdp);
     GstPromise *promise = sdp_type == GST_WEBRTC_SDP_TYPE_OFFER
                               ? gst_promise_new_with_change_func(on_remote_offer_set, peer_acquire(peer), peer_release)
@@ -643,7 +662,7 @@ static struct peer *peer_create(const char *id, bool initiator, bool send) {
     peer->bus_watch = gst_bus_add_watch(bus, on_bus_message, peer);
     gst_object_unref(bus);
     g_hash_table_insert(peers, peer->id, peer);
-    // A non-initiator adds its output when the offer comes, with the payload type of the offer.
+    // A non-initiator adds its output when an offer with video comes, with the payload type of the offer.
     if (initiator && send) add_sender(peer, DEFAULT_PAYLOAD_TYPE);
     else if (initiator) add_receiver(peer);
     gst_element_set_state(peer->pipeline, GST_STATE_PLAYING);
