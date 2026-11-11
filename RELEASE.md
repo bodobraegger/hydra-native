@@ -44,7 +44,8 @@ README.md lists the packages for each feature.
 > - send code from Neovim or another editor through a Unix socket;
 > - use a webcam, a video file, an image, the screen, a monitor, an area or a window as a source;
 > - use the microphone or the system output for `a`, with noise suppression and automatic gain;
-> - use MIDI input and output, with the arrival time of each message, P5 and the 2D canvas;
+> - use MIDI input and output, with the arrival time of each message;
+> - put text into a sketch with `text()`, with the interface of the hydra-text extension;
 > - share streams with the web editor and with other hydra-native windows through the patch bay
 >   (`pb`, `s0.initStream`);
 > - record the visuals as WebM, save screenshots, and share sketches to a hydra gallery server;

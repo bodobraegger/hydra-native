@@ -3,6 +3,7 @@
 hydra-native runs [Hydra](https://hydra.ojack.xyz) sketches in a native window, without a browser.
 It has the features of the web editor: the code over the visuals, live evaluation, the gallery, extensions,
 cameras, screen capture, audio, MIDI and the patch bay. [docs/manual.md](docs/manual.md) describes all of them.
+[What hydra-native leaves out](#what-hydra-native-leaves-out) lists the differences.
 
 ## Install
 
@@ -73,6 +74,29 @@ their SHA-256 hashes.
 
 `make test` runs the unit tests. `make check` also runs the checks in hidden windows, which need a GPU.
 `tools/package.sh VERSION` packs the release archive of this system into dist/.
+
+## What hydra-native leaves out
+
+hydra-native does not emulate P5 and the canvas APIs of the browser: the 2D canvas, WebGL contexts for sketches
+and SVG filters. An earlier version did. That emulation was about 3,800 lines of code and two dependencies
+(the vector graphics library plutovg and p5.js), for a feature that few sketches use. Each of these lines could
+differ from the browser in a small way, and all of them needed maintenance on three systems.
+
+The main use of the canvas in hydra sketches is text. Thus `text()`, `strokeText()`, `fillStrokeText()` and
+`strokeFillText()` are built in, with the interface of the hydra-text extension (see
+[Text](docs/manual.md#text)). They need about 400 lines and no new dependency, because the code overlay
+already draws text.
+
+As a result, these sketches do not run:
+
+- sketches that use `P5`;
+- sketches that draw on a canvas of their own (`getContext('2d')`, `getContext('webgl')`, `s0.initCanvas()`,
+  `s0.init({ src: canvas })`).
+
+In such a sketch, `getContext()` gives `null`, and the error bar shows the error of the first drawing call.
+
+hydra-native also does not apply the CORS rules of a web page to `fetch()`, and settings have no command line
+flags: the settings menu and settings.json are the one place for them.
 
 ## License
 

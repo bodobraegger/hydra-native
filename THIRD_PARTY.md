@@ -13,7 +13,7 @@ a distributed hydra-native binary with its bundle falls under the AGPL-3.0.
   JavaScript engine. https://bellard.org/quickjs/
 - stb_truetype.h 1.26 and stb_image_write.h 1.16 by Sean Barrett, public domain or MIT license,
   commit 4e9b368bfc071e97206ea5c6adba68dd0cbf8897 of https://github.com/nothings/stb.
-  Glyph atlas of the code overlay (src/overlay.c) and PNG output (src/main.c).
+  Glyph atlas of the code overlay (src/overlay.c), the text sources (src/text.c) and PNG output (src/main.c).
 - stb_image.h 2.30 by Sean Barrett, public domain or MIT license, same commit. Thumbnails (src/thumbnails.c).
 - HarfBuzz 14.6.0, "Old MIT" license. https://github.com/harfbuzz/harfbuzz
   Text shaping of panels and prompts (src/overlay.c); built from the amalgamated src/harfbuzz.cc.
@@ -23,9 +23,6 @@ a distributed hydra-native binary with its bundle falls under the AGPL-3.0.
 - SheenBidi 2.9.0 by Muhammad Tayyab Akram, Apache-2.0 license. https://github.com/Tehreer/SheenBidi
   The Unicode bidi algorithm (UAX #9) for the text of panels and prompts (src/overlay.c); built from
   Source/SheenBidi.c with SB_CONFIG_UNITY.
-- plutovg 1.3.3 by Samuel Ugochukwu, MIT license. https://github.com/sammycage/plutovg
-  2D canvas (src/canvas2d.c). Its files plutovg-ft-*.c come from FreeType and are under the FreeType License (FTL);
-  plutovg contains its own copy of stb_truetype.
 - ANGLE, commit 9684da72c67be785ed049e4c5704964b5d6e1bcb, BSD-3-Clause license. https://angleproject.org
   OpenGL ES on macOS and Windows, as a prebuilt archive of https://github.com/jeremyfa/build-angle.
 - SDL 3, zlib license. https://libsdl.org. The macOS app contains the SDL3 library of Homebrew.
@@ -36,8 +33,6 @@ a distributed hydra-native binary with its bundle falls under the AGPL-3.0.
   fixes #201, #202, #203 and #205), AGPL-3.0. https://github.com/hydra-synth/hydra-synth
   The renderer and the API; it runs unchanged. js/regl-shim.js, js/raf-loop-shim.js and js/meyda-shim.js
   replace its dependencies regl, raf-loop and meyda.
-- p5.js 1.6.0 (the version of public/p5.min.js in the web editor), LGPL-2.1. `make` copies lib/p5.min.js of
-  the npm package to build/p5.min.js; js/p5.js loads it on the first use of P5.
 - esbuild 0.28.2, MIT license. Build tool only, not in the output.
 
 ## JavaScript packages of the patch bay (installed by pnpm, run by Node.js in tools/patch-bay.mjs)
@@ -61,7 +56,6 @@ From https://github.com/hydra-synth/hydra (the editor of hydra.ojack.xyz), commi
 - js/hydra-editor/rtc-patch-bay.js and js/hydra-editor/pb-live.js (src/lib/patch-bay/), the webRTC patch bay;
   tools/patch-bay.mjs runs them in Node.js. Changed: `inherits` comes from node:util, and the default name
   comes from crypto.randomUUID() instead of shortid.
-- The class body of P5 in js/p5.js (src/lib/p5-wrapper.js).
 - The confirmation text of the gallery share prompt in src/ui.c (src/stores/gallery-store.js).
 
 From https://github.com/hydra-synth/hydra-server, backend/server.js, AGPL-3.0: the socket.io handlers of the
@@ -75,6 +69,9 @@ https://github.com/hydra-synth/hydra-synth/pull/169
 
 Translations of the info panel come at run time from https://github.com/hydra-synth/l10n.
 
+From hyper-hydra by geikha (https://github.com/geikha/hyper-hydra, hydra-text.js), GPL-3.0: the interface, the
+layout rules and the function srcRelMask of the text sources in js/text.js.
+
 ## Algorithms from other projects
 
 - src/audio.c computes the "loudness" feature as Meyda 5.6.3 (MIT) does, so that `a.setScale` and `a.setCutoff`
@@ -82,15 +79,10 @@ Translations of the info panel come at run time from https://github.com/hydra-sy
 
 ## Fonts
 
-The code overlay and the 2D canvas use the fonts of the system.
+The code overlay and the text sources use the fonts of the system.
 `make` downloads one font: Noto Emoji (monochrome), SIL Open Font License 1.1, from
 https://github.com/google/fonts (ofl/notoemoji, commit 8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5), into
 vendor/fonts with its OFL.txt. It draws emoji in the overlay when the system has no color emoji font.
-
-## Data
-
-- js/webgl-constants.js holds the constant values of GLES2/gl2.h of the Khronos Group (generated from the
-  system header) plus the WebGL constants.
 
 ## Algorithms from specifications
 
@@ -101,6 +93,3 @@ vendor/fonts with its OFL.txt. It draws emoji in the overlay when the system has
 - src/unicode_tables.h comes from the Unicode Character Database 16.0.0 (GraphemeBreakProperty.txt,
   emoji-data.txt, EastAsianWidth.txt; Unicode License v3) and the extendingChars class of CodeMirror 5.65.9 (MIT),
   through tools/unicode_tables.py. src/unicode.h follows the grapheme cluster rules of UAX #29.
-
-- src/svg_filter.c ports the feTurbulence reference code and uses the box blur sizes of the Filter Effects
-  Module Level 1 specification of the W3C (https://www.w3.org/TR/filter-effects-1/).

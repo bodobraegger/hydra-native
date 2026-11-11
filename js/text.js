@@ -1,8 +1,8 @@
 // text(), strokeText(), fillStrokeText() and strokeFillText() with the interface of the hydra-text extension
-// (hydra-extensions/hydra-text.js, by Ritchse): the same arguments, the same `hydraText` settings and the same
-// layout. The extension draws on a 2D canvas, which hydra-native does not have; here src/text.c draws the text
-// into the texture of a source. Differences: lineJoin has no effect, and a line wider than the texture is not
-// squeezed.
+// (hydra-text.js of hyper-hydra, https://github.com/geikha/hyper-hydra, GPL-3.0; see THIRD_PARTY.md): the same
+// arguments, the same `hydraText` settings and the same layout, and its srcRelMask. The extension draws on a 2D
+// canvas, which hydra-native does not have; here src/text.c draws the text into the texture of a source.
+// Differences: lineJoin has no effect, and a line wider than the texture is not squeezed.
 import { parseColor } from './color.js'
 
 const DEFAULTS = {

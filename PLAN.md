@@ -6,13 +6,12 @@ Work for later versions of hydra-native.
 
 Goal: a plain `make` needs no Node.js and no pnpm. Only the patch bay keeps them.
 
-The build gets three things from npm today. CMake can download each of them with a SHA-256 hash, as it does for the
+The build gets two things from npm today. CMake can download each of them with a SHA-256 hash, as it does for the
 C libraries in vendor/:
 
 - the source of hydra-synth at the commit in package.json (a tarball of GitHub);
 - the esbuild binary of the system (the npm tarball of @esbuild/linux-x64, @esbuild/darwin-arm64 or
-  @esbuild/win32-x64, in one version);
-- p5.min.js 1.6.0 (the npm tarball of p5).
+  @esbuild/win32-x64, in one version).
 
 The bundle then uses `--alias:hydra-synth=vendor/hydra-synth`. The bundle has no other npm package (see
 build/hydra-bundle.meta.json).

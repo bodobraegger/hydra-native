@@ -212,13 +212,7 @@ initVideo, initImage and vidRecorder need ffmpeg in PATH; the error bar names a 
 A monitor stream sends no frame until something on that monitor repaints.
 Window and area streams start at once.
 
-`p5 = new P5()` creates a p5.js 1.6.0 sketch, as in the web editor, in 2D mode or with `new P5({ mode: 'WEBGL' })`
-in WEBGL mode; `s0.init({ src: p5.canvas })` uses it as a source.
-The 2D canvas has gradients, patterns, shadows, filters, image data, images and all blend modes, and it draws
-WebGL canvases with `drawImage`. `filter = 'url(#id)'` uses an SVG `<filter>` that a sketch adds to the document
-with `innerHTML` or `createElementNS`, with the primitives feGaussianBlur, feColorMatrix, feComponentTransfer,
-feOffset, feBlend, feComposite, feFlood, feMerge, feMorphology, feTurbulence and feDisplacementMap. `canvas.getContext('webgl')` gives a WebGL 1 context.
-`fetch()` and `XMLHttpRequest` read local files and send HTTP and HTTPS requests with curl, so p5 `loadFont` and `loadJSON` work.
+`fetch()` and `XMLHttpRequest` read local files and send HTTP and HTTPS requests with curl.
 The CORS and mixed-content rules of a web page do not apply, so a request can succeed here and fail in the web
 editor. `vidRecorder.start()` and `vidRecorder.stop()` record the visuals to a WebM file
 (VP9, 25 fps) in ~/Downloads. `navigator.requestMIDIAccess()` gives MIDI input and output. The `timeStamp` of a
@@ -237,6 +231,33 @@ On macOS, the first use of the microphone, the camera and the screen capture ask
 Settings, Privacy and Security). `initMonitor`, `initArea`, `initWindow` and the system output as audio input
 need the Screen Recording permission; start the capture again after you allow it. `initScreen` uses the picker
 of the system (macOS 14 or newer). A program that a terminal starts uses the permissions of the terminal.
+
+## Text
+
+`text(str, config)` gives a source with the text, for example `osc().diff(text("hydra\nnative")).out()`.
+`strokeText` draws the outline, `fillStrokeText` the text with its outline, and `strokeFillText` the outline
+below the text. These functions have the interface of the hydra-text extension, so sketches that use the
+extension run without it; loading the extension changes nothing.
+
+`config` is a font name or an object, and the global `hydraText` holds the defaults:
+
+| Key           | Default      | Meaning                                                              |
+| ------------- | ------------ | -------------------------------------------------------------------- |
+| font          | "sans-serif" | a font family of the system, or serif, sans-serif or monospace       |
+| fontStyle     | "normal"     | normal, bold, italic or "bold italic"                                |
+| fontSize      | "auto"       | auto fills the width; "50%" is a part of that size; "80px" is a size |
+| textAlign     | "center"     | left, center or right                                                |
+| fillStyle     | "white"      | a color: a hex value, rgb() or a basic color name                    |
+| strokeStyle   | "white"      | the color of the outline                                             |
+| lineWidth     | "2%"         | the width of the outline, in pixels or as a part of the font size    |
+| canvasResize  | 2            | the size of the texture, as a multiple of the output width           |
+| interpolation | "linear"     | linear or nearest                                                    |
+
+The text is as wide as the output, and "\n" starts a new line. `lineJoin` of the extension has no effect: the
+corners of an outline are round. A character that the font lacks shows as the missing-glyph box of the font.
+fontconfig (`fc-match`) finds the font; on a system without it, the text uses the code font.
+
+P5 and the canvas APIs of the browser do not exist here; README.md gives the reasons.
 
 ## Shared sketches
 
