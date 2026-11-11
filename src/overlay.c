@@ -1,5 +1,7 @@
 // Glyph rendering uses stb_truetype.h 1.26 (public domain or MIT, see THIRD_PARTY.md).
 #include "overlay.h"
+
+#include "bidi.h"
 #include "unicode.h"
 
 #include <math.h>
@@ -156,6 +158,18 @@ static GLuint compile(GLenum type, const char *source) {
         fprintf(stderr, "overlay shader: %s\n", log);
     }
     return shader;
+}
+
+// A program of the overlay vertex shader and `fragment`, with the attributes of struct vertex.
+static GLuint link_program(const char *fragment) {
+    GLuint linked = glCreateProgram();
+    glAttachShader(linked, compile(GL_VERTEX_SHADER, vertex_source));
+    glAttachShader(linked, compile(GL_FRAGMENT_SHADER, fragment));
+    glBindAttribLocation(linked, 0, "position");
+    glBindAttribLocation(linked, 1, "uv");
+    glBindAttribLocation(linked, 2, "color");
+    glLinkProgram(linked);
+    return linked;
 }
 
 static hb_font_t *shaper(struct font *font) {
@@ -434,13 +448,7 @@ bool overlay_init(const char *font_path, const char *emoji_font_path, float font
     }
     if (color_path[0] && load_font(&fonts[font_count], color_path, 0) && fonts[font_count].color) color_emoji_font = font_count++;
     if (emoji_font_path && load_font(&fonts[font_count], emoji_font_path, 0)) emoji_font = font_count++;
-    program = glCreateProgram();
-    glAttachShader(program, compile(GL_VERTEX_SHADER, vertex_source));
-    glAttachShader(program, compile(GL_FRAGMENT_SHADER, fragment_source));
-    glBindAttribLocation(program, 0, "position");
-    glBindAttribLocation(program, 1, "uv");
-    glBindAttribLocation(program, 2, "color");
-    glLinkProgram(program);
+    program = link_program(fragment_source);
     screen_location = glGetUniformLocation(program, "screen");
 
     // A vertex array object of its own leaves the attribute state of the hydra passes untouched.
@@ -514,13 +522,7 @@ static void check_difference_support(void) {
         if (!difference.barrier) difference.advanced = false;
     }
     for (int attempt = 0; attempt < 2; attempt++) {
-        difference.program = glCreateProgram();
-        glAttachShader(difference.program, compile(GL_VERTEX_SHADER, vertex_source));
-        glAttachShader(difference.program, compile(GL_FRAGMENT_SHADER, difference.advanced ? advanced_fragment_source : difference_fragment_source));
-        glBindAttribLocation(difference.program, 0, "position");
-        glBindAttribLocation(difference.program, 1, "uv");
-        glBindAttribLocation(difference.program, 2, "color");
-        glLinkProgram(difference.program);
+        difference.program = link_program(difference.advanced ? advanced_fragment_source : difference_fragment_source);
         GLint linked;
         glGetProgramiv(difference.program, GL_LINK_STATUS, &linked);
         if (linked || !difference.advanced) break;
@@ -663,7 +665,8 @@ static int shape_with(const char *text, size_t length, int paragraph, struct sha
     unsigned char levels[MAX_SHAPED];
     bidi_levels(codepoints, count, paragraph, levels);
     // Runs of one level and one font, shaped one by one; each run gives its glyphs in visual order.
-    struct { int start, end; unsigned char level; int first_glyph, glyph_count; } runs[MAX_SHAPED];
+    struct { int start, end, first_glyph, glyph_count; } runs[MAX_SHAPED];
+    unsigned char run_levels[MAX_SHAPED];
     int run_count = 0, glyph_count = 0;
     struct shaped_glyph logical[MAX_SHAPED];
     for (int i = 0; i < count;) {
@@ -685,7 +688,7 @@ static int shape_with(const char *text, size_t length, int paragraph, struct sha
         hb_glyph_position_t *positions = hb_buffer_get_glyph_positions(buffer, &shaped_count);
         runs[run_count].start = i;
         runs[run_count].end = end;
-        runs[run_count].level = levels[i];
+        run_levels[run_count] = levels[i];
         runs[run_count].first_glyph = glyph_count;
         for (unsigned g = 0; g < shaped_count && glyph_count < MAX_SHAPED; g++)
             logical[glyph_count++] = (struct shaped_glyph){ font, info[g].codepoint, positions[g].x_advance * font->scale,
@@ -695,27 +698,9 @@ static int shape_with(const char *text, size_t length, int paragraph, struct sha
         hb_buffer_destroy(buffer);
         i = end;
     }
-    // Rule L2: reverse the sequences of runs at each level from the highest to the lowest odd level.
-    int order[MAX_SHAPED];
-    unsigned char highest = 0, lowest_odd = 255;
-    for (int r = 0; r < run_count; r++) {
-        order[r] = r;
-        if (runs[r].level > highest) highest = runs[r].level;
-        if (runs[r].level % 2 && runs[r].level < lowest_odd) lowest_odd = runs[r].level;
-    }
-    for (int level = highest; lowest_odd != 255 && level >= lowest_odd; level--) {
-        for (int r = 0; r < run_count;) {
-            if (runs[order[r]].level < level) { r++; continue; }
-            int end = r;
-            while (end < run_count && runs[order[end]].level >= level) end++;
-            for (int a = r, b = end - 1; a < b; a++, b--) {
-                int swap = order[a];
-                order[a] = order[b];
-                order[b] = swap;
-            }
-            r = end;
-        }
-    }
+    size_t order[MAX_SHAPED]; // rule L2: the runs in visual order
+    if (!run_count) return 0;
+    bidi_visual_order(run_levels, (size_t)run_count, order);
     int out = 0;
     for (int r = 0; r < run_count; r++)
         for (int g = 0; g < runs[order[r]].glyph_count && out < capacity; g++)

@@ -3,6 +3,7 @@
 // It has no SDL or GL dependency, so test/editor_test.c can check it alone.
 #pragma once
 
+#include <ctype.h>
 #include <stdbool.h>
 #include <stddef.h>
 
@@ -45,6 +46,17 @@ struct selection {
     bool primary;
     enum sticky sticky;
 };
+
+static inline size_t selection_start(const struct selection *selection) {
+    return selection->cursor < selection->anchor ? selection->cursor : selection->anchor;
+}
+
+static inline size_t selection_end(const struct selection *selection) {
+    return selection->cursor < selection->anchor ? selection->anchor : selection->cursor;
+}
+
+// A character of a JavaScript identifier (ASCII).
+static inline bool is_identifier_char(unsigned char c) { return isalnum(c) || c == '_' || c == '$'; }
 
 // A grapheme cluster of a row with right-to-left text, in visual order: its bytes, grid column, width and level.
 struct editor_cell {

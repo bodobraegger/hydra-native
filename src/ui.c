@@ -671,8 +671,6 @@ static void add_function_completion(const char *name, size_t length) {
     add_completion(name, length, signature && !call_follows ? insert : NULL);
 }
 
-static bool is_identifier_char(unsigned char c) { return isalnum(c) || c == '_' || c == '$'; }
-
 static uint32_t completion_color(uint32_t rgb, uint32_t alpha) {
     return rgb | (alpha * (uint32_t)settings.completion_opacity + 50) / 100;
 }
@@ -2558,9 +2556,7 @@ static bool whitespace_shown(size_t line_start, size_t line_end, size_t offset, 
     }
     case WHITESPACE_SELECTION:
         for (size_t i = 0; i < selection_count; i++) {
-            size_t start = selections[i].cursor < selections[i].anchor ? selections[i].cursor : selections[i].anchor;
-            size_t end = selections[i].cursor < selections[i].anchor ? selections[i].anchor : selections[i].cursor;
-            if (offset >= start && offset < end) return true;
+            if (offset >= selection_start(&selections[i]) && offset < selection_end(&selections[i])) return true;
         }
         return false;
     case WHITESPACE_BOUNDARY: // all but a single space between two words
@@ -2604,8 +2600,7 @@ static void draw_bidi_row(size_t line, size_t row_start, size_t row_end, size_t 
     if (now < flash_until && flash_start != flash_end && flash_start <= row_end && flash_end >= row_start)
         column_rect(y, indent, indent + (row_columns > 0 ? row_columns : 1), theme->flash);
     for (size_t i = 0; i < selection_count; i++) {
-        size_t start = selections[i].cursor < selections[i].anchor ? selections[i].cursor : selections[i].anchor;
-        size_t end = selections[i].cursor < selections[i].anchor ? selections[i].anchor : selections[i].cursor;
+        size_t start = selection_start(&selections[i]), end = selection_end(&selections[i]);
         if (start == end) continue;
         cell_rects(y, cells, count, start, end, theme->selection);
         if (last_row && end > row_end && start <= row_end) column_rect(y, indent + row_columns, indent + row_columns + 1, theme->selection);
@@ -2664,8 +2659,7 @@ static void draw_row(size_t line, size_t row_start, size_t row_end, size_t inden
     if (now < flash_until && flash_start != flash_end && flash_start <= row_end && flash_end >= row_start)
         column_rect(y, indent, indent + (row_columns > 0 ? row_columns : 1), theme->flash);
     for (size_t i = 0; i < selection_count; i++) {
-        size_t start = selections[i].cursor < selections[i].anchor ? selections[i].cursor : selections[i].anchor;
-        size_t end = selections[i].cursor < selections[i].anchor ? selections[i].anchor : selections[i].cursor;
+        size_t start = selection_start(&selections[i]), end = selection_end(&selections[i]);
         if (start == end || start > row_end || end <= row_start || (start == row_end && !last_row)) continue;
         size_t from = indent + (start > row_start ? columns_between(row_start, start) : 0);
         size_t to = indent + (end > row_end ? row_columns + (last_row ? 1 : 0) : columns_between(row_start, end));

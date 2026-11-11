@@ -69,8 +69,6 @@ static enum char_class class_of(unsigned char byte) {
     return CLASS_PUNCTUATION;
 }
 
-static bool is_identifier_char(unsigned char byte) { return isalnum(byte) || byte == '_' || byte == '$'; }
-
 static bool is_blank(const char *text, size_t length) {
     for (size_t i = 0; i < length; i++)
         if (text[i] != ' ' && text[i] != '\t' && text[i] != '\r') return false;
@@ -249,14 +247,6 @@ static bool line_is_blank(const struct editor *editor, size_t line) {
 }
 
 // ---------------------------------------------------------------- selections
-
-static size_t selection_start(const struct selection *selection) {
-    return selection->cursor < selection->anchor ? selection->cursor : selection->anchor;
-}
-
-static size_t selection_end(const struct selection *selection) {
-    return selection->cursor < selection->anchor ? selection->anchor : selection->cursor;
-}
 
 static int compare_selections(const void *a, const void *b) {
     size_t start_a = selection_start(a), start_b = selection_start(b);
@@ -485,37 +475,25 @@ size_t editor_row_cells(const struct editor *editor, size_t line, size_t row_sta
     size_t line_start = editor_line_start(editor, line), line_length = editor_line_end(editor, line) - line_start;
     unsigned char *levels = malloc(line_length + 1);
     bidi_row_levels(editor->text + line_start, line_length, row_start - line_start, row_end - line_start, levels);
-    size_t count = 0;
-    *cells = malloc(sizeof **cells * (row_end - row_start + 1));
-    for (size_t i = row_start; i < row_end; i = editor_cluster_end(editor, i))
-        (*cells)[count++] = (struct editor_cell){ i, editor_cluster_end(editor, i), 0, 0, levels[i - line_start] };
-    free(levels);
-    // Rule L2: reverse the sequences at each level, from the highest to the lowest odd level.
-    unsigned char highest = 0, lowest_odd = UCHAR_MAX;
-    for (size_t i = 0; i < count; i++) {
-        if ((*cells)[i].level > highest) highest = (*cells)[i].level;
-        if ((*cells)[i].level % 2 && (*cells)[i].level < lowest_odd) lowest_odd = (*cells)[i].level;
+    // The clusters of the row in the order of the text; the level of each one moves to the front of `levels`.
+    size_t count = 0, capacity = row_end - row_start + 1;
+    size_t *starts = malloc(capacity * sizeof *starts), *order = malloc(capacity * sizeof *order);
+    for (size_t i = row_start; i < row_end; i = editor_cluster_end(editor, i)) {
+        starts[count] = i;
+        levels[count++] = levels[i - line_start];
     }
-    for (int level = highest; lowest_odd != UCHAR_MAX && level >= lowest_odd; level--) {
-        for (size_t i = 0; i < count;) {
-            if ((*cells)[i].level < level) { i++; continue; }
-            size_t end = i;
-            while (end < count && (*cells)[end].level >= level) end++;
-            for (size_t a = i, b = end - 1; a < b; a++, b--) {
-                struct editor_cell swap = (*cells)[a];
-                (*cells)[a] = (*cells)[b];
-                (*cells)[b] = swap;
-            }
-            i = end;
-        }
-    }
+    bidi_visual_order(levels, count, order);
+    *cells = malloc(capacity * sizeof **cells);
     size_t column = 0;
     for (size_t i = 0; i < count; i++) {
-        struct editor_cell *cell = &(*cells)[i];
-        cell->width = cluster_columns(editor, cell->start, cell->end, column);
-        cell->column = indent + column;
-        column += cell->width;
+        size_t start = starts[order[i]], end = editor_cluster_end(editor, start);
+        size_t width = cluster_columns(editor, start, end, column);
+        (*cells)[i] = (struct editor_cell){ start, end, indent + column, width, levels[order[i]] };
+        column += width;
     }
+    free(levels);
+    free(starts);
+    free(order);
     return count;
 }
 
@@ -541,18 +519,36 @@ static size_t caret_column(const struct editor *editor, size_t line, size_t row_
 
 // ---------------------------------------------------------------- visual positions
 
+struct extent {
+    size_t begin, end;
+};
+
+// The starts of the visual rows of `line`; returns their count, at most MAX_WRAP_ROWS.
+static size_t wrap_rows(const struct editor *editor, size_t line, size_t starts[MAX_WRAP_ROWS]) {
+    size_t rows = editor_wrap_rows(editor, line, starts, MAX_WRAP_ROWS);
+    return rows < MAX_WRAP_ROWS ? rows : MAX_WRAP_ROWS;
+}
+
+// The bytes of visual row `row` of `line`.
+static struct extent row_extent(const struct editor *editor, size_t line, const size_t *starts, size_t rows, size_t row) {
+    return (struct extent){ starts[row], row + 1 < rows ? starts[row + 1] : editor_line_end(editor, line) };
+}
+
+// The visual row of `line` that holds `offset` (wrappedLineExtentChar of CodeMirror 5), and its bytes.
+static size_t row_at(const struct editor *editor, size_t line, size_t offset, struct extent *extent) {
+    size_t starts[MAX_WRAP_ROWS], rows = wrap_rows(editor, line, starts), row = 0;
+    while (row + 1 < rows && starts[row + 1] <= offset) row++;
+    *extent = row_extent(editor, line, starts, rows, row);
+    return row;
+}
+
 void editor_caret_position(const struct editor *editor, size_t offset, enum sticky sticky, size_t *row, size_t *x) {
     size_t line = editor_line_of(editor, offset);
-    size_t starts[MAX_WRAP_ROWS];
-    size_t rows = editor_wrap_rows(editor, line, starts, MAX_WRAP_ROWS);
-    if (rows > MAX_WRAP_ROWS) rows = MAX_WRAP_ROWS;
-    size_t current = 0;
-    while (current + 1 < rows && starts[current + 1] <= offset) current++;
-    *row = current;
-    size_t indent = current > 0 ? editor_row_indent(editor, line) : 0;
-    size_t end = current + 1 < rows ? starts[current + 1] : editor_line_end(editor, line);
-    *x = editor_line_has_rtl(editor, line) ? caret_column(editor, line, starts[current], end, indent, offset, sticky)
-                                           : editor_columns_between(editor, starts[current], offset) + indent;
+    struct extent extent;
+    *row = row_at(editor, line, offset, &extent);
+    size_t indent = *row > 0 ? editor_row_indent(editor, line) : 0;
+    *x = editor_line_has_rtl(editor, line) ? caret_column(editor, line, extent.begin, extent.end, indent, offset, sticky)
+                                           : editor_columns_between(editor, extent.begin, offset) + indent;
 }
 
 // The caret position nearest to column x in a row with right-to-left text.
@@ -576,20 +572,15 @@ static size_t offset_at_column(const struct editor *editor, size_t line, size_t 
 }
 
 size_t editor_offset_at_visual(const struct editor *editor, size_t line, size_t row, size_t x) {
-    size_t starts[MAX_WRAP_ROWS];
-    size_t rows = editor_wrap_rows(editor, line, starts, MAX_WRAP_ROWS);
-    if (rows > MAX_WRAP_ROWS) rows = MAX_WRAP_ROWS;
+    size_t starts[MAX_WRAP_ROWS], rows = wrap_rows(editor, line, starts);
     if (row >= rows) row = rows - 1;
     size_t indent = row > 0 ? editor_row_indent(editor, line) : 0;
-    size_t end = row + 1 < rows ? starts[row + 1] : editor_line_end(editor, line);
-    if (editor_line_has_rtl(editor, line)) {
-        size_t offset = offset_at_column(editor, line, starts[row], end, indent, x);
-        return offset == end && row + 1 < rows ? previous_char(editor, end) : offset;
-    }
-    size_t offset = advance_columns(editor, starts[row], end, x > indent ? x - indent : 0);
+    struct extent extent = row_extent(editor, line, starts, rows, row);
+    size_t offset = editor_line_has_rtl(editor, line)
+                        ? offset_at_column(editor, line, extent.begin, extent.end, indent, x)
+                        : advance_columns(editor, extent.begin, extent.end, x > indent ? x - indent : 0);
     // The end of a wrapped row is the start of the next row; stay on this row.
-    if (offset == end && row + 1 < rows) offset = previous_char(editor, end);
-    return offset;
+    return offset == extent.end && row + 1 < rows ? previous_char(editor, extent.end) : offset;
 }
 
 // ---------------------------------------------------------------- undo
@@ -732,20 +723,6 @@ static size_t step_in_line(const struct editor *editor, size_t line, size_t offs
     return cursor_step(editor, offset, direction);
 }
 
-struct extent {
-    size_t begin, end;
-};
-
-// The visual row (wrappedLineExtentChar) that holds `offset`.
-static struct extent row_extent(const struct editor *editor, size_t line, size_t offset) {
-    size_t starts[MAX_WRAP_ROWS];
-    size_t rows = editor_wrap_rows(editor, line, starts, MAX_WRAP_ROWS);
-    if (rows > MAX_WRAP_ROWS) rows = MAX_WRAP_ROWS;
-    size_t current = 0;
-    while (current + 1 < rows && starts[current + 1] <= offset) current++;
-    return (struct extent){ starts[current], current + 1 < rows ? starts[current + 1] : editor_line_end(editor, line) };
-}
-
 // searchInVisualLine of moveVisually.
 static size_t search_in_row(const struct editor *editor, size_t line, const struct bidi_span *order, size_t count, long index,
                             int direction, struct extent extent, enum sticky *sticky) {
@@ -792,7 +769,8 @@ static size_t move_visually(const struct editor *editor, size_t offset, enum sti
         *sticky = direction < 0 ? STICKY_AFTER : STICKY_BEFORE;
         return next;
     }
-    struct extent extent = row_extent(editor, line, *sticky == STICKY_BEFORE ? step_in_line(editor, line, offset, -1) : offset);
+    struct extent extent, next_extent;
+    row_at(editor, line, *sticky == STICKY_BEFORE ? step_in_line(editor, line, offset, -1) : offset, &extent);
     if (part->level == 1) {
         bool storage_order = direction < 0;
         next = step_in_line(editor, line, offset, storage_order ? 1 : -1);
@@ -804,10 +782,9 @@ static size_t move_visually(const struct editor *editor, size_t offset, enum sti
     next = search_in_row(editor, line, order, count, (long)index + direction, direction, extent, sticky);
     if (next != NO_POSITION) return next;
     size_t next_row = direction > 0 ? extent.end : step_in_line(editor, line, extent.begin, -1);
-    if (next_row != NO_POSITION && !(direction > 0 && next_row == end))
-        return search_in_row(editor, line, order, count, direction > 0 ? 0 : (long)count - 1, direction,
-                             row_extent(editor, line, next_row), sticky);
-    return NO_POSITION;
+    if (next_row == NO_POSITION || (direction > 0 && next_row == end)) return NO_POSITION;
+    row_at(editor, line, next_row, &next_extent);
+    return search_in_row(editor, line, order, count, direction > 0 ? 0 : (long)count - 1, direction, next_extent, sticky);
 }
 
 // endOfLine of CodeMirror 5 with visual motion: where the cursor enters a line from the previous one

@@ -18,6 +18,10 @@ bool bidi_line_has_rtl(const char *text, size_t length);
 // line has no right-to-left text. `spans` gets at most `capacity` spans.
 size_t bidi_codemirror_order(const char *text, size_t length, struct bidi_span *spans, size_t capacity);
 
+// Rule L2 of the Unicode bidi algorithm: the visual order of `count` items (characters or runs) with these levels.
+// order[i] is the index of the item at visual position i.
+void bidi_visual_order(const unsigned char *levels, size_t count, size_t *order);
+
 // The levels of the full Unicode bidi algorithm for each byte of the line (paragraph level 0), with rule L1 for
 // the row [row_start, row_end) applied; `levels` has `length` entries.
 void bidi_row_levels(const char *text, size_t length, size_t row_start, size_t row_end, unsigned char *levels);

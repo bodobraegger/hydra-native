@@ -3,6 +3,7 @@
 #include "bidi.h"
 #include "unicode.h"
 
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -164,6 +165,32 @@ size_t bidi_codemirror_order(const char *text, size_t length, struct bidi_span *
     free(types);
     free(offsets);
     return span_count;
+}
+
+void bidi_visual_order(const unsigned char *levels, size_t count, size_t *order) {
+    unsigned char highest = 0, lowest_odd = UCHAR_MAX;
+    for (size_t i = 0; i < count; i++) {
+        order[i] = i;
+        if (levels[i] > highest) highest = levels[i];
+        if (levels[i] % 2 && levels[i] < lowest_odd) lowest_odd = levels[i];
+    }
+    // Reverses the sequences at each level, from the highest to the lowest odd level.
+    for (int level = highest; lowest_odd != UCHAR_MAX && level >= lowest_odd; level--) {
+        for (size_t i = 0; i < count;) {
+            if (levels[order[i]] < level) {
+                i++;
+                continue;
+            }
+            size_t end = i;
+            while (end < count && levels[order[end]] >= level) end++;
+            for (size_t a = i, b = end - 1; a < b; a++, b--) {
+                size_t swap = order[a];
+                order[a] = order[b];
+                order[b] = swap;
+            }
+            i = end;
+        }
+    }
 }
 
 void bidi_row_levels(const char *text, size_t length, size_t row_start, size_t row_end, unsigned char *levels) {
