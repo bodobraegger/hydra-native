@@ -398,5 +398,5 @@ foreach(check fetch gallery patch_bay error sandbox)
 endforeach()
 set_tests_properties(check window programs fetch gallery patch_bay error sandbox PROPERTIES LABELS check RUN_SERIAL true)
 get_property(ALL_TESTS DIRECTORY PROPERTY TESTS)
-set_tests_properties(${ALL_TESTS} PROPERTIES
+set_tests_properties(${ALL_TESTS} PROPERTIES TIMEOUT 300 # seconds; a sketch that never exits stops CI otherwise
   ENVIRONMENT "XDG_CONFIG_HOME=${CMAKE_BINARY_DIR}/test-config;HYDRA_NATIVE_BUILD=${CMAKE_BINARY_DIR};HYDRA_NATIVE_TEST=1")
