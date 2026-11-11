@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Alternates native and Brave runs of the same sketches, so that GPU clock changes hit both.
 # usage: bench/compare.sh [runs] [width] [height] [sketch.js ...]
+# bench/prelude.js replaces the screen captures, the extensions and the audio input of the sketches with stubs.
+# One native run alone: build/hydra-native --hidden --bench 10 bench/prelude.js sketch.js
 set -euo pipefail
 cd "$(dirname "$0")/.."
 runs=${1:-3}; width=${2:-1920}; height=${3:-1080}; shift $(( $# < 3 ? $# : 3 ))

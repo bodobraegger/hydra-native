@@ -5,8 +5,8 @@
 #   Windows x64:   dist/hydra-native-VERSION-windows-x64.zip (run in Git Bash)
 # usage: tools/package.sh [VERSION]   (default: git describe; run `make` first)
 # HYDRA_NATIVE_BUILD selects a build directory other than build/.
-# The macOS and Windows branches are not tested yet: the program does not link there until the ports of
-# PORTING.md are complete.
+# CI runs the Linux and the macOS branch. The Windows branch is not tested: the program does not build there yet
+# (PORTING.md).
 #
 # The program finds its files relative to its own path: the bundle next to it, and tools/, vendor/fonts/ and
 # assets/ one directory up (src/main.c). bin/ keeps that layout, so the unpacked folder runs from any place. In
