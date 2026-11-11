@@ -44,6 +44,7 @@
 #define ID_LENGTH 8 // pb.id, the start of a random UUID as in rtc-patch-bay.js
 #define MAX_FRAME_SIDE 16384
 #define MAX_PEERS 256 // the newest peers of the room in the tables: the signalling server tells no peer that leaves
+#define MAX_CONNECTIONS 16 // peer connections at the same time, each a pipeline with threads of its own
 #define RGBA_BYTES 4
 #define DEFAULT_PAYLOAD_TYPE 96
 #define NO_VIDEO (-1)
@@ -656,6 +657,10 @@ static void peer_signal(struct peer *peer, JsonObject *signal) {
 }
 
 static struct peer *peer_create(const char *id, bool initiator, bool send) {
+    if (g_hash_table_size(peers) >= MAX_CONNECTIONS) {
+        log_text(true, "no connection to %s: the patch bay has %d connections", id, MAX_CONNECTIONS);
+        return NULL;
+    }
     GstElement *webrtc = gst_element_factory_make("webrtcbin", NULL);
     if (!webrtc) {
         log_text(true, "no webrtcbin: install gstreamer1.0-plugins-bad and gstreamer1.0-nice");
@@ -734,6 +739,7 @@ static void receive_message(JsonNode *data) {
     JsonObject *signal = node_object(json_object_get_member(message, "message"));
     if (!id || !signal) return;
     struct peer *peer = g_hash_table_lookup(peers, id);
+    if (!peer && !json_object_has_member(peer_list, id)) return; // not a peer of the room
     // simple-peer sends offers only as the initiator: an offer to an initiator comes from a new connection of the
     // other peer, which asked for our stream (init_source).
     if (peer && peer->initiator && !g_strcmp0(member_string(signal, "type"), "offer")) {
