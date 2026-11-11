@@ -19,6 +19,7 @@
 #define DEFAULT_FAMILY "sans-serif"
 #define SDF_ON_EDGE 128
 #define SDF_MARGIN 2 // pixels around the outline in the distance field of a glyph
+#define SDF_FONT_SIZE 128.0f // the largest font size of a distance field, in pixels
 // A sketch gives the sizes. These limits keep the allocations and the time of one call in bounds.
 #define MAX_TEXTURE_DIMENSION 16384
 #define MAX_LINE_WIDTH 256.0f
@@ -98,32 +99,52 @@ float text_width(const char *family, bool bold, bool italic, const char *line) {
 struct pass {
     const struct text_options *options;
     const stbtt_fontinfo *font;
-    float scale, left, baseline, line_width;
+    float size, scale, left, baseline, line_width;
     float color[4];
     bool outline;
     unsigned char *pixels; // premultiplied RGBA
 };
 
+// The value of `bitmap` at (x, y) in its pixels, between the four nearest pixels.
+static float sample(const unsigned char *bitmap, int width, int height, float x, float y) {
+    x = fminf(fmaxf(x, 0), (float)(width - 1));
+    y = fminf(fmaxf(y, 0), (float)(height - 1));
+    int x0 = (int)x, y0 = (int)y, x1 = x0 + 1 < width ? x0 + 1 : x0, y1 = y0 + 1 < height ? y0 + 1 : y0;
+    const unsigned char *upper = bitmap + y0 * width, *lower = bitmap + y1 * width;
+    float top = (float)upper[x0] + (float)(upper[x1] - upper[x0]) * (x - (float)x0);
+    float bottom = (float)lower[x0] + (float)(lower[x1] - lower[x0]) * (x - (float)x0);
+    return top + (bottom - top) * (y - (float)y0);
+}
+
 static void draw_glyph(float pen, int index, void *data) {
     const struct pass *pass = data;
     const struct text_options *options = pass->options;
     int width, height, x_offset, y_offset;
-    int margin = (int)ceilf(pass->line_width / 2) + SDF_MARGIN;
+    // The distance field of a glyph costs time in proportion to its area, about a second for one glyph that
+    // fills a window. So the field has at most SDF_FONT_SIZE, and `zoom` texture pixels show one of its pixels.
+    float zoom = pass->outline ? fmaxf(pass->size / SDF_FONT_SIZE, 1) : 1;
+    int margin = (int)ceilf(pass->line_width / 2 / zoom) + SDF_MARGIN;
     float distance_scale = (float)(SDF_ON_EDGE - 1) / (float)margin;
     unsigned char *bitmap = pass->outline
-        ? stbtt_GetGlyphSDF(pass->font, pass->scale, index, margin, SDF_ON_EDGE, distance_scale, &width, &height,
+        ? stbtt_GetGlyphSDF(pass->font, pass->scale / zoom, index, margin, SDF_ON_EDGE, distance_scale, &width, &height,
                             &x_offset, &y_offset)
         : stbtt_GetGlyphBitmap(pass->font, pass->scale, pass->scale, index, &width, &height, &x_offset, &y_offset);
     if (!bitmap) return;
-    int left = (int)lroundf(pass->left + pen * pass->scale) + x_offset, top = (int)lroundf(pass->baseline) + y_offset;
-    for (int y = 0; y < height; y++) {
+    int left = (int)lroundf(pass->left + pen * pass->scale + (float)x_offset * zoom);
+    int top = (int)lroundf(pass->baseline + (float)y_offset * zoom);
+    int drawn_width = (int)ceilf((float)width * zoom), drawn_height = (int)ceilf((float)height * zoom);
+    for (int y = 0; y < drawn_height; y++) {
         if (top + y < 0 || top + y >= options->height) continue;
-        for (int x = 0; x < width; x++) {
+        for (int x = 0; x < drawn_width; x++) {
             if (left + x < 0 || left + x >= options->width) continue;
-            float coverage = (float)bitmap[y * width + x] / 255;
+            float coverage;
             if (pass->outline) {
-                float distance = fabsf((float)(bitmap[y * width + x] - SDF_ON_EDGE) / distance_scale);
+                float value = sample(bitmap, width, height, ((float)x + 0.5f) / zoom - 0.5f,
+                                     ((float)y + 0.5f) / zoom - 0.5f);
+                float distance = fabsf(value - SDF_ON_EDGE) / distance_scale * zoom;
                 coverage = fminf(fmaxf(pass->line_width / 2 - distance + 0.5f, 0), 1);
+            } else {
+                coverage = (float)bitmap[y * width + x] / 255;
             }
             float alpha = coverage * pass->color[3];
             unsigned char *pixel = pass->pixels + ((size_t)(top + y) * (size_t)options->width + (size_t)(left + x)) * 4;
@@ -145,7 +166,7 @@ bool text_draw(unsigned texture, const struct text_options *options) {
     if (!pixels) return false;
     // The comparisons are false for NaN, which then draws nothing.
     float size = options->size > 0 ? fminf(options->size, (float)MAX_TEXTURE_DIMENSION) : 0;
-    struct pass pass = { .options = options, .font = size > 0 ? font : NULL, .pixels = pixels,
+    struct pass pass = { .options = options, .font = size > 0 ? font : NULL, .pixels = pixels, .size = size,
                          .line_width = options->line_width > 0 ? fminf(options->line_width, MAX_LINE_WIDTH) : 0 };
     font = pass.font;
     int ascent = 0, descent = 0, line_count = 1;
