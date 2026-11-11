@@ -87,3 +87,5 @@ void programs_stop(void);           // before the window closes
 const char *programs_method(void);  // "thread", "parallel" or "blocking"
 GLuint program_create(const char *vertex_source, const char *fragment_source);
 enum program_status program_status(GLuint program, bool wait, char **error);
+// Deletes a program that program_status() did not report as failed; one that still compiles goes when it is done.
+void program_delete(GLuint program);

@@ -103,7 +103,23 @@ function pendingPassChecks () {
   })
 }
 
-const checks = Promise.all([networkChecks(), pendingPassChecks().then(async (failures) => [...failures, ...await textChecks()])])
+// A program goes with the pass that an eval replaced (js/regl-shim.js), so many different shaders do not add up.
+async function programChecks () {
+  const DIFFERENT_SHADERS = 50
+  const before = hydraSynth.regl.programCount()
+  for (let count = 1; count <= DIFFERENT_SHADERS; count++) {
+    let chain = solid(1, 0, 0)
+    for (let i = 0; i < count; i++) chain = chain.invert()
+    chain.out(o3)
+    for (let frame = 0; frame < PENDING_MAX_FRAMES && o3.pendingDraw; frame++) await frames(1)
+  }
+  await frames(PENDING_FRAMES)
+  const added = hydraSynth.regl.programCount() - before
+  return added > 2 ? [`programs: ${added} more after ${DIFFERENT_SHADERS} different shaders`] : []
+}
+
+const checks = Promise.all([networkChecks(), pendingPassChecks()
+  .then(async (failures) => [...failures, ...await textChecks(), ...await programChecks()])])
 
 setTimeout(() => checks.then((results) => {
   const failures = results.flat()

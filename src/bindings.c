@@ -46,6 +46,11 @@ static JSValue js_create_program(JSContext *ctx, JSValueConst this, int argc, JS
     return result;
 }
 
+static JSValue js_delete_program(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    program_delete((GLuint)to_int(ctx, argv[0]));
+    return JS_UNDEFINED;
+}
+
 // programStatus(program, wait): true when the program is ready, false while it compiles and `wait` is false.
 // A failed program throws its log as a SyntaxError.
 static JSValue js_program_status(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
@@ -667,6 +672,7 @@ static JSValue js_record_stop(JSContext *ctx, JSValueConst this, int argc, JSVal
 static const JSCFunctionListEntry native_functions[] = {
     JS_CFUNC_DEF("createProgram", 2, js_create_program),
     JS_CFUNC_DEF("programStatus", 2, js_program_status),
+    JS_CFUNC_DEF("deleteProgram", 1, js_delete_program),
     JS_CFUNC_DEF("uniformLocation", 2, js_uniform_location),
     JS_CFUNC_DEF("useProgram", 1, js_use_program),
     JS_CFUNC_DEF("uniform", 5, js_uniform),

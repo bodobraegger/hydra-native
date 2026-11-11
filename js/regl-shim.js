@@ -81,7 +81,9 @@ export default function createRegl () {
   // next eval of the same code compiles it again and reports the error again.
   function program (vert, frag) {
     const key = vert + '\0' + frag
-    if (!programs.has(key)) programs.set(key, { key, id: native.createProgram(vert, frag), linked: false, error: null })
+    if (!programs.has(key)) {
+      programs.set(key, { key, id: native.createProgram(vert, frag), linked: false, error: null, users: 0 })
+    }
     return programs.get(key)
   }
 
@@ -134,6 +136,16 @@ export default function createRegl () {
       native.drawTriangle()
     }
     command.ready = () => linked(entry, false)
+    // regl has no such call: js/main.js ends the pass that an eval replaced, and the program goes with its last
+    // command. A failed program is deleted already (src/programs.c).
+    let destroyed = false
+    command.destroy = () => {
+      if (destroyed || --entry.users > 0) return (destroyed = true)
+      destroyed = true
+      if (programs.get(entry.key) === entry) programs.delete(entry.key)
+      if (!entry.error) native.deleteProgram(entry.id)
+    }
+    entry.users++
     return command
   }
 
@@ -145,6 +157,7 @@ export default function createRegl () {
     native.bindFramebuffer(0, ...native.drawableSize())
     native.clear(...color)
   }
+  regl.programCount = () => programs.size
   regl._refresh = () => {}
   regl.destroy = () => {}
   return regl

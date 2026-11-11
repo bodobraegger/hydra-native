@@ -33,6 +33,7 @@ struct job {
     GLuint program, vertex, fragment;
     char *vertex_source, *fragment_source; // freed by the thread
     bool started, done, linked;
+    bool discarded; // program_delete() came while the thread compiled it; the main thread deletes it later
     char *error; // malloc'd when the program failed
     struct job *next;
 };
@@ -175,6 +176,65 @@ void programs_stop(void) {
 
 const char *programs_method(void) { return method_names[method]; }
 
+static void delete_with_shaders(GLuint program) {
+    GLuint shaders[2];
+    GLsizei count = 0;
+    glGetAttachedShaders(program, 2, &count, shaders);
+    for (GLsizei i = 0; i < count; i++) glDeleteShader(shaders[i]);
+    glDeleteProgram(program);
+}
+
+// Frees a job that is not in the list any more, with its program unless the failed link deleted it already.
+static void free_job(struct job *job) {
+    if (!job->started) {
+        free(job->vertex_source);
+        free(job->fragment_source);
+        glDeleteShader(job->vertex);
+        glDeleteShader(job->fragment);
+    }
+    if (!job->done || job->linked) delete_with_shaders(job->program);
+    free(job->error);
+    free(job);
+}
+
+// Takes the jobs out of the list that are discarded and done, or that are `program` and not with the thread; with
+// the mutex held. Returns them as a list to free without the mutex.
+static struct job *take_finished(GLuint program) {
+    struct job *taken = NULL;
+    for (struct job **link = &thread.jobs; *link;) {
+        struct job *job = *link;
+        if (job->program == program && job->started && !job->done) job->discarded = true;
+        bool take = job->discarded ? job->done : job->program == program;
+        if (!take) {
+            link = &job->next;
+            continue;
+        }
+        *link = job->next;
+        job->next = taken;
+        taken = job;
+    }
+    return taken;
+}
+
+static void free_jobs(struct job *jobs) {
+    while (jobs) {
+        struct job *next = jobs->next;
+        free_job(jobs);
+        jobs = next;
+    }
+}
+
+void program_delete(GLuint program) {
+    if (method != METHOD_THREAD) return delete_with_shaders(program);
+    pthread_mutex_lock(&thread.mutex);
+    bool known = false;
+    for (struct job *job = thread.jobs; job; job = job->next) known = known || job->program == program;
+    struct job *taken = take_finished(program);
+    pthread_mutex_unlock(&thread.mutex);
+    if (!known) delete_with_shaders(program); // linked and reported before
+    free_jobs(taken);
+}
+
 GLuint program_create(const char *vertex_source, const char *fragment_source) {
     GLuint program = glCreateProgram();
     GLuint vertex = glCreateShader(GL_VERTEX_SHADER), fragment = glCreateShader(GL_FRAGMENT_SHADER);
@@ -187,10 +247,12 @@ GLuint program_create(const char *vertex_source, const char *fragment_source) {
                          .vertex_source = strdup(vertex_source), .fragment_source = strdup(fragment_source) };
     glFlush(); // GLES 3.0, appendix D: another context may use an object only after its creation is flushed
     pthread_mutex_lock(&thread.mutex);
+    struct job *finished = take_finished(0); // discarded programs that the thread has compiled since
     job->next = thread.jobs;
     thread.jobs = job;
     pthread_cond_broadcast(&thread.changed);
     pthread_mutex_unlock(&thread.mutex);
+    free_jobs(finished);
     return program;
 }
 

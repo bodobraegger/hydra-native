@@ -47,6 +47,7 @@ const renderOutput = outputPrototype.render
 outputPrototype.render = function (passes) {
   const current = this.draw
   renderOutput.call(this, passes)
+  if (this.pendingDraw) this.pendingDraw.destroy() // a newer eval came before this pass drew
   this.pendingDraw = this.draw
   this.draw = current
 }
@@ -54,8 +55,12 @@ const tickOutput = outputPrototype.tick
 outputPrototype.tick = function (props) {
   if (this.pendingDraw) {
     try {
-      if (this.pendingDraw.ready()) [this.draw, this.pendingDraw] = [this.pendingDraw, null]
+      if (this.pendingDraw.ready()) {
+        if (this.draw && this.draw.destroy) this.draw.destroy()
+        ;[this.draw, this.pendingDraw] = [this.pendingDraw, null]
+      }
     } catch (error) {
+      this.pendingDraw.destroy()
       this.pendingDraw = null
       native.showError(`shader could not compile ${error}`)
     }
