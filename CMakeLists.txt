@@ -179,6 +179,21 @@ else()
 endif()
 target_compile_options(hydra-native-capture PRIVATE ${WARNINGS})
 
+# The webRTC patch bay of pb and s0.initStream (src/patch_bay_main.c): webrtcbin of GStreamer, with the signalling
+# over a WebSocket of libsoup. Linux only for now (PORTING.md).
+if(HYDRA_LINUX)
+  pkg_check_modules(PATCH_BAY IMPORTED_TARGET gstreamer-1.0 gstreamer-webrtc-1.0 gstreamer-sdp-1.0
+    gstreamer-app-1.0 libsoup-3.0 json-glib-1.0 gio-unix-2.0)
+  if(PATCH_BAY_FOUND)
+    add_executable(hydra-native-patch-bay src/patch_bay_main.c)
+    target_compile_options(hydra-native-patch-bay PRIVATE ${WARNINGS})
+    target_compile_definitions(hydra-native-patch-bay PRIVATE GST_USE_UNSTABLE_API) # the API of webrtcbin
+    target_link_libraries(hydra-native-patch-bay PRIVATE PkgConfig::PATCH_BAY)
+  else()
+    message(STATUS "The patch bay (pb) is not built: GStreamer, libsoup 3 or json-glib development files are missing")
+  endif()
+endif()
+
 # ---------------------------------------------------------------- audio input and MIDI
 
 # The audio analysis of `a` with the audio input of the system (src/audio_input.h), and MIDI (src/midi.h):
