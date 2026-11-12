@@ -233,6 +233,8 @@ enum panel_action {
     ACTION_EXTENSION_DOCS,
     ACTION_EXTENSION_EXAMPLE, // `second` is the index of the example
     ACTION_OPEN_FILE,
+    ACTION_SETUP_FILE,
+    ACTION_SETUP_CLEAR,
     ACTION_WATCH, // 0 or 1, as for the other switches
     ACTION_THEME, // the index of the theme
     ACTION_AUTOCOMPLETE_STYLE, // the value of the enum of the setting, as for the other choices
@@ -348,8 +350,11 @@ static struct {
 
 static float bar_height(void) { return overlay_line_height() + 2 * BAR_PADDING; }
 
+// The top of the first code row, below the setup line while a setup file is set.
+static float code_top(void) { return MARGIN + (settings.setup_file[0] ? overlay_line_height() : 0); }
+
 static size_t visible_rows(void) {
-    float height = (float)last_height - 2 * MARGIN - bar_height();
+    float height = (float)last_height - code_top() - MARGIN - bar_height();
     return height > overlay_line_height() ? (size_t)(height / overlay_line_height()) : 1;
 }
 
@@ -409,7 +414,7 @@ static void reveal_cursor(void) {
 
 static void point_to_position(float x, float y, size_t *line, size_t *row, size_t *column) {
     update_layout();
-    float row_position = (y - MARGIN) / overlay_line_height();
+    float row_position = (y - code_top()) / overlay_line_height();
     float column_position = (x - MARGIN) / overlay_char_width() + 0.5f;
     size_t global = scroll_row + (row_position > 0 ? (size_t)row_position : 0);
     if (global >= layout.total_rows) global = layout.total_rows - 1;
@@ -443,11 +448,12 @@ void ui_console_message(const char *text) {
 // ---------------------------------------------------------------- evaluation and files
 
 // Evaluates code and returns NULL, or the error, or the first console warning or error of the evaluation
-// (hydra reports shader compile errors with console.warn). The result is malloc'd.
+// (hydra reports shader compile errors with console.warn). The result is malloc'd. With `code` NULL, it evaluates
+// the file `name`.
 static char *evaluate_code(const char *code, size_t length, const char *name) {
     evaluating = true;
     console_message[0] = '\0';
-    char *error = host.evaluate(code, length, name);
+    char *error = code ? host.evaluate(code, length, name) : host.evaluate_file(name);
     evaluating = false;
     signatures_stale = true; // the code may have called setFunction
     if (!error && console_message[0]) error = strdup(console_message);
@@ -627,7 +633,7 @@ static void restore_recovery(const char *path) {
 
 static void save(void) {
     if (!file_path) {
-        host.choose_file(true); // the answer comes through ui_save_as()
+        host.choose_file(FILE_DIALOG_SAVE); // the answer comes through ui_save_as()
         return;
     }
     char *temporary;
@@ -677,6 +683,13 @@ void ui_save_as(const char *path) {
 }
 
 const char *ui_file_path(void) { return file_path; }
+
+void ui_run_setup(void) {
+    if (!settings.setup_file[0]) return;
+    char *error = evaluate_code(NULL, 0, settings.setup_file);
+    show_result("setup: ", error);
+    free(error);
+}
 
 void ui_file_changed(void) {
     if (!file_path) return;
@@ -1203,6 +1216,12 @@ static void save_settings(void) {
     char error[SETTINGS_TEXT];
     if (settings_file && !settings_save(&settings, settings_file, error, sizeof error))
         ui_show_message(error, true); // a file that does not parse stays as it is
+}
+
+void ui_set_setup_file(const char *path) {
+    snprintf(settings.setup_file, sizeof settings.setup_file, "%s", path);
+    save_settings();
+    ui_run_setup();
 }
 
 static void change_font_size(float step) {
@@ -2459,6 +2478,7 @@ static void flow_label_disabled(struct panel_flow *flow, const char *text, bool 
 }
 
 #define NO_FILE_PLACEHOLDER "choose a file...              " // as wide as a short path, so the row is easy to hit
+#define NO_SETUP_PLACEHOLDER "choose a setup file...        "
 
 static size_t settings_scroll_limit = (size_t)-1; // the rows below the panel in the last frame
 
@@ -2485,6 +2505,13 @@ static void draw_settings(void) {
     } else {
         flow_label_disabled(&flow, "on", settings.watch);
         flow_label_disabled(&flow, "off", !settings.watch);
+    }
+    flow_row(&flow, label_x, "setup file");
+    if (settings.setup_file[0]) {
+        flow_label(&flow, settings.setup_file, false, ACTION_SETUP_FILE, 0);
+        flow_label(&flow, "clear", false, ACTION_SETUP_CLEAR, 0);
+    } else {
+        flow_button(&flow, NO_SETUP_PLACEHOLDER, theme->ghost, false, ACTION_SETUP_FILE, 0, 0);
     }
     flow_row(&flow, label_x, "theme");
     for (size_t i = 0; i < theme_count; i++)
@@ -2608,8 +2635,13 @@ static void run_settings_action(const struct panel_button *button) {
     case ACTION_EDIT_NUMBER: return;
     case ACTION_OPEN_FILE:
         settings_visible = false;
-        host.choose_file(false);
+        host.choose_file(FILE_DIALOG_OPEN);
         return;
+    case ACTION_SETUP_FILE:
+        settings_visible = false;
+        host.choose_file(FILE_DIALOG_SETUP);
+        return;
+    case ACTION_SETUP_CLEAR: ui_set_setup_file(""); return;
     case ACTION_THEME: set_theme(&themes[index]); return;
     case ACTION_AUTOCOMPLETE_STYLE: set_autocomplete((enum autocomplete_style)argument,
                                                      settings.autocomplete_trigger); return;
@@ -2724,6 +2756,10 @@ void ui_mouse_button(float x, float y, bool down, int clicks, SDL_Keymod modifie
     if (info_visible && info_click(x, y)) return;
     if (extensions_visible && extensions_click(x, y)) return;
     if (settings_visible && settings_click(x, y)) return;
+    if (y >= MARGIN && y < code_top()) { // the setup line
+        ui_run_setup();
+        return;
+    }
     close_completion();
     size_t offset = offset_at_point(x, y);
     mouse.dragging = true;
@@ -2986,7 +3022,27 @@ static void draw_row(size_t line, size_t row_start, size_t row_end, size_t inden
     overlay_set_layer(OVERLAY_TOP);
 }
 
+// The setup file as a line above the code in the comment color, relative to the folder of the open sketch when it
+// is inside it. It is not part of the editor text; a click on it runs the setup file again.
+static void draw_setup_line(void) {
+    const char *path = settings.setup_file;
+    char *sketch = file_path ? absolute_path(file_path) : NULL;
+    const char *slash = sketch ? strrchr(sketch, '/') : NULL;
+    if (slash && !strncmp(path, sketch, (size_t)(slash - sketch + 1))) path += slash - sketch + 1;
+    char text[SETTINGS_TEXT + 32];
+    snprintf(text, sizeof text, "await loadScript(\"%s\")", path);
+    free(sketch);
+    size_t columns = text_columns(text) < visible_columns() ? text_columns(text) : visible_columns();
+    overlay_set_layer(OVERLAY_CODE_BACKGROUND);
+    overlay_rect(MARGIN - TEXT_PADDING, MARGIN, (float)columns * overlay_char_width() + 2 * TEXT_PADDING,
+                 overlay_line_height(), code_background_color());
+    overlay_set_layer(OVERLAY_CODE_TEXT);
+    overlay_text(MARGIN, MARGIN, text, strlen(text), 0, columns, NULL, theme->comment);
+    overlay_set_layer(OVERLAY_TOP);
+}
+
 static void draw_code(void) {
+    if (settings.setup_file[0]) draw_setup_line();
     update_layout();
     float line_height = overlay_line_height();
     size_t rows = visible_rows();
@@ -3023,7 +3079,7 @@ static void draw_code(void) {
         size_t first = line == first_line ? scroll_row - layout.first_row[line] : 0;
         for (size_t row = first; row < row_count && screen_row < rows; row++, screen_row++) {
             size_t row_end = row + 1 < row_count ? starts[row + 1] : line_end;
-            draw_row(line, starts[row], row_end, row > 0 ? indent : 0, MARGIN + (float)screen_row * line_height,
+            draw_row(line, starts[row], row_end, row > 0 ? indent : 0, code_top() + (float)screen_row * line_height,
                      selections, selection_count, bracket, bracket_self);
         }
     }
@@ -3034,7 +3090,7 @@ static void draw_code(void) {
         if (row < scroll_row || row >= scroll_row + rows || x < scroll_column || x > scroll_column + visible_columns())
             continue;
         overlay_rect(MARGIN + (float)(x - scroll_column) * overlay_char_width() - CURSOR_WIDTH / 2,
-                     MARGIN + (float)(row - scroll_row) * line_height, CURSOR_WIDTH, line_height, theme->cursor);
+                     code_top() + (float)(row - scroll_row) * line_height, CURSOR_WIDTH, line_height, theme->cursor);
     }
     // Bookmarks: a mark in the left margin of the first row of the line.
     for (size_t i = 0; i < editor.bookmark_count; i++) {
@@ -3042,7 +3098,8 @@ static void draw_code(void) {
         if (line >= layout.line_count || layout.first_row[line] < scroll_row ||
             layout.first_row[line] >= scroll_row + rows)
             continue;
-        overlay_rect(MARGIN / 4, MARGIN + (float)(layout.first_row[line] - scroll_row) * line_height + line_height / 4,
+        overlay_rect(MARGIN / 4,
+                     code_top() + (float)(layout.first_row[line] - scroll_row) * line_height + line_height / 4,
                      MARGIN / 2, line_height / 2, theme->bookmark);
     }
     // The IME composition, underlined at the cursor, until the input method commits it.
@@ -3050,7 +3107,7 @@ static void draw_code(void) {
         size_t x, row = global_row(editor.cursor, &x);
         if (row >= scroll_row && row < scroll_row + rows) {
             float left = MARGIN + (float)(x - scroll_column) * overlay_char_width();
-            float top = MARGIN + (float)(row - scroll_row) * line_height;
+            float top = code_top() + (float)(row - scroll_row) * line_height;
             size_t length = strlen(composition), columns = text_columns(composition);
             overlay_rect(left, top, (float)columns * overlay_char_width(), line_height, theme->popup_background);
             overlay_text(left, top, composition, length, 0, columns, NULL, theme->text);
@@ -3074,7 +3131,7 @@ static void draw_completion_list(void) {
         : 0;
     float left = MARGIN + (float)word_column * char_width - char_width; // the text starts one column into the box
     if (left < 0) left = 0;
-    float top = MARGIN + (float)(row - scroll_row + 1) * line_height;
+    float top = code_top() + (float)(row - scroll_row + 1) * line_height;
     if (top + box_height > (float)last_height - bar_height()) top -= box_height + line_height;
     overlay_set_layer(OVERLAY_POPUP);
     overlay_rect(left, top, box_width, box_height, completion_color(COMPLETION_BOX_RGB, 0xFF));
@@ -3094,7 +3151,7 @@ static void draw_completion_ghost(void) {
     if (row < scroll_row || row >= scroll_row + visible_rows() || x < scroll_column) return;
     const char *rest = completion.items[completion.selected] + completion.prefix_length;
     float left = MARGIN + (float)(x - scroll_column) * overlay_char_width(),
-        top = MARGIN + (float)(row - scroll_row) * overlay_line_height();
+        top = code_top() + (float)(row - scroll_row) * overlay_line_height();
     size_t columns = overlay_text_columns(rest, strlen(rest));
     overlay_rect(left, top, (float)columns * overlay_char_width() + TEXT_PADDING, overlay_line_height(),
                  theme->line_background);
@@ -3134,7 +3191,7 @@ static void draw_signature_help(void) {
     float left = MARGIN + (float)(x > scroll_column ? x - scroll_column : 0) * char_width - char_width;
     if (left < 0) left = 0;
     size_t screen_row = row - scroll_row;
-    float top = MARGIN + (screen_row >= 2 ? (float)(screen_row - 2) : (float)(screen_row + 1)) * line_height;
+    float top = code_top() + (screen_row >= 2 ? (float)(screen_row - 2) : (float)(screen_row + 1)) * line_height;
     float text_left = left + char_width, active_left = text_left + (float)active_start * char_width;
     float active_width = (float)(active_end - active_start) * char_width;
     if (settings.autocomplete_style == AUTOCOMPLETE_GHOST) {
@@ -3270,7 +3327,7 @@ bool ui_text_input_rect(int *x, int *y, int *width, int *height) {
     size_t column, row = global_row(editor.cursor, &column);
     if (row < scroll_row || row >= scroll_row + visible_rows() || column < scroll_column) return false;
     *x = (int)(MARGIN + (float)(column - scroll_column) * overlay_char_width());
-    *y = (int)(MARGIN + (float)(row - scroll_row) * line_height);
+    *y = (int)(code_top() + (float)(row - scroll_row) * line_height);
     return true;
 }
 

@@ -40,6 +40,14 @@ recovery file. A start with a sketch URL keeps the restored file and names it in
 With the setting "reload on change" (watch), a change on disk replaces the overlay text and evaluates it,
 but only when the overlay has no unsaved edits. Otherwise the error bar says that the file changed, and the edits
 stay.
+The "setup file" row of the settings menu sets a script that runs once at the start, before the files of the
+command line, for example the extensions and the MIDI helpers of your sketches. A new setup file runs at once, and
+"clear" removes the setting. Errors of the setup file show in the error bar with the prefix `setup:`.
+While a setup file is set, the overlay shows the dim line `await loadScript("<path>")` above the code. The path is
+relative to the folder of the open sketch when the setup file is in that folder. The line is not part of the code:
+hydra-native does not save it, does not evaluate it with the code, and does not put it into the URL of the code.
+A click on the line runs the setup file again. After shared code, the setup file runs in the sandbox (see "Shared
+sketches").
 
 ## Code overlay
 
@@ -110,6 +118,7 @@ the file.
 | streamRate            | 60               | stream rate out      | 1 to 60 fps of the output  |
 | streamMaxRate         | 60               | stream rate in (max) | 1 to 60 fps of a stream    |
 | l10nUrl               | "" (l10n)        | translation URL...   | editor.json of a language  |
+| setupFile             | "" (none)        | setup file           | runs before the sketch     |
 | socket                | "" (runtime dir) |                      | the code socket (scripts)  |
 | themes                | {}               |                      | custom themes, see below   |
 | keybindings           | {}               |                      | keys, see below            |

@@ -266,6 +266,7 @@ bool settings_load(struct settings *settings, const char *path, char *error, siz
         read_string(ctx, root, "galleryServer", settings->gallery_server, sizeof settings->gallery_server);
         read_string(ctx, root, "l10nUrl", settings->l10n_url, sizeof settings->l10n_url);
         read_string(ctx, root, "socket", settings->socket, sizeof settings->socket);
+        read_string(ctx, root, "setupFile", settings->setup_file, sizeof settings->setup_file);
         read_themes(ctx, root, settings);
         JSValue keybindings = JS_GetPropertyStr(ctx, root, "keybindings");
         read_pairs(ctx, keybindings, add_keybinding, settings);
@@ -346,6 +347,7 @@ bool settings_save(const struct settings *settings, const char *path, char *erro
         set_string(ctx, root, "language", settings->language);
         set_string(ctx, root, "galleryServer", settings->gallery_server);
         set_string(ctx, root, "l10nUrl", settings->l10n_url);
+        set_string(ctx, root, "setupFile", settings->setup_file);
         JSValue json = JS_JSONStringify(ctx, root, JS_UNDEFINED, JS_NewInt32(ctx, JSON_INDENT));
         const char *output = JS_ToCString(ctx, json);
         ok = output && write_atomically(path, output, "\n");

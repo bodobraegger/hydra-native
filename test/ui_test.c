@@ -121,6 +121,12 @@ static char *evaluate(const char *code, size_t length, const char *name) {
     return error;
 }
 
+static char evaluated_file[256]; // the path of the last evaluate_file call
+static char *evaluate_file(const char *path) {
+    snprintf(evaluated_file, sizeof evaluated_file, "%s", path);
+    return evaluate("", 0, path);
+}
+
 // Stands in for js/main.js and js/editor-actions.js: fixed code, or the argument in upper case.
 static char *call(const char *function, const char *argument) {
     if (!strcmp(function, "__randomExample")) return strdup("noise().out()");
@@ -172,10 +178,13 @@ static void set_stream_rates(int rate, int max_rate) {
 }
 
 // The file dialogs answer at once with chosen_path; ui_test opens no real dialog.
-static void choose_file(bool save) {
+static void choose_file(enum file_dialog dialog) {
     dialogs++;
-    if (save) ui_save_as(chosen_path);
-    else ui_open_file(chosen_path);
+    switch (dialog) {
+    case FILE_DIALOG_OPEN: ui_open_file(chosen_path); break;
+    case FILE_DIALOG_SAVE: ui_save_as(chosen_path); break;
+    case FILE_DIALOG_SETUP: ui_set_setup_file(chosen_path); break;
+    }
 }
 static int audio_devices(struct audio_device *devices, int capacity) {
     snprintf(devices[0].name, sizeof devices[0].name, "mic-a");
@@ -187,9 +196,9 @@ static int audio_devices(struct audio_device *devices, int capacity) {
 static void set_audio(const char *device) { snprintf(audio_now, sizeof audio_now, "%s", device); }
 static int quits; // the calls of the quit function of the host
 static void quit(void) { quits++; }
-static const struct ui_host test_host = { evaluate, toggle_fullscreen, is_fullscreen, quit, call, nothing, share,
-                                          set_title, set_vsync, audio_devices, set_audio, set_audio_gain, choose_file,
-                                          set_server, set_stream_rates };
+static const struct ui_host test_host = { evaluate, evaluate_file, toggle_fullscreen, is_fullscreen, quit, call,
+                                          nothing, share, set_title, set_vsync, audio_devices, set_audio,
+                                          set_audio_gain, choose_file, set_server, set_stream_rates };
 
 // ---------------------------------------------------------------- input helpers
 
@@ -531,6 +540,56 @@ static void test_files(const char *settings_file) {
     EXPECT_STRING(read_file(saved), "osc(4).out()");
     unlink(saved);
     unlink(after_example);
+}
+
+// The "setup file" row: the chosen file runs and goes into settings.json, and the editor shows it as a dim line
+// above the code. The line is no part of the code: the first code row stays line 0, and saving leaves it out. A
+// click on it runs the setup file again; "clear" removes the setting and the line.
+static void test_setup_file(const char *settings_file) {
+    char folder[] = "/tmp/hydra-native-ui-test-setup-XXXXXX", sketch[256], setup[256];
+    EXPECT(mkdtemp(folder) != NULL);
+    snprintf(sketch, sizeof sketch, "%s/sketch.js", folder);
+    snprintf(setup, sizeof setup, "%s/setup.js", folder);
+    write_file(sketch, "osc(1).out()\nnoise().out()");
+    write_file(setup, "midi = {}");
+    struct settings defaults;
+    settings_defaults(&defaults);
+    ui_init(&defaults, settings_file, sketch, &test_host);
+    ui_draw(800, 600, 0);
+    EXPECT(text_starting("await loadScript") == NULL);
+    key(SDLK_COMMA, SDL_KMOD_LCTRL);
+    ui_draw(800, 900, 0);
+    snprintf(chosen_path, sizeof chosen_path, "%s", setup);
+    snprintf(next_error, sizeof next_error, "ReferenceError: 'midi' is not defined");
+    const struct drawn_text *placeholder = text_starting("choose a setup file...");
+    EXPECT(placeholder && click_text(placeholder->text, 0));
+    EXPECT_STRING(evaluated_file, setup);
+    EXPECT_STRING(saved_settings(settings_file).setup_file, setup);
+    ui_draw(800, 600, 0);
+    EXPECT_CONTAINS(drawn, "setup: ReferenceError: 'midi' is not defined");
+
+    const char *line = "await loadScript(\"setup.js\")"; // relative to the folder of the sketch
+    EXPECT_CONTAINS(drawn, line);
+    EXPECT(click_text("osc(1).out()", 0)); // the first code row, below the setup line
+    type("x");
+    EXPECT_STRING(ui_code(), "xosc(1).out()\nnoise().out()");
+    key(SDLK_S, SDL_KMOD_LCTRL);
+    EXPECT_STRING(read_file(sketch), "xosc(1).out()\nnoise().out()");
+    evaluated_file[0] = '\0';
+    ui_draw(800, 600, 0);
+    EXPECT(click_text(line, 0));
+    EXPECT_STRING(evaluated_file, setup);
+    EXPECT_STRING(ui_code(), "xosc(1).out()\nnoise().out()");
+
+    key(SDLK_COMMA, SDL_KMOD_LCTRL);
+    ui_draw(800, 900, 0);
+    EXPECT(click_text("clear", 0));
+    EXPECT_STRING(saved_settings(settings_file).setup_file, "");
+    ui_draw(800, 600, 0);
+    EXPECT(strstr(drawn, "await loadScript") == NULL);
+    unlink(sketch);
+    unlink(setup);
+    rmdir(folder);
 }
 
 // The question before the unsaved changes of the open file are lost: Escape keeps them and the file, s saves them
@@ -1293,6 +1352,7 @@ int main(void) {
     test_number_fields(settings_file);
     test_settings_rows(settings_file);
     test_files(settings_file);
+    test_setup_file(settings_file);
     test_unsaved_question(settings_file);
     test_recovery(settings_file);
     test_random_input(settings_file);

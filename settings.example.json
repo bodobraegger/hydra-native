@@ -22,6 +22,7 @@
   "streamRate": 60,
   "streamMaxRate": 60,
   "l10nUrl": "",
+  "setupFile": "",
   "socket": "",
   "themes": {
     "night": {

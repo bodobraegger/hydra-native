@@ -9,9 +9,13 @@
 #include "audio_input.h"
 #include "settings.h"
 
+// The file dialogs: the sketch of the "file" row, the save dialog of Ctrl+S without a file, the setup file.
+enum file_dialog { FILE_DIALOG_OPEN, FILE_DIALOG_SAVE, FILE_DIALOG_SETUP };
+
 struct ui_host {
     // Evaluates code in the global scope; returns NULL or a malloc'd error message.
     char *(*evaluate)(const char *code, size_t length, const char *name);
+    char *(*evaluate_file)(const char *path); // like evaluate, with the content of the file
     void (*toggle_fullscreen)(void);
     bool (*is_fullscreen)(void);
     void (*quit)(void);
@@ -28,9 +32,9 @@ struct ui_host {
     int (*audio_devices)(struct audio_device *devices, int capacity);
     void (*set_audio)(const char *device);
     void (*set_audio_gain)(int percent);
-    // Shows the open dialog (`save` false) or the save dialog for a .js file; the chosen path comes later through
-    // ui_open_file() or ui_save_as(), on the main thread.
-    void (*choose_file)(bool save);
+    // Shows a dialog for a .js file; the chosen path comes later through ui_open_file(), ui_save_as() or
+    // ui_set_setup_file(), on the main thread.
+    void (*choose_file)(enum file_dialog dialog);
     // The gallery and patch bay server ("" is off). Only this call sets it, so that code of a sketch cannot.
     void (*set_server)(const char *url);
     // The frames per second of the patch bay: of the output, and the most of each received stream.
@@ -70,5 +74,7 @@ void ui_open_file(const char *path);
 void ui_quit(void); // Ctrl+Q and the close button of the window
 void ui_save_as(const char *path);
 const char *ui_file_path(void); // the open file, or NULL
+void ui_set_setup_file(const char *path); // the answer of the setup dialog, or "" for none; the file runs at once
+void ui_run_setup(void); // evaluates the setup file of the settings, with its errors in the error bar
 // Code from the socket: it does not enter the editor buffer; errors show in the error bar.
 char *ui_evaluate_socket(const char *code, size_t length); // returns NULL or a malloc'd error

@@ -2,6 +2,7 @@
 #define _GNU_SOURCE
 #include <limits.h>
 #include <signal.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -334,35 +335,42 @@ static void set_vsync(bool vsync) { SDL_GL_SetSwapInterval(vsync ? 1 : 0); }
 static struct {
     SDL_Mutex *lock;
     char path[PATH_MAX];
-    bool ready, save;
+    bool ready;
+    enum file_dialog dialog;
 } chosen_file;
 
 static void SDLCALL file_chosen(void *data, const char *const *files, int filter) {
     if (!files || !files[0]) return; // canceled, or an error
     SDL_LockMutex(chosen_file.lock);
     snprintf(chosen_file.path, sizeof chosen_file.path, "%s", files[0]);
-    chosen_file.save = data != NULL;
+    chosen_file.dialog = (enum file_dialog)(intptr_t)data;
     chosen_file.ready = true;
     SDL_UnlockMutex(chosen_file.lock);
 }
 
-static void choose_file(bool save) {
+static void choose_file(enum file_dialog dialog) {
     static const SDL_DialogFileFilter filters[] = { { "JavaScript (hydra sketch)", "js" } };
     if (!chosen_file.lock) chosen_file.lock = SDL_CreateMutex();
-    if (save) SDL_ShowSaveFileDialog(file_chosen, (void *)1, window, filters, 1, NULL);
-    else SDL_ShowOpenFileDialog(file_chosen, NULL, window, filters, 1, NULL, false);
+    void *data = (void *)(intptr_t)dialog;
+    if (dialog == FILE_DIALOG_SAVE) SDL_ShowSaveFileDialog(file_chosen, data, window, filters, 1, NULL);
+    else SDL_ShowOpenFileDialog(file_chosen, data, window, filters, 1, NULL, false);
 }
 
 static void take_chosen_file(void) {
     if (!chosen_file.lock) return;
     SDL_LockMutex(chosen_file.lock);
-    bool ready = chosen_file.ready, save = chosen_file.save;
+    bool ready = chosen_file.ready;
+    enum file_dialog dialog = chosen_file.dialog;
     char path[PATH_MAX];
     snprintf(path, sizeof path, "%s", chosen_file.path);
     chosen_file.ready = false;
     SDL_UnlockMutex(chosen_file.lock);
-    if (ready && save) ui_save_as(path);
-    else if (ready) ui_open_file(path);
+    if (!ready) return;
+    switch (dialog) {
+    case FILE_DIALOG_OPEN: ui_open_file(path); break;
+    case FILE_DIALOG_SAVE: ui_save_as(path); break;
+    case FILE_DIALOG_SETUP: ui_set_setup_file(path); break;
+    }
 }
 
 static void toggle_fullscreen(void) { SDL_SetWindowFullscreen(window, !is_fullscreen()); }
@@ -417,6 +425,28 @@ int main(int argc, char **argv) {
     // The last file is the sketch of the overlay. It may not exist yet; Ctrl+S creates it.
     // A URL of the web editor (https://hydra.ojack.xyz/?code=...) or its "?code=..." part works in place of a file.
     const char *sketch = options.file_count ? options.files[options.file_count - 1] : NULL;
+    static const struct ui_host host = {
+        .evaluate = engine_evaluate,
+        .evaluate_file = engine_evaluate_file,
+        .toggle_fullscreen = toggle_fullscreen,
+        .is_fullscreen = is_fullscreen,
+        .quit = request_quit,
+        .call = engine_call_text,
+        .screencap = snapshot_request_screencap,
+        .share = share_start,
+        .set_title = set_window_title,
+        .set_vsync = set_vsync,
+        .audio_devices = audio_devices,
+        .set_audio = audio_set_device,
+        .set_audio_gain = audio_set_gain,
+        .choose_file = choose_file,
+        .set_server = share_set_server,
+        .set_stream_rates = patch_bay_set_rates,
+    };
+    const char *sketch_file = sketch && !is_sketch_url(sketch) ? sketch : NULL;
+    if (!ui_init(&settings, settings_file[0] ? settings_file : NULL, sketch_file, &host)) return 1;
+    if (settings_error[0]) ui_show_message(settings_error, true); // the defaults apply, and the file stays as it is
+    ui_run_setup(); // before the files of the command line, which may need it
     char *url_code = NULL;
     for (int i = 0; i < options.file_count; i++) {
         const char *argument = options.files[i];
@@ -436,26 +466,6 @@ int main(int argc, char **argv) {
         if (error) fprintf(stderr, "%s\n", error);
         free(error);
     }
-    if (url_code) sketch = NULL;
-    static const struct ui_host host = {
-        .evaluate = engine_evaluate,
-        .toggle_fullscreen = toggle_fullscreen,
-        .is_fullscreen = is_fullscreen,
-        .quit = request_quit,
-        .call = engine_call_text,
-        .screencap = snapshot_request_screencap,
-        .share = share_start,
-        .set_title = set_window_title,
-        .set_vsync = set_vsync,
-        .audio_devices = audio_devices,
-        .set_audio = audio_set_device,
-        .set_audio_gain = audio_set_gain,
-        .choose_file = choose_file,
-        .set_server = share_set_server,
-        .set_stream_rates = patch_bay_set_rates,
-    };
-    if (!ui_init(&settings, settings_file[0] ? settings_file : NULL, sketch, &host)) return 1;
-    if (settings_error[0]) ui_show_message(settings_error, true); // the defaults apply, and the file stays as it is
     if (url_code) {
         ui_set_code(url_code);
         set_window_title(options.files[options.file_count - 1]);

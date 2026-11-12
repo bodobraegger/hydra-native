@@ -78,6 +78,7 @@ struct settings {
     char gallery_server[SETTINGS_TEXT];
     char l10n_url[SETTINGS_TEXT];
     char socket[SETTINGS_TEXT];
+    char setup_file[SETTINGS_TEXT]; // runs at the start before the sketch, "" for none
     struct custom_theme themes[MAX_CUSTOM_THEMES];
     size_t theme_count;
     struct settings_pair keybindings[MAX_KEYBINDINGS]; // command name, key
