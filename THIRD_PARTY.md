@@ -20,9 +20,17 @@ a distributed hydra-native binary with its bundle falls under the AGPL-3.0.
   header-only mode; src/midi_libremidi.cc.
 - ANGLE, commit 9684da72c67be785ed049e4c5704964b5d6e1bcb, BSD-3-Clause license. https://angleproject.org
   OpenGL ES on macOS and Windows, as a prebuilt archive of https://github.com/jeremyfa/build-angle.
-- SDL 3, zlib license. https://libsdl.org. The macOS app contains the SDL3 library of Homebrew.
+  The Windows archive of ANGLE also holds d3dcompiler_47.dll of Microsoft, which the Windows zip contains.
+- SDL 3, zlib license. https://libsdl.org. The macOS app contains the SDL3 library of Homebrew, and the Windows
+  zip the SDL3.dll of the MinGW package of SDL 3.4.2.
+- C++/WinRT 2.0.250303.1 by Microsoft, MIT license. https://github.com/microsoft/cppwinrt. The NuGet package
+  Microsoft.Windows.CppWinRT gives cppwinrt.exe, which writes the headers of the Windows screen capture
+  (src/capture_windows.cpp).
+- The runtime of llvm-mingw 20261104 (https://github.com/mstorsjo/llvm-mingw), linked statically into the
+  Windows programs: libc++ and libunwind of LLVM (Apache-2.0 with LLVM exception), and the MinGW-w64 runtime
+  and winpthreads (MIT and ZPL-2.1 licenses).
 
-hydra-native-patch-bay (src/patch_bay_main.c) links these libraries statically on Linux and macOS:
+hydra-native-patch-bay (src/patch_bay_main.c) links these libraries statically:
 
 - libdatachannel 0.24.6 by Paul-Louis Ageneau, MPL-2.0. WebRTC and the WebSocket of the signalling.
   https://github.com/paullouisageneau/libdatachannel
