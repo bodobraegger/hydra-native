@@ -558,8 +558,9 @@ static void test_files(const char *settings_file) {
 // above the code. The line is no part of the code: the first code row stays line 0, and saving leaves it out. A
 // click on it runs the setup file again; "clear" removes the setting and the line.
 static void test_setup_file(const char *settings_file) {
-    char folder[] = "/tmp/hydra-native-ui-test-setup-XXXXXX", sketch[256], setup[256];
-    EXPECT(mkdtemp(folder) != NULL);
+    char folder[200], sketch[256], setup[256];
+    temporary_path(folder, sizeof folder, "setup", "");
+    EXPECT(SDL_CreateDirectory(folder));
     snprintf(sketch, sizeof sketch, "%s/sketch.js", folder);
     snprintf(setup, sizeof setup, "%s/setup.js", folder);
     write_file(sketch, "osc(1).out()\nnoise().out()");
