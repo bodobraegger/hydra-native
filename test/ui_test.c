@@ -631,9 +631,18 @@ static size_t newest_recovery(char *path, size_t size) {
     return count;
 }
 
+// The recovery stores resolved paths; on macOS /tmp is a link to /private/tmp.
+static bool same_path(const char *first, const char *second) {
+    char *first_resolved = realpath(first, NULL), *second_resolved = realpath(second, NULL);
+    bool same = first_resolved && second_resolved ? !strcmp(first_resolved, second_resolved) : !strcmp(first, second);
+    free(first_resolved);
+    free(second_resolved);
+    return same;
+}
+
 static void expect_recovery(const char *path, const char *code, const char *file) {
     char *saved_file = NULL, *saved_code = recovery_load(path, &saved_file);
-    EXPECT(saved_code && !strcmp(saved_code, code) && !strcmp(saved_file, file));
+    EXPECT(saved_code && !strcmp(saved_code, code) && saved_file && same_path(saved_file, file));
     if (!saved_code) fprintf(stderr, "no recovery in %s\n", path);
     free(saved_code);
     free(saved_file);
@@ -696,7 +705,7 @@ static void test_recovery(const char *settings_file) {
     // A restart with the sketch restores its file; Ctrl+S removes it and the file of this run.
     ui_init(&defaults, settings_file, sketch, &test_host);
     EXPECT_STRING(ui_code(), "aosc(1).out()");
-    EXPECT(ui_file_path() && !strcmp(ui_file_path(), sketch));
+    EXPECT(ui_file_path() && same_path(ui_file_path(), sketch));
     EXPECT(ui_modified());
     ui_draw(800, 600, 30000);
     EXPECT_CONTAINS(drawn, "restored the unsaved changes of hydra-native-ui-test-recovery-");
@@ -715,7 +724,7 @@ static void test_recovery(const char *settings_file) {
     // Without a file, the newest of all comes back; recovery.js comes back with its file.
     ui_init(&defaults, settings_file, NULL, &test_host);
     EXPECT_STRING(ui_code(), "b");
-    EXPECT(ui_file_path() && !strcmp(ui_file_path(), another));
+    EXPECT(ui_file_path() && same_path(ui_file_path(), another));
     ui_init(&defaults, settings_file, other, &test_host);
     EXPECT_STRING(ui_code(), "noise(2).out()");
     key(SDLK_S, SDL_KMOD_LCTRL);
