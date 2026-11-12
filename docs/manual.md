@@ -19,6 +19,9 @@ Top-level `const`, `let` and `class` declarations of sketch code become `var` be
 code can run again without a redeclaration error, and later evaluations see the names. Declarations in blocks and
 functions stay as they are. Error messages keep their line numbers, and also their columns, except on the line of
 a `class` declaration.
+`loadScript("name.js")` with a relative path loads the file from the folder of the open sketch. During the
+evaluation of the setup file or of another file of the command line, the path is relative to the folder of that
+file. URLs, file:// URLs and absolute paths stay as they are.
 Without a file, it starts like the web editor: with a random example and the info panel.
 The last file opens in the code overlay, and Ctrl+S saves the overlay text to it.
 If the file does not exist yet, the overlay starts empty and Ctrl+S creates the file.

@@ -74,6 +74,8 @@ hydra.synth.screencap = window.screencap = () => native.screencap()
 hydra.synth.vidRecorder = window.vidRecorder = { start: () => native.recordStart(), stop: () => native.recordStop() }
 
 const URL_PATTERN = /^https?:\/\//
+const FILE_URL_PATTERN = /^file:\/\//
+const ABSOLUTE_PATH_PATTERN = /^([/\\]|[A-Za-z]:)/ // also of Windows
 // src/engine.c passes the sketch code through it before the evaluation (js/declarations.js).
 window.__rewriteDeclarations = rewriteDeclarations
 
@@ -87,11 +89,13 @@ function runScript (code, url) {
 }
 
 // Like hydra-synth's loadScript (a <script> tag): runs the file in the global scope and always resolves.
-// Paths, file:// URLs and http(s) URLs work; downloads use curl.
+// Paths, file:// URLs and http(s) URLs work; downloads use curl. A relative path is relative to the folder of the
+// running file or of the open sketch (native.scriptFolder), as a <script> tag is relative to its page.
 window.loadScript = (url = '') => new Promise((resolve) => {
   url = String(url)
   if (!URL_PATTERN.test(url)) {
-    const path = url.replace(/^file:\/\//, '')
+    const path = FILE_URL_PATTERN.test(url) ? url.replace(FILE_URL_PATTERN, '')
+      : ABSOLUTE_PATH_PATTERN.test(url) ? url : native.scriptFolder() + url
     try {
       runScript(native.readFile(path), path)
     } catch (error) {

@@ -14,6 +14,7 @@ char *read_file(const char *path, size_t *length); // malloc'd with a final NUL,
 // stay global as in the browser console. Returns NULL on success, else a malloc'd message with the stack.
 char *engine_evaluate(const char *code, size_t length, const char *name);
 char *engine_evaluate_file(const char *path);
+const char *engine_running_file(void); // the file of engine_evaluate_file while it runs, else NULL
 void engine_check_pending_evaluations(void); // shows the errors of evaluations that waited for a promise
 void engine_call(const char *name, int argc, JSValue *argv); // a global function; frees the arguments
 char *engine_call_text(const char *function, const char *argument); // the malloc'd text it returns, or NULL

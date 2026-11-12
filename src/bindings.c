@@ -604,6 +604,14 @@ static JSValue js_read_file(JSContext *ctx, JSValueConst this, int argc, JSValue
     return result;
 }
 
+// The folder of a relative path of loadScript, with its final slash: of the file that runs (a file of the command
+// line, the setup file), else of the open sketch; "" (the working directory) without either.
+static JSValue js_script_folder(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    const char *path = engine_running_file() ? engine_running_file() : ui_file_path();
+    const char *slash = path ? strrchr(path, '/') : NULL;
+    return JS_NewStringLen(ctx, path ? path : "", slash ? (size_t)(slash - path + 1) : 0);
+}
+
 static JSValue js_drawable_size(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
     int width, height;
     SDL_GetWindowSizeInPixels(window, &width, &height);
@@ -744,6 +752,7 @@ static const JSCFunctionListEntry native_functions[] = {
     JS_CFUNC_DEF("recordStart", 0, js_record_start),
     JS_CFUNC_DEF("recordStop", 0, js_record_stop),
     JS_CFUNC_DEF("readFile", 2, js_read_file),
+    JS_CFUNC_DEF("scriptFolder", 0, js_script_folder),
     JS_CFUNC_DEF("drawableSize", 0, js_drawable_size),
     JS_CFUNC_DEF("consoleMessage", 1, js_console_message),
     JS_CFUNC_DEF("showError", 1, js_show_error),

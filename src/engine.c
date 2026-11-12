@@ -144,6 +144,10 @@ void engine_check_pending_evaluations(void) {
     }
 }
 
+static const char *running_file;
+
+const char *engine_running_file(void) { return running_file; }
+
 char *engine_evaluate_file(const char *path) {
     size_t length;
     char *code = read_file(path, &length);
@@ -152,7 +156,10 @@ char *engine_evaluate_file(const char *path) {
         if (asprintf(&message, "cannot read %s: %s", path, strerror(errno)) < 0) return strdup("cannot read file");
         return message;
     }
+    const char *outer_file = running_file;
+    running_file = path;
     char *message = engine_evaluate(code, length, path);
+    running_file = outer_file;
     free(code);
     return message;
 }

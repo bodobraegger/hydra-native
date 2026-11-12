@@ -146,7 +146,13 @@ async function redeclarationChecks () {
   return failures
 }
 
-const checks = Promise.all([networkChecks(), redeclarationChecks(), pendingPassChecks()
+// A relative path of loadScript is relative to the folder of this file (test/), not to the working directory.
+async function relativeScriptChecks () {
+  await loadScript('relative-script.js')
+  return globalThis.relativeScriptRuns === 1 ? [] : ['loadScript of a relative path: relative-script.js did not run']
+}
+
+const checks = Promise.all([networkChecks(), redeclarationChecks(), relativeScriptChecks(), pendingPassChecks()
   .then(async (failures) => [...failures, ...await textChecks(), ...await programChecks(),
     ...await arrowChecks()])])
 
