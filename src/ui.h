@@ -76,5 +76,6 @@ void ui_save_as(const char *path);
 const char *ui_file_path(void); // the open file, or NULL
 void ui_set_setup_file(const char *path); // the answer of the setup dialog, or "" for none; the file runs at once
 void ui_run_setup(void); // evaluates the setup file of the settings, with its errors in the error bar
+bool ui_is_setup_file(const char *path); // the same file as the setup file of the settings
 // Code from the socket: it does not enter the editor buffer; errors show in the error bar.
 char *ui_evaluate_socket(const char *code, size_t length); // returns NULL or a malloc'd error

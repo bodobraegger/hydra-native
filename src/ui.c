@@ -684,6 +684,8 @@ void ui_save_as(const char *path) {
 
 const char *ui_file_path(void) { return file_path; }
 
+bool ui_is_setup_file(const char *path) { return settings.setup_file[0] && same_file(path, settings.setup_file); }
+
 void ui_run_setup(void) {
     if (!settings.setup_file[0]) return;
     char *error = evaluate_code(NULL, 0, settings.setup_file);

@@ -460,6 +460,8 @@ int main(int argc, char **argv) {
             error = engine_evaluate(code, strlen(code), argument);
             if (argument == sketch) url_code = code;
             else free(code);
+        } else if (ui_is_setup_file(argument)) {
+            continue; // ui_run_setup ran it already
         } else if (argument != sketch || access(sketch, F_OK) == 0) {
             error = engine_evaluate_file(argument);
         }
