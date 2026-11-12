@@ -236,10 +236,12 @@ static void write_file(const char *path, const char *text) {
     fclose(file);
 }
 
-// The path hydra-native-ui-test-NAME-PID.EXTENSION in the temporary folder, with "/" before the name.
+// The path hydra-native-ui-test-NAME-PID.EXTENSION in the temporary folder, with "/" before the name. Windows uses
+// the working directory (the build folder in ctest): the settings menu cuts the long paths of %TEMP%, so the test
+// could not click them.
 static void temporary_path(char *path, size_t size, const char *name, const char *extension) {
 #if defined(_WIN32)
-    const char *folder = getenv("TEMP");
+    const char *folder = ".";
 #else
     const char *folder = "/tmp";
 #endif
@@ -1005,7 +1007,11 @@ int main(void) {
     char config[256], settings_file[256];
     temporary_path(config, sizeof config, "config", "");
     EXPECT(SDL_CreateDirectory(config));
-    SDL_setenv_unsafe("XDG_CONFIG_HOME", config, 1);
+#if defined(_WIN32)
+    _putenv_s("XDG_CONFIG_HOME", config); // getenv of the C runtime does not see SetEnvironmentVariable of SDL
+#else
+    setenv("XDG_CONFIG_HOME", config, 1);
+#endif
     EXPECT(settings_path(settings_file, sizeof settings_file));
     EXPECT_STRING(settings_file + strlen(config), "/hydra-native/settings.json");
     char error[SETTINGS_TEXT];
