@@ -29,6 +29,11 @@ With an open file and unsaved changes, the bar asks before an action loses them:
 file, a URL from the clipboard and quit (Ctrl+Q or the close button of the window). Press s to save the changes and
 continue, d to discard them and continue, or Escape to cancel the action. Without an open file, nothing asks, as in
 the web editor.
+Two seconds after the last edit, hydra-native writes the unsaved code to recovery.js in the folder of settings.json
+(see "Settings file"). Saving, discarding and a quit with Ctrl+Q or the close button remove the file. After a crash,
+the next start opens the recovered code with its file, as unsaved changes, and the bar says so. A start with another
+file or with a sketch URL keeps recovery.js, names it in the bar and writes no new recovery in that run; a start
+without a file, or with the file of the recovery, then restores it.
 With the setting "reload on change" (watch), a change on disk replaces the overlay text and evaluates it,
 but only when the overlay has no unsaved edits. Otherwise the error bar says that the file changed, and the edits
 stay.

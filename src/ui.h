@@ -60,6 +60,7 @@ void ui_show_random_example(void); // like the web editor at a start without a s
 void ui_show_message(const char *text, bool error);
 void ui_console_message(const char *text); // console.warn and console.error output
 const char *ui_code(void); // the text of the overlay
+bool ui_modified(void); // the code has changes that no file holds, such as the restored ones of a recovery file
 void ui_file_changed(void); // the file changed on disk, with "reload on file change"
 // The open dialog of the "file" row answers here. This call, the commands that replace the code and ui_quit()
 // first ask whether to save or discard the unsaved changes of the open file.

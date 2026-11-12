@@ -89,3 +89,10 @@ bool settings_load(struct settings *settings, const char *path, char *error, siz
 // file that does not parse.
 bool settings_save(const struct settings *settings, const char *path, char *error, size_t size);
 const char *settings_whitespace_name(enum render_whitespace value);
+
+// recovery.js in the folder of settings.json: the unsaved code of the editor after a first line with the path of
+// its file ("" for code without a file).
+bool recovery_path(char *path, size_t size); // false without XDG_CONFIG_HOME and HOME
+bool recovery_save(const char *path, const char *file, const char *code); // atomically, like settings_save
+// The code (malloc'd) and in `file` the path of its file (malloc'd); NULL without a valid recovery file.
+char *recovery_load(const char *path, char **file);

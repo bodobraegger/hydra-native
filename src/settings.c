@@ -1,6 +1,7 @@
 #include "settings.h"
 
 #include <errno.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -14,6 +15,8 @@
 
 #define SETTINGS_DIRECTORY "hydra-native"
 #define SETTINGS_FILE "settings.json"
+#define RECOVERY_FILE "recovery.js"
+#define RECOVERY_HEADER "// hydra-native recovery of: " // then the path of the file, or nothing
 #define JSON_INDENT 2
 
 static const char *const style_names[] = { "list", "ghost" };
@@ -42,24 +45,28 @@ void settings_defaults(struct settings *settings) {
 // XDG_CONFIG_HOME/hydra-native when XDG_CONFIG_HOME is set, on every system (the tests set it). Else Linux:
 // ~/.config/hydra-native; macOS: ~/Library/Application Support/hydra-native; Windows: %APPDATA%\hydra-native.
 // SDL_GetPrefPath gives the last two; on Linux it gives the data folder instead.
-bool settings_path(char *path, size_t size) {
+static bool settings_folder_file(const char *name, char *path, size_t size) {
     const char *config = getenv("XDG_CONFIG_HOME");
     if (config && config[0]) {
-        snprintf(path, size, "%s/" SETTINGS_DIRECTORY "/" SETTINGS_FILE, config);
+        snprintf(path, size, "%s/" SETTINGS_DIRECTORY "/%s", config, name);
         return true;
     }
 #if defined(__linux__)
     const char *home = getenv("HOME");
     if (!home || !home[0]) return false;
-    snprintf(path, size, "%s/.config/" SETTINGS_DIRECTORY "/" SETTINGS_FILE, home);
+    snprintf(path, size, "%s/.config/" SETTINGS_DIRECTORY "/%s", home, name);
 #else
     char *folder = SDL_GetPrefPath(NULL, SETTINGS_DIRECTORY); // ends with the separator of the system
     if (!folder) return false;
-    snprintf(path, size, "%s" SETTINGS_FILE, folder);
+    snprintf(path, size, "%s%s", folder, name);
     SDL_free(folder);
 #endif
     return true;
 }
+
+bool settings_path(char *path, size_t size) { return settings_folder_file(SETTINGS_FILE, path, size); }
+
+bool recovery_path(char *path, size_t size) { return settings_folder_file(RECOVERY_FILE, path, size); }
 
 // ---------------------------------------------------------------- JSON through QuickJS
 
@@ -275,6 +282,22 @@ static bool make_parent_directories(const char *path) {
     return true;
 }
 
+// Writes `text`, then `end`, into a temporary file and renames it to `path`: a reader never sees half a file.
+static bool write_atomically(const char *path, const char *text, const char *end) {
+    char temporary[SETTINGS_TEXT * 2 + 8];
+    snprintf(temporary, sizeof temporary, "%s.tmp", path);
+    FILE *file = make_parent_directories(path) ? fopen(temporary, "w") : NULL;
+    bool ok = file && fputs(text, file) >= 0 && fputs(end, file) >= 0;
+    if (file && fclose(file) != 0) ok = false;
+    if (ok && rename(temporary, path) != 0) ok = false;
+    if (!ok && file) {
+        int error = errno; // for the message of the caller
+        unlink(temporary);
+        errno = error;
+    }
+    return ok;
+}
+
 static void set_string(JSContext *ctx, JSValueConst object, const char *key, const char *value) {
     JS_SetPropertyStr(ctx, object, key, JS_NewString(ctx, value));
 }
@@ -315,17 +338,8 @@ bool settings_save(const struct settings *settings, const char *path, char *erro
         set_string(ctx, root, "l10nUrl", settings->l10n_url);
         JSValue json = JS_JSONStringify(ctx, root, JS_UNDEFINED, JS_NewInt32(ctx, JSON_INDENT));
         const char *output = JS_ToCString(ctx, json);
-        // A temporary file and rename(): a reader never sees half a file.
-        char temporary[SETTINGS_TEXT * 2 + 8];
-        snprintf(temporary, sizeof temporary, "%s.tmp", path);
-        FILE *file = make_parent_directories(path) && output ? fopen(temporary, "w") : NULL;
-        ok = file && fputs(output, file) >= 0 && fputc('\n', file) != EOF;
-        if (file && fclose(file) != 0) ok = false;
-        if (ok && rename(temporary, path) != 0) ok = false;
-        if (!ok) {
-            snprintf(error, size, "cannot write %s: %s", path, strerror(errno));
-            if (file) unlink(temporary);
-        }
+        ok = output && write_atomically(path, output, "\n");
+        if (!ok) snprintf(error, size, "cannot write %s: %s", path, strerror(errno));
         JS_FreeCString(ctx, output);
         JS_FreeValue(ctx, json);
     }
@@ -333,4 +347,25 @@ bool settings_save(const struct settings *settings, const char *path, char *erro
     JS_FreeContext(ctx);
     JS_FreeRuntime(runtime);
     return ok;
+}
+
+bool recovery_save(const char *path, const char *file, const char *code) {
+    char header[sizeof RECOVERY_HEADER + PATH_MAX + 1];
+    snprintf(header, sizeof header, RECOVERY_HEADER "%s\n", file);
+    return write_atomically(path, header, code);
+}
+
+char *recovery_load(const char *path, char **file) {
+    char *text = read_file(path);
+    size_t header = strlen(RECOVERY_HEADER);
+    char *end = text && !strncmp(text, RECOVERY_HEADER, header) ? strchr(text + header, '\n') : NULL;
+    if (!end) {
+        free(text);
+        *file = NULL;
+        return NULL;
+    }
+    *file = strndup(text + header, (size_t)(end - text) - header);
+    char *code = strdup(end + 1);
+    free(text);
+    return code;
 }

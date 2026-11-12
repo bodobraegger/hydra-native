@@ -3,6 +3,7 @@
 
 #include <ctype.h>
 #include <errno.h>
+#include <limits.h>
 #include <math.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -25,6 +26,7 @@
 #define BAR_PADDING 4.0f
 #define FLASH_MS 300.0 // like flashCode() of the web editor
 #define INFO_MESSAGE_MS 2000.0
+#define RECOVERY_DELAY_MS 2000.0 // after the last edit
 #define CURSOR_BLINK_MS 530.0
 #define WHEEL_ROWS 3
 #define FONT_SIZE_STEP 2.0f
@@ -510,10 +512,10 @@ static char *read_whole_file(const char *path, size_t *length) {
     return text;
 }
 
-// The name of the open file without its folder, or NULL.
-static const char *file_name(void) {
-    const char *slash = file_path ? strrchr(file_path, '/') : NULL;
-    return slash ? slash + 1 : file_path;
+// The name of a file without its folder; NULL for NULL.
+static const char *base_name(const char *path) {
+    const char *slash = path ? strrchr(path, '/') : NULL;
+    return slash ? slash + 1 : path;
 }
 
 // The window title: the name of the open file and the hydra.ojack.xyz URL of the code, as the tab and the address
@@ -521,11 +523,88 @@ static const char *file_name(void) {
 static void show_title(const char *url) {
     static char last_url[8192];
     if (url) snprintf(last_url, sizeof last_url, "%s", url);
-    const char *name = file_name();
+    const char *name = base_name(file_path);
     char title[sizeof last_url + 512];
     if (name && last_url[0]) snprintf(title, sizeof title, "%s - %s", name, last_url);
     else snprintf(title, sizeof title, "%s", name ? name : last_url[0] ? last_url : "hydra-native");
     host.set_title(title);
+}
+
+// The recovery file (src/settings.h) holds the unsaved code for a start after a crash. It follows the edits after
+// RECOVERY_DELAY_MS; saving, discarding and quitting remove it.
+static struct {
+    char path[PATH_MAX]; // "" without a settings folder
+    unsigned revision; // the editor revision that the file, or its absence, shows
+    unsigned seen_revision;
+    double edited; // when seen_revision changed
+    bool restored; // this start shows its code
+    bool kept; // it holds the changes of another file, and this run leaves it as it is
+} recovery;
+
+// The recovery names the file with its absolute path, so that a start in another folder finds it. A file that does
+// not exist yet keeps its path as it is.
+static char *absolute_path(const char *path) {
+    char *resolved = realpath(path, NULL);
+    return resolved ? resolved : strdup(path);
+}
+
+static bool same_file(const char *first, const char *second) {
+    char *first_path = absolute_path(first), *second_path = absolute_path(second);
+    bool same = !strcmp(first_path, second_path);
+    free(first_path);
+    free(second_path);
+    return same;
+}
+
+static void remove_recovery(void) {
+    if (recovery.path[0] && !recovery.kept) unlink(recovery.path);
+    recovery.revision = recovery.seen_revision = editor.revision;
+}
+
+// Each frame: writes the unsaved code when the edits pause, or removes the file when nothing is unsaved.
+static void update_recovery(void) {
+    if (editor.revision != recovery.seen_revision) {
+        recovery.seen_revision = editor.revision;
+        recovery.edited = now;
+    }
+    if (!recovery.path[0] || recovery.kept || editor.revision == recovery.revision ||
+        now - recovery.edited < RECOVERY_DELAY_MS)
+        return;
+    if (!editor.modified) return remove_recovery();
+    recovery.revision = editor.revision;
+    char *file = absolute_path(file_path ? file_path : "");
+    recovery_save(recovery.path, file, editor.text); // after a failed write the edits go on without a recovery
+    free(file);
+}
+
+static void keep_recovery(const char *file) {
+    recovery.kept = true;
+    char text[MAX_MESSAGE + sizeof recovery.path];
+    snprintf(text, sizeof text, "%s keeps the unsaved changes of %s: start without a file to restore them",
+             base_name(recovery.path), file[0] ? base_name(file) : "code without a file");
+    ui_show_message(text, true);
+}
+
+// At the start: the recovered code replaces the code of `path` when it belongs to that file, or when no file is
+// given. It comes with its file as the open file and counts as unsaved.
+static void restore_recovery(const char *path) {
+    char *file, *code = recovery_load(recovery.path, &file);
+    if (!code) return;
+    if (path && (!file[0] || !same_file(file, path))) {
+        keep_recovery(file);
+    } else {
+        free(file_path);
+        file_path = file[0] ? strdup(file) : NULL;
+        editor_set_text(&editor, code, strlen(code));
+        editor.modified = true;
+        recovery.restored = true;
+        char text[MAX_MESSAGE];
+        snprintf(text, sizeof text, "restored the unsaved changes of %s", file[0] ? base_name(file) : "the code");
+        ui_show_message(text, true);
+        show_title(NULL);
+    }
+    free(file);
+    free(code);
 }
 
 static void save(void) {
@@ -542,6 +621,7 @@ static void save(void) {
     char text[MAX_MESSAGE];
     if (ok) {
         editor.modified = false;
+        remove_recovery();
         snprintf(text, sizeof text, "saved %s", file_path);
     } else {
         snprintf(text, sizeof text, "cannot save %s: %s", file_path, strerror(errno));
@@ -1339,6 +1419,7 @@ static void open_url_from_clipboard(void) {
         close_file();
         editor_replace_text(&editor, code, strlen(code));
         editor_set_cursor(&editor, 0, false);
+        editor.modified = false; // no recovery for code that nobody edited
         evaluate_range(0, editor.length);
         show_title(url);
     }
@@ -1382,7 +1463,10 @@ static void run_pending(void) {
         break;
     case PENDING_OPEN_FILE: open_file(pending.path); break;
     case PENDING_OPEN_URL: open_url_from_clipboard(); break;
-    case PENDING_QUIT: host.quit(); break;
+    case PENDING_QUIT:
+        remove_recovery();
+        host.quit();
+        break;
     }
 }
 
@@ -1403,6 +1487,7 @@ static void answer_unsaved(char answer) {
     prompt.kind = PROMPT_NONE;
     if (answer == 's') save();
     if (answer == 's' && editor.modified) return; // the bar shows why the save failed, and the action waits
+    if (answer == 'd') remove_recovery();
     run_pending();
 }
 
@@ -3056,7 +3141,7 @@ static void draw_prompt(int width, int height) {
         break;
     case PROMPT_GO_TO_LINE: snprintf(text, sizeof text, "go to line: %s", prompt.query); break;
     case PROMPT_UNSAVED:
-        snprintf(text, sizeof text, "unsaved changes in %s: s save, d discard, Escape cancel", file_name());
+        snprintf(text, sizeof text, "unsaved changes in %s: s save, d discard, Escape cancel", base_name(file_path));
         color = theme->error;
         break;
     case PROMPT_SERVER: snprintf(text, sizeof text, "gallery and patch bay server URL: %s   (Enter: OK, empty: off)",
@@ -3104,6 +3189,7 @@ static void draw_prompt(int width, int height) {
 
 void ui_draw(int width, int height, double now_ms) {
     now = now_ms;
+    update_recovery();
     if (width != last_width) layout.valid = false;
     last_width = width;
     last_height = height;
@@ -3176,9 +3262,18 @@ void ui_show_random_example(void) {
     }
 }
 
-void ui_set_code(const char *code) { editor_set_text(&editor, code, strlen(code)); }
+void ui_set_code(const char *code) {
+    if (recovery.restored) { // a sketch URL at the start: the recovery file keeps the restored changes
+        recovery.restored = false;
+        keep_recovery(file_path ? file_path : "");
+        close_file();
+    }
+    editor_set_text(&editor, code, strlen(code));
+}
 
 const char *ui_code(void) { return editor.text; }
+
+bool ui_modified(void) { return editor.modified; }
 
 bool ui_init(const struct settings *start_settings, const char *settings_path,
              const char *path, const struct ui_host *ui_host) {
@@ -3214,5 +3309,8 @@ bool ui_init(const struct settings *start_settings, const char *settings_path,
         free(text);
         show_title(NULL);
     }
+    memset(&recovery, 0, sizeof recovery);
+    if (recovery_path(recovery.path, sizeof recovery.path)) restore_recovery(path);
+    recovery.revision = recovery.seen_revision = editor.revision;
     return overlay_init(settings.font, settings.font_size);
 }

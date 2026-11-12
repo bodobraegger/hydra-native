@@ -559,6 +559,62 @@ static void test_unsaved_question(const char *settings_file) {
     unlink(sketch);
 }
 
+// The recovery file in the temporary XDG_CONFIG_HOME: written, read back and removed. A start with another file
+// keeps it, a restart restores it with its file and as unsaved, edits reach it after a pause, and Ctrl+S removes it.
+static void test_recovery(const char *settings_file) {
+    char recovery[256], *file = NULL;
+    EXPECT(recovery_path(recovery, sizeof recovery));
+    EXPECT_STRING(recovery + strlen(getenv("XDG_CONFIG_HOME")), "/hydra-native/recovery.js");
+    EXPECT(recovery_save(recovery, "", "noise().out()\n"));
+    char *code = recovery_load(recovery, &file);
+    EXPECT(code && !strcmp(code, "noise().out()\n") && file && !file[0]);
+    free(code);
+    free(file);
+    unlink(recovery);
+    EXPECT(recovery_load(recovery, &file) == NULL);
+
+    char sketch[] = "/tmp/hydra-native-ui-test-recovery-XXXXXX.js";
+    int fd = mkstemps(sketch, 3);
+    close(fd);
+    write_file(sketch, "osc(1).out()");
+    EXPECT(recovery_save(recovery, sketch, "osc(2).out()"));
+    struct settings defaults;
+    settings_defaults(&defaults);
+    ui_init(&defaults, settings_file, "/tmp/hydra-native-ui-test-another-file.js", &test_host);
+    ui_draw(800, 600, 10000);
+    EXPECT_CONTAINS(drawn, "keeps the unsaved changes of");
+    type("x");
+    ui_draw(800, 600, 11000);
+    ui_draw(800, 600, 20000); // edits of another file do not replace the kept recovery
+    code = recovery_load(recovery, &file);
+    EXPECT(code && !strcmp(code, "osc(2).out()") && !strcmp(file, sketch));
+    free(code);
+    free(file);
+
+    ui_init(&defaults, settings_file, NULL, &test_host); // a restart without a file argument
+    EXPECT_STRING(ui_code(), "osc(2).out()");
+    EXPECT(ui_file_path() && !strcmp(ui_file_path(), sketch));
+    EXPECT(ui_modified());
+    ui_draw(800, 600, 30000);
+    EXPECT_CONTAINS(drawn, "restored the unsaved changes of");
+    type("x");
+    ui_draw(800, 600, 31000);
+    ui_draw(800, 600, 32000);
+    code = recovery_load(recovery, &file);
+    EXPECT(code && !strcmp(code, "osc(2).out()")); // not yet: the edit is one second old
+    free(code);
+    free(file);
+    ui_draw(800, 600, 33000);
+    code = recovery_load(recovery, &file);
+    EXPECT(code && !strcmp(code, "xosc(2).out()"));
+    free(code);
+    free(file);
+    key(SDLK_S, SDL_KMOD_LCTRL);
+    EXPECT_STRING(read_file(sketch), "xosc(2).out()");
+    EXPECT(access(recovery, F_OK) != 0);
+    unlink(sketch);
+}
+
 // The call around the cursor: nested calls, commas in arrays, arrow functions and strings.
 static void expect_call(const char *text, const char *name, size_t argument, bool direct) {
     struct signature list[8];
@@ -1158,6 +1214,7 @@ int main(void) {
     test_settings_rows(settings_file);
     test_files(settings_file);
     test_unsaved_question(settings_file);
+    test_recovery(settings_file);
     test_random_input(settings_file);
 
     unlink(settings_file);

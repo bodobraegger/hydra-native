@@ -435,10 +435,7 @@ int main(int argc, char **argv) {
         if (error) fprintf(stderr, "%s\n", error);
         free(error);
     }
-    if (url_code) {
-        sketch = NULL;
-        set_window_title(options.files[options.file_count - 1]);
-    }
+    if (url_code) sketch = NULL;
     static const struct ui_host host = {
         .evaluate = engine_evaluate,
         .toggle_fullscreen = toggle_fullscreen,
@@ -459,11 +456,12 @@ int main(int argc, char **argv) {
     if (settings_error[0]) ui_show_message(settings_error, true); // the defaults apply, and the file stays as it is
     if (url_code) {
         ui_set_code(url_code);
+        set_window_title(options.files[options.file_count - 1]);
         if (!strncmp(url_code, SHOW_CODE_FALSE, strlen(SHOW_CODE_FALSE))) ui_set_visible(false);
         free(url_code);
     }
-    // Without a sketch the web editor shows a random example and its info window.
-    if (options.file_count == 0 && !options.bench_seconds) {
+    // Without a sketch the web editor shows a random example and its info window. Restored unsaved changes stay.
+    if (options.file_count == 0 && !options.bench_seconds && !ui_modified()) {
         ui_show_random_example();
         ui_show_info();
     }
