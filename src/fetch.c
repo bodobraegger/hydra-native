@@ -4,8 +4,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if defined(_WIN32)
+#include <windows.h>
+#else
 #include <sys/mman.h>
 #include <unistd.h>
+#endif
 
 #include <SDL3/SDL.h>
 
@@ -22,6 +26,7 @@ struct fetch {
     char *data;
     size_t length;
     size_t capacity;
+    char *body_file; // Windows: the temporary file of the request body, removed after curl ended
 };
 
 static struct fetch *fetches[MAX_FETCHES];
@@ -56,10 +61,23 @@ int fetch_start(const char *url) {
 
 int http_start(const char *url, const char *method, const char *const *headers, size_t header_count, const void *body,
                size_t body_length) {
-    // The body goes to the standard input of curl from a memory file, so no file on disk holds it, and the main
-    // loop does not wait for curl to read it.
+    // The body goes to the standard input of curl from a file, so that the main loop does not wait for curl to read
+    // it. On Linux it is a memory file, so no file on disk holds it.
     SDL_IOStream *input = NULL;
+    char *body_file = NULL;
     if (body) {
+#if defined(_WIN32) // Windows cannot remove a file that curl has open, so fetch_poll removes it at the end
+        char folder[MAX_PATH], path[MAX_PATH];
+        if (!GetTempPathA(sizeof folder, folder) || !GetTempFileNameA(folder, "hnr", 0, path)) return -1;
+        input = SDL_IOFromFile(path, "w+b");
+        if (!input || SDL_WriteIO(input, body, body_length) != body_length ||
+            SDL_SeekIO(input, 0, SDL_IO_SEEK_SET) != 0) {
+            if (input) SDL_CloseIO(input);
+            remove(path);
+            return -1;
+        }
+        body_file = strdup(path);
+#else
 #if defined(__linux__)
         int body_fd = memfd_create("hydra-native-request", MFD_CLOEXEC);
 #else // a temporary file, removed at once; the open file stays until the last close
@@ -84,6 +102,7 @@ int http_start(const char *url, const char *method, const char *const *headers, 
         input = SDL_IOFromFile(path, "rb");
         close(body_fd);
         if (!input) return -1;
+#endif
     }
     // -D - writes the header blocks (one per redirect) before the body; without -f an error status is a response.
     const char *argv[20 + 2 * MAX_REQUEST_HEADERS] = { "curl", "-sSL", CURL_PROTOCOL_OPTIONS, "-D", "-", "--max-time",
@@ -108,7 +127,22 @@ int http_start(const char *url, const char *method, const char *const *headers, 
     argv[count] = NULL;
     int id = process_start((char *const *)argv, input);
     if (input) SDL_CloseIO(input);
+    if (id >= 0) {
+        fetches[id]->body_file = body_file;
+    } else if (body_file) {
+        remove(body_file);
+        free(body_file);
+    }
     return id;
+}
+
+static void fetch_free(int id) {
+    struct fetch *fetch = fetches[id];
+    if (fetch->body_file) remove(fetch->body_file);
+    free(fetch->body_file);
+    free(fetch->data);
+    free(fetch);
+    fetches[id] = NULL;
 }
 
 void fetch_poll(void (*done)(int id, bool ok, const char *data, size_t length)) {
@@ -139,9 +173,7 @@ void fetch_poll(void (*done)(int id, bool ok, const char *data, size_t length)) 
             SDL_DestroyProcess(fetch->process);
             if (fetch->data) fetch->data[fetch->length] = '\0';
             done(id, status == 0 && !too_large, fetch->data ? fetch->data : "", fetch->length);
-            free(fetch->data);
-            free(fetch);
-            fetches[id] = NULL;
+            fetch_free(id);
             break;
         }
     }
@@ -154,8 +186,6 @@ void fetch_stop_all(void) {
         SDL_KillProcess(fetch->process, false);
         SDL_WaitProcess(fetch->process, true, NULL);
         SDL_DestroyProcess(fetch->process);
-        free(fetch->data);
-        free(fetch);
-        fetches[id] = NULL;
+        fetch_free(id);
     }
 }
