@@ -1,6 +1,8 @@
 #include "settings.h"
 
+#include <dirent.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,7 +17,11 @@
 
 #define SETTINGS_DIRECTORY "hydra-native"
 #define SETTINGS_FILE "settings.json"
-#define RECOVERY_FILE "recovery.js"
+#define OLD_RECOVERY_FILE "recovery.js" // the one recovery file of older versions
+#define RECOVERY_PREFIX "recovery-"
+#define RECOVERY_TIME "%y%m%d-%H%M"
+#define RECOVERY_EXTENSION ".js"
+#define MAX_RECOVERY_NUMBER 1000 // of the files of the same minute
 #define RECOVERY_HEADER "// hydra-native recovery of: " // then the path of the file, or nothing
 #define JSON_INDENT 2
 
@@ -67,7 +73,6 @@ static bool settings_folder_file(const char *name, char *path, size_t size) {
 
 bool settings_path(char *path, size_t size) { return settings_folder_file(SETTINGS_FILE, path, size); }
 
-bool recovery_path(char *path, size_t size) { return settings_folder_file(RECOVERY_FILE, path, size); }
 
 // ---------------------------------------------------------------- JSON through QuickJS
 
@@ -352,6 +357,63 @@ bool settings_save(const struct settings *settings, const char *path, char *erro
     JS_FreeContext(ctx);
     JS_FreeRuntime(runtime);
     return ok;
+}
+
+bool recovery_create(char *path, size_t size, time_t time) {
+    char name[SETTINGS_NAME], base[PATH_MAX];
+    strftime(name, sizeof name, RECOVERY_PREFIX RECOVERY_TIME, localtime(&time));
+    if (!settings_folder_file(name, base, sizeof base) || !make_parent_directories(base)) return false;
+    for (int number = 1; number <= MAX_RECOVERY_NUMBER; number++) {
+        if (number == 1) snprintf(path, size, "%s" RECOVERY_EXTENSION, base);
+        else snprintf(path, size, "%s-%d" RECOVERY_EXTENSION, base, number);
+        int file = open(path, O_WRONLY | O_CREAT | O_EXCL, 0644); // fails when another run has the name
+        if (file >= 0) return close(file) == 0;
+        if (errno != EEXIST) return false;
+    }
+    return false;
+}
+
+static bool is_recovery_name(const char *name) {
+    size_t length = strlen(name), prefix = strlen(RECOVERY_PREFIX), extension = strlen(RECOVERY_EXTENSION);
+    if (!strcmp(name, OLD_RECOVERY_FILE)) return true;
+    return length > prefix + extension && !strncmp(name, RECOVERY_PREFIX, prefix) &&
+           !strcmp(name + length - extension, RECOVERY_EXTENSION);
+}
+
+struct recovery_entry {
+    char *path;
+    time_t modified;
+};
+
+static int newest_first(const void *first, const void *second) {
+    const struct recovery_entry *a = first, *b = second;
+    return a->modified != b->modified ? (a->modified < b->modified ? 1 : -1) : strcmp(b->path, a->path);
+}
+
+char **recovery_list(size_t *count) {
+    *count = 0;
+    char folder[PATH_MAX];
+    DIR *directory = settings_folder_file("", folder, sizeof folder) ? opendir(folder) : NULL;
+    if (!directory) return NULL;
+    struct recovery_entry *entries = NULL;
+    size_t capacity = 0;
+    struct dirent *item;
+    struct stat status;
+    while ((item = readdir(directory))) {
+        char *path;
+        if (!is_recovery_name(item->d_name) || asprintf(&path, "%s%s", folder, item->d_name) < 0) continue;
+        if (*count == capacity) {
+            capacity = capacity ? capacity * 2 : 8;
+            entries = realloc(entries, capacity * sizeof *entries);
+        }
+        entries[(*count)++] = (struct recovery_entry){ path, stat(path, &status) == 0 ? status.st_mtime : 0 };
+    }
+    closedir(directory);
+    if (entries) qsort(entries, *count, sizeof *entries, newest_first);
+    char **paths = malloc((*count ? *count : 1) * sizeof *paths);
+    for (size_t index = 0; index < *count; index++) paths[index] = entries[index].path;
+    free(entries);
+    return paths;
 }
 
 bool recovery_save(const char *path, const char *file, const char *code) {

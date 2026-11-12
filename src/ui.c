@@ -531,15 +531,16 @@ static void show_title(const char *url) {
     host.set_title(title);
 }
 
-// The recovery file (src/settings.h) holds the unsaved code for a start after a crash. It follows the edits after
-// RECOVERY_DELAY_MS; saving, discarding and quitting remove it.
+// The recovery file of this run (src/settings.h) holds the unsaved code for a start after a crash. It follows the
+// edits after RECOVERY_DELAY_MS; saving, discarding and quitting remove it. Saving and discarding also remove the
+// recovery file that this start restored.
 static struct {
-    char path[PATH_MAX]; // "" without a settings folder
+    char path[PATH_MAX]; // "" before the first write
+    char restored[PATH_MAX]; // the file whose code this start shows, or ""
+    time_t first_edit; // the local time in the name of the next file, 0 before an unsaved edit
     unsigned revision; // the editor revision that the file, or its absence, shows
     unsigned seen_revision;
     double edited; // when seen_revision changed
-    bool restored; // this start shows its code
-    bool kept; // it holds the changes of another file, and this run leaves it as it is
 } recovery;
 
 // The recovery names the file with its absolute path, so that a start in another folder finds it. A file that does
@@ -557,9 +558,19 @@ static bool same_file(const char *first, const char *second) {
     return same;
 }
 
+// The next edit after the removal starts a new file, so that the run never writes over a file of another run.
 static void remove_recovery(void) {
-    if (recovery.path[0] && !recovery.kept) unlink(recovery.path);
+    if (recovery.path[0]) unlink(recovery.path);
+    recovery.path[0] = '\0';
+    recovery.first_edit = 0;
     recovery.revision = recovery.seen_revision = editor.revision;
+}
+
+// Saving or discarding the changes.
+static void remove_recoveries(void) {
+    remove_recovery();
+    if (recovery.restored[0]) unlink(recovery.restored);
+    recovery.restored[0] = '\0';
 }
 
 // Each frame: writes the unsaved code when the edits pause, or removes the file when nothing is unsaved.
@@ -567,45 +578,51 @@ static void update_recovery(void) {
     if (editor.revision != recovery.seen_revision) {
         recovery.seen_revision = editor.revision;
         recovery.edited = now;
+        if (editor.modified && !recovery.first_edit) recovery.first_edit = time(NULL);
     }
-    if (!recovery.path[0] || recovery.kept || editor.revision == recovery.revision ||
-        now - recovery.edited < RECOVERY_DELAY_MS)
-        return;
+    if (editor.revision == recovery.revision || now - recovery.edited < RECOVERY_DELAY_MS) return;
     if (!editor.modified) return remove_recovery();
     recovery.revision = editor.revision;
+    // After a failed write, the edits go on without a recovery.
+    if (!recovery.path[0] &&
+        !recovery_create(recovery.path, sizeof recovery.path, recovery.first_edit ? recovery.first_edit : time(NULL)))
+        return;
     char *file = absolute_path(file_path ? file_path : "");
-    recovery_save(recovery.path, file, editor.text); // after a failed write the edits go on without a recovery
+    recovery_save(recovery.path, file, editor.text);
     free(file);
 }
 
-static void keep_recovery(const char *file) {
-    recovery.kept = true;
-    char text[MAX_MESSAGE + sizeof recovery.path];
-    snprintf(text, sizeof text, "%s keeps the unsaved changes of %s: start without a file to restore them",
-             base_name(recovery.path), file[0] ? base_name(file) : "code without a file");
-    ui_show_message(text, true);
-}
-
-// At the start: the recovered code replaces the code of `path` when it belongs to that file, or when no file is
-// given. It comes with its file as the open file and counts as unsaved.
+// At the start: the newest recovery file of `path`, or the newest of all when no file is given, replaces the code.
+// It comes with its file as the open file and counts as unsaved. The other recovery files stay.
 static void restore_recovery(const char *path) {
-    char *file, *code = recovery_load(recovery.path, &file);
-    if (!code) return;
-    if (path && (!file[0] || !same_file(file, path))) {
-        keep_recovery(file);
-    } else {
-        free(file_path);
-        file_path = file[0] ? strdup(file) : NULL;
-        editor_set_text(&editor, code, strlen(code));
-        editor.modified = true;
-        recovery.restored = true;
-        char text[MAX_MESSAGE];
-        snprintf(text, sizeof text, "restored the unsaved changes of %s", file[0] ? base_name(file) : "the code");
-        ui_show_message(text, true);
+    size_t count;
+    char **paths = recovery_list(&count), *restored_file = NULL;
+    for (size_t index = 0; index < count && !recovery.restored[0]; index++) {
+        char *file, *code = recovery_load(paths[index], &file);
+        if (code && (!path || (file[0] && same_file(file, path)))) {
+            free(file_path);
+            file_path = file[0] ? strdup(file) : NULL;
+            editor_set_text(&editor, code, strlen(code));
+            editor.modified = true;
+            snprintf(recovery.restored, sizeof recovery.restored, "%s", paths[index]);
+            restored_file = strdup(file);
+        }
+        free(file);
+        free(code);
+    }
+    for (size_t index = 0; index < count; index++) free(paths[index]);
+    free(paths);
+    size_t kept = recovery.restored[0] ? count - 1 : count;
+    char text[2 * MAX_MESSAGE], others[MAX_MESSAGE] = "";
+    if (kept)
+        snprintf(others, sizeof others, "%zu recovery file%s kept next to settings.json", kept, kept == 1 ? "" : "s");
+    if (restored_file) {
+        snprintf(text, sizeof text, "restored the unsaved changes of %s%s%s",
+                 restored_file[0] ? base_name(restored_file) : "the code", kept ? "; " : "", others);
         show_title(NULL);
     }
-    free(file);
-    free(code);
+    if (restored_file || kept) ui_show_message(restored_file ? text : others, true);
+    free(restored_file);
 }
 
 static void save(void) {
@@ -622,7 +639,7 @@ static void save(void) {
     char text[MAX_MESSAGE];
     if (ok) {
         editor.modified = false;
-        remove_recovery();
+        remove_recoveries();
         snprintf(text, sizeof text, "saved %s", file_path);
     } else {
         snprintf(text, sizeof text, "cannot save %s: %s", file_path, strerror(errno));
@@ -1505,7 +1522,7 @@ static void answer_unsaved(char answer) {
     prompt.kind = PROMPT_NONE;
     if (answer == 's') save();
     if (answer == 's' && editor.modified) return; // the bar shows why the save failed, and the action waits
-    if (answer == 'd') remove_recovery();
+    if (answer == 'd') remove_recoveries();
     run_pending();
 }
 
@@ -3290,9 +3307,12 @@ void ui_show_random_example(void) {
 }
 
 void ui_set_code(const char *code) {
-    if (recovery.restored) { // a sketch URL at the start: the recovery file keeps the restored changes
-        recovery.restored = false;
-        keep_recovery(file_path ? file_path : "");
+    if (recovery.restored[0]) { // a sketch URL at the start: the recovery file keeps the restored changes
+        char text[MAX_MESSAGE + sizeof recovery.restored];
+        snprintf(text, sizeof text, "%s keeps the unsaved changes of %s", base_name(recovery.restored),
+                 file_path ? base_name(file_path) : "code without a file");
+        ui_show_message(text, true);
+        recovery.restored[0] = '\0';
         close_file();
     }
     editor_set_text(&editor, code, strlen(code));
@@ -3337,7 +3357,7 @@ bool ui_init(const struct settings *start_settings, const char *settings_path,
         show_title(NULL);
     }
     memset(&recovery, 0, sizeof recovery);
-    if (recovery_path(recovery.path, sizeof recovery.path)) restore_recovery(path);
+    restore_recovery(path);
     recovery.revision = recovery.seen_revision = editor.revision;
     return overlay_init(settings.font, settings.font_size);
 }

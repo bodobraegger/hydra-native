@@ -5,6 +5,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <time.h>
 
 #define SETTINGS_TEXT 512
 #define SETTINGS_NAME 64
@@ -93,9 +94,14 @@ bool settings_load(struct settings *settings, const char *path, char *error, siz
 bool settings_save(const struct settings *settings, const char *path, char *error, size_t size);
 const char *settings_whitespace_name(enum render_whitespace value);
 
-// recovery.js in the folder of settings.json: the unsaved code of the editor after a first line with the path of
-// its file ("" for code without a file).
-bool recovery_path(char *path, size_t size); // false without XDG_CONFIG_HOME and HOME
+// The recovery files in the folder of settings.json: the unsaved code of the editor after a first line with the path
+// of its file ("" for code without a file). Each run writes its own file, recovery-YYMMDD-HHMM.js with the local
+// time of its first unsaved edit; the recovery.js of older versions also counts.
+// The paths (malloc'd, like the list) of all recovery files, the newest first; NULL without a settings folder.
+char **recovery_list(size_t *count);
+// Creates an empty recovery file for `time` that no other file has the name of, with "-2", "-3" and so on after the
+// time when needed. False without a settings folder or when the file cannot be created.
+bool recovery_create(char *path, size_t size, time_t time);
 bool recovery_save(const char *path, const char *file, const char *code); // atomically, like settings_save
 // The code (malloc'd) and in `file` the path of its file (malloc'd); NULL without a valid recovery file.
 char *recovery_load(const char *path, char **file);

@@ -4,7 +4,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
+#include <utime.h>
 
 #include "../src/overlay.h"
 #include "../src/settings.h"
@@ -619,60 +621,109 @@ static void test_unsaved_question(const char *settings_file) {
     unlink(sketch);
 }
 
-// The recovery file in the temporary XDG_CONFIG_HOME: written, read back and removed. A start with another file
-// keeps it, a restart restores it with its file and as unsaved, edits reach it after a pause, and Ctrl+S removes it.
-static void test_recovery(const char *settings_file) {
-    char recovery[256], *file = NULL;
-    EXPECT(recovery_path(recovery, sizeof recovery));
-    EXPECT_STRING(recovery + strlen(getenv("XDG_CONFIG_HOME")), "/hydra-native/recovery.js");
-    EXPECT(recovery_save(recovery, "", "noise().out()\n"));
-    char *code = recovery_load(recovery, &file);
-    EXPECT(code && !strcmp(code, "noise().out()\n") && file && !file[0]);
-    free(code);
-    free(file);
-    unlink(recovery);
-    EXPECT(recovery_load(recovery, &file) == NULL);
+// The path of the newest recovery file (src/settings.h) in `path`, and the number of all of them.
+static size_t newest_recovery(char *path, size_t size) {
+    size_t count;
+    char **paths = recovery_list(&count);
+    snprintf(path, size, "%s", count ? paths[0] : "");
+    for (size_t index = 0; index < count; index++) free(paths[index]);
+    free(paths);
+    return count;
+}
 
-    char sketch[] = "/tmp/hydra-native-ui-test-recovery-XXXXXX.js";
-    int fd = mkstemps(sketch, 3);
-    close(fd);
+static void expect_recovery(const char *path, const char *code, const char *file) {
+    char *saved_file = NULL, *saved_code = recovery_load(path, &saved_file);
+    EXPECT(saved_code && !strcmp(saved_code, code) && !strcmp(saved_file, file));
+    if (!saved_code) fprintf(stderr, "no recovery in %s\n", path);
+    free(saved_code);
+    free(saved_file);
+}
+
+// The recovery files in the temporary XDG_CONFIG_HOME. Each run writes its own file, named by the time of its first
+// edit, and two runs of the same minute do not clash. A start restores the newest file of its sketch, or the newest
+// of all without a file, also the recovery.js of older versions; the bar counts the kept ones. Ctrl+S removes the
+// restored file and the file of the run, and leaves the others.
+static void test_recovery(const char *settings_file) {
+    char sketch[] = "/tmp/hydra-native-ui-test-recovery-XXXXXX.js", other[] = "/tmp/hydra-native-ui-test-old-XXXXXX.js";
+    const char *another = "/tmp/hydra-native-ui-test-another-file.js";
+    close(mkstemps(sketch, 3));
+    close(mkstemps(other, 3));
     write_file(sketch, "osc(1).out()");
-    EXPECT(recovery_save(recovery, sketch, "osc(2).out()"));
+    write_file(other, "noise(1).out()");
+    char old[256], first[256], second[256], path[256];
+    snprintf(old, sizeof old, "%s", settings_file);
+    snprintf(strrchr(old, '/'), sizeof old - (size_t)(strrchr(old, '/') - old), "/recovery.js");
+    EXPECT(recovery_save(old, other, "noise(2).out()"));
+    // The times of the files, oldest first, so that the order does not depend on the seconds of the run.
+    struct utimbuf times[] = { { 0, 0 }, { 1000, 1000 }, { 2000, 2000 } };
+    utime(old, &times[0]);
     struct settings defaults;
     settings_defaults(&defaults);
-    ui_init(&defaults, settings_file, "/tmp/hydra-native-ui-test-another-file.js", &test_host);
-    ui_draw(800, 600, 10000);
-    EXPECT_CONTAINS(drawn, "keeps the unsaved changes of");
-    type("x");
-    ui_draw(800, 600, 11000);
-    ui_draw(800, 600, 20000); // edits of another file do not replace the kept recovery
-    code = recovery_load(recovery, &file);
-    EXPECT(code && !strcmp(code, "osc(2).out()") && !strcmp(file, sketch));
-    free(code);
-    free(file);
 
-    ui_init(&defaults, settings_file, NULL, &test_host); // a restart without a file argument
-    EXPECT_STRING(ui_code(), "osc(2).out()");
+    ui_init(&defaults, settings_file, sketch, &test_host);
+    ui_draw(800, 600, 10000);
+    EXPECT_CONTAINS(drawn, "1 recovery file kept next to settings.json");
+    char earlier[32], later[32];
+    time_t edited = time(NULL);
+    strftime(earlier, sizeof earlier, "recovery-%y%m%d-%H%M.js", localtime(&edited));
+    type("a");
+    ui_draw(800, 600, 11000);
+    edited = time(NULL);
+    strftime(later, sizeof later, "recovery-%y%m%d-%H%M.js", localtime(&edited));
+    ui_draw(800, 600, 12000);
+    EXPECT(newest_recovery(first, sizeof first) == 1); // not yet: the edit is one second old
+    ui_draw(800, 600, 13000);
+    EXPECT(newest_recovery(first, sizeof first) == 2);
+    const char *name = strrchr(first, '/') + 1;
+    EXPECT(!strcmp(name, earlier) || !strcmp(name, later));
+    expect_recovery(first, "aosc(1).out()", sketch);
+    utime(first, &times[1]);
+
+    // A restart after a crash, with another file: it keeps both files and writes a third one.
+    ui_init(&defaults, settings_file, another, &test_host);
+    ui_draw(800, 600, 20000);
+    EXPECT_CONTAINS(drawn, "2 recovery files kept next to settings.json");
+    type("b");
+    ui_draw(800, 600, 21000);
+    ui_draw(800, 600, 23000);
+    EXPECT(newest_recovery(path, sizeof path) == 3);
+    snprintf(second, sizeof second, "%s", strcmp(path, first) ? path : "");
+    EXPECT(second[0]);
+    expect_recovery(first, "aosc(1).out()", sketch);
+    expect_recovery(second, "b", another);
+    utime(second, &times[2]);
+
+    // A restart with the sketch restores its file; Ctrl+S removes it and the file of this run.
+    ui_init(&defaults, settings_file, sketch, &test_host);
+    EXPECT_STRING(ui_code(), "aosc(1).out()");
     EXPECT(ui_file_path() && !strcmp(ui_file_path(), sketch));
     EXPECT(ui_modified());
     ui_draw(800, 600, 30000);
-    EXPECT_CONTAINS(drawn, "restored the unsaved changes of");
+    EXPECT_CONTAINS(drawn, "restored the unsaved changes of hydra-native-ui-test-recovery-");
+    EXPECT_CONTAINS(drawn, "2 recovery files kept");
     type("x");
     ui_draw(800, 600, 31000);
-    ui_draw(800, 600, 32000);
-    code = recovery_load(recovery, &file);
-    EXPECT(code && !strcmp(code, "osc(2).out()")); // not yet: the edit is one second old
-    free(code);
-    free(file);
     ui_draw(800, 600, 33000);
-    code = recovery_load(recovery, &file);
-    EXPECT(code && !strcmp(code, "xosc(2).out()"));
-    free(code);
-    free(file);
+    EXPECT(newest_recovery(path, sizeof path) == 4);
+    expect_recovery(path, "xaosc(1).out()", sketch);
     key(SDLK_S, SDL_KMOD_LCTRL);
-    EXPECT_STRING(read_file(sketch), "xosc(2).out()");
-    EXPECT(access(recovery, F_OK) != 0);
+    EXPECT_STRING(read_file(sketch), "xaosc(1).out()");
+    EXPECT(access(first, F_OK) != 0 && access(path, F_OK) != 0);
+    EXPECT(newest_recovery(path, sizeof path) == 2);
+    EXPECT_STRING(path, second);
+
+    // Without a file, the newest of all comes back; recovery.js comes back with its file.
+    ui_init(&defaults, settings_file, NULL, &test_host);
+    EXPECT_STRING(ui_code(), "b");
+    EXPECT(ui_file_path() && !strcmp(ui_file_path(), another));
+    ui_init(&defaults, settings_file, other, &test_host);
+    EXPECT_STRING(ui_code(), "noise(2).out()");
+    key(SDLK_S, SDL_KMOD_LCTRL);
+    EXPECT(access(old, F_OK) != 0);
+    unlink(second);
+    unlink(another);
     unlink(sketch);
+    unlink(other);
 }
 
 // The call around the cursor: nested calls, commas in arrays, arrow functions and strings.
