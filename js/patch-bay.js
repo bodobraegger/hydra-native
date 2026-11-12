@@ -1,6 +1,6 @@
 // `pb`, the webRTC patch bay of the web editor (src/lib/patch-bay/pb-live.js): hydra-native-patch-bay
-// (src/patch_bay_main.c) does its work with GStreamer, and this object mirrors it for hydra-synth (initStream) and
-// sketches (pb.list(), pb.setName()).
+// (src/patch_bay_main.c) does its work with libdatachannel and ffmpeg, and this object mirrors it for hydra-synth
+// (initStream) and sketches (pb.list(), pb.setName()).
 // As in the web editor, it exists only with a server (galleryServer, the settings menu), in the room 'iclc'.
 import { EventEmitter } from './event-emitter.js'
 import { nativeVideo } from './sources.js'
@@ -16,7 +16,7 @@ export class PatchBay extends EventEmitter {
 
   // pb.init(stream, { server, room }): the stream is always the output of hydra-native.
   init (stream, { room = WEB_EDITOR_ROOM } = {}) {
-    if (!native.patchBayStart(room)) console.warn('pb: cannot start hydra-native-patch-bay, which needs GStreamer at build time')
+    if (!native.patchBayStart(room)) console.warn('pb: cannot start hydra-native-patch-bay')
     this.settings = { server: native.galleryServer(), room }
     window.pb = this
   }

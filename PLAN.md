@@ -32,13 +32,14 @@ The AGPL-3.0 requires the complete source for each person who gets the program. 
 - licenses/ has no text of the Unicode License v3 (src/unicode_tables.h) and of the MIT license of CodeMirror 5
   (code ported in src/editor.c). THIRD_PARTY.md names both.
 
-## Patch bay on the WebRTC of GStreamer
+## Patch bay on libdatachannel
 
-hydra-native-patch-bay (src/patch_bay_main.c) replaces the Node.js helper. These points are open:
+hydra-native-patch-bay (src/patch_bay_main.c) uses libdatachannel for WebRTC and ffmpeg for VP8. These points
+are open:
 
 1. A stream with the web editor at https://hydra.ojack.xyz in both directions, by hand (a step for the wizard
-   tools/release-tests.sh). This is the step with the most risk: the message formats of simple-peer, and the
-   offer of a browser (audio, other payload types). The helper uses only the STUN server of simple-peer; the
-   TURN servers that hydra-server sends in `ready` are not used yet.
-2. macOS: no system GStreamer. The patch bay there needs GStreamer from Homebrew, or stays out of the app;
-   decide after point 1.
+   tools/release-tests.sh). Firefox and Safari as peers are not tested. The helper uses only the STUN server of
+   simple-peer; the TURN servers that hydra-server sends in `ready` are not used yet.
+2. Packet loss: the helper has no jitter buffer. A lost or late packet drops the frame, and the stream waits for
+   the next keyframe: a browser sends one on the request of the helper, and hydra-native sends one each second.
+3. Windows: see PORTING.md.

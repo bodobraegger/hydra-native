@@ -22,9 +22,8 @@ Some inputs need more packages:
 - `initCam`: gstreamer1.0-tools and gstreamer1.0-plugins-good.
 - `initScreen`, `initMonitor`, `initArea` and `initWindow`: gstreamer1.0-tools, gstreamer1.0-pipewire and
   xdg-desktop-portal. Only `initScreen` works outside of GNOME.
-- `initVideo`, `initImage` and `vidRecorder`: ffmpeg. YouTube links also need yt-dlp.
-- The patch bay (`pb`, `initStream`): gstreamer1.0-plugins-bad, gstreamer1.0-plugins-good and
-  gstreamer1.0-nice.
+- `initVideo`, `initImage`, `vidRecorder` and the patch bay (`pb`, `initStream`): ffmpeg. YouTube links also
+  need yt-dlp.
 - The links of the info panel: xdg-utils.
 
 The folder runs from any place. The desktop file and the icons are in `assets/`.
@@ -33,8 +32,8 @@ The folder runs from any place. The desktop file and the icons are in `assets/`.
 
 Unzip `hydra-native-*-macos-arm64.zip` and move `hydra-native.app` to Applications.
 The app has no Apple signature. At the first start, macOS blocks it: open System Settings, Privacy and
-Security, and click "Open Anyway". For `initVideo` and `initImage`, install ffmpeg (`brew install ffmpeg`).
-The macOS app has no patch bay yet.
+Security, and click "Open Anyway". For `initVideo`, `initImage` and the patch bay, install ffmpeg
+(`brew install ffmpeg`).
 
 ## Run
 
@@ -53,12 +52,11 @@ Sketch URLs, the gallery and extensions run without access to your files and she
 
 ### Linux
 
-The build needs gcc, CMake 3.25 or newer, Ninja, make, pnpm and these development files (Ubuntu 26.04):
+The build needs gcc and g++, CMake 3.25 or newer, Ninja, make, pnpm and these development files (Ubuntu 26.04):
 
 ```sh
 sudo apt install build-essential cmake ninja-build libsdl3-dev libgles-dev libpulse-dev libasound2-dev \
-  libgio-2.0-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgstreamer-plugins-bad1.0-dev \
-  libsoup-3.0-dev libjson-glib-dev
+  libgio-2.0-dev
 make            # build/hydra-native
 build/hydra-native sketch.js
 ```
@@ -70,9 +68,6 @@ brew install cmake ninja pnpm sdl3
 make            # build/hydra-native, with ANGLE for OpenGL ES on Metal
 build/hydra-native sketch.js
 ```
-
-Without the GStreamer, libsoup and json-glib packages, the build skips the patch bay helper
-(hydra-native-patch-bay).
 
 At the first build, CMake downloads the C libraries of [THIRD_PARTY.md](THIRD_PARTY.md) into vendor/ and checks
 their SHA-256 hashes.

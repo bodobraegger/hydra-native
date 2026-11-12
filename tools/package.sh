@@ -44,12 +44,14 @@ linux-x86_64)
 macos-arm64)
 	# ANGLE (its dylibs have @rpath install names) and the SDL3 of Homebrew next to the program, which has
 	# @executable_path as rpath. The changed files get a new ad-hoc signature; Gatekeeper asks on the first start.
-	cp "$build/hydra-native" "$build/hydra-native-capture" "$build/libEGL.dylib" "$build/libGLESv2.dylib" "$bin/"
+	cp "$build/hydra-native" "$build/hydra-native-capture" "$build/hydra-native-patch-bay" "$build/libEGL.dylib" \
+		"$build/libGLESv2.dylib" "$bin/"
 	sdl=$(otool -L "$bin/hydra-native" | awk '/libSDL3/ { print $1 }')
 	cp "$sdl" "$bin/"
 	install_name_tool -id "@rpath/$(basename "$sdl")" "$bin/$(basename "$sdl")"
 	install_name_tool -change "$sdl" "@rpath/$(basename "$sdl")" "$bin/hydra-native"
-	codesign --force --sign - "$bin"/*.dylib "$bin/hydra-native" "$bin/hydra-native-capture"
+	strip "$bin/hydra-native-patch-bay"
+	codesign --force --sign - "$bin"/*.dylib "$bin/hydra-native" "$bin/hydra-native-capture" "$bin/hydra-native-patch-bay"
 	mkdir -p "$contents/Resources"
 	cp "$root/assets/icon/hydra-native.icns" "$contents/Resources/"
 	cat > "$contents/Info.plist" <<PLIST
@@ -87,6 +89,16 @@ if [ "$system" != linux-x86_64 ]; then # libremidi in the program, ANGLE and SDL
 	echo "SDL3 (zlib license): https://github.com/libsdl-org/SDL/blob/main/LICENSE.txt" > "$licenses/sdl3.txt"
 fi
 sed -n '/^This software is available under 2 licenses/,$p' "$root/vendor/stb/stb_truetype.h" > "$licenses/stb.txt"
+if [ "$system" != windows-x64 ]; then # the libraries of hydra-native-patch-bay
+	deps=$root/vendor/libdatachannel/deps
+	cp "$root/vendor/libdatachannel/LICENSE" "$licenses/libdatachannel.txt"
+	cp "$deps/libjuice/LICENSE" "$licenses/libjuice.txt"
+	cp "$deps/usrsctp/LICENSE.md" "$licenses/usrsctp.txt"
+	cp "$deps/libsrtp/LICENSE" "$licenses/libsrtp.txt"
+	cp "$deps/plog/LICENSE" "$licenses/plog.txt"
+	cp "$root/vendor/mbedtls/LICENSE" "$licenses/mbedtls.txt"
+	sed -n '1,/^\*\//p' "$root/vendor/cjson/cJSON.h" > "$licenses/cjson.txt"
+fi
 # The npm packages in the archive: those that esbuild bundled (its metafile).
 node -e '
 const fs = require("fs"), path = require("path")

@@ -229,8 +229,8 @@ MIDI message is its arrival time, in the time of `performance.now()`.
 
 With a gallery server (settings menu: server), `pb` joins the room 'iclc' of the signalling server at that URL, as the web editor
 does with its server, and publishes the output of hydra-native. `pb.list()` shows the peers, and
-`s0.initStream(id)` receives a peer, such as a web editor in the same room. The patch bay is on Linux only and
-needs the GStreamer packages of README.md.
+`s0.initStream(id)` receives a peer, such as a web editor in the same room. The patch bay sends and receives
+VP8 video, and it needs ffmpeg in PATH for the video.
 
 The audio object `a` is the one of hydra-synth (`a.show()`, `a.setBins()`, `a.setSmooth()`, `a.fft`).
 hydra-native processes the input with a noise suppression and an automatic gain control, as getUserMedia() does

@@ -22,10 +22,24 @@ a distributed hydra-native binary with its bundle falls under the AGPL-3.0.
   OpenGL ES on macOS and Windows, as a prebuilt archive of https://github.com/jeremyfa/build-angle.
 - SDL 3, zlib license. https://libsdl.org. The macOS app contains the SDL3 library of Homebrew.
 
-## Libraries of the system (not in the archive)
+hydra-native-patch-bay (src/patch_bay_main.c) links these libraries statically on Linux and macOS:
 
-- GStreamer with webrtcbin, libsoup 3 and json-glib, LGPL-2.1-or-later. hydra-native-patch-bay links them on
-  Linux. https://gstreamer.freedesktop.org
+- libdatachannel 0.24.6 by Paul-Louis Ageneau, MPL-2.0. WebRTC and the WebSocket of the signalling.
+  https://github.com/paullouisageneau/libdatachannel
+- libjuice 1.7.4, commit b89c792e3612faf2f12cf35bcc56857313a06be3, by Paul-Louis Ageneau, MPL-2.0. ICE.
+  https://github.com/paullouisageneau/libjuice
+- usrsctp, commit fec583d54493f879d2ae44a743423bf8a04371ab of the fork of libdatachannel, BSD-3-Clause.
+  SCTP for the data channel. https://github.com/paullouisageneau/usrsctp
+- libsrtp 2.8.0, commit 24b3bf8f19b6f5ab4cd2bcceb4f4064efca86fd5, by Cisco Systems, BSD-3-Clause. SRTP.
+  https://github.com/cisco/libsrtp
+- plog, commit 94899e0b926ac1b0f4750bfbd495167b4a6ae9ef, by Sergey Podobry, MIT license. The log of
+  libdatachannel. https://github.com/SergiusTheBest/plog
+- Mbed TLS 3.6.7, Apache-2.0 or GPL-2.0-or-later (hydra-native uses it under the Apache-2.0). TLS, DTLS and
+  DTLS-SRTP. https://github.com/Mbed-TLS/mbedtls
+- cJSON 1.7.19 by Dave Gamble and the cJSON contributors, MIT license. The JSON of the signalling and of the
+  JSON lines. https://github.com/DaveGamble/cJSON
+
+The libjuice, usrsctp, libsrtp and plog commits are the submodules of the libdatachannel release.
 
 ## JavaScript packages (installed by pnpm, bundled by esbuild)
 

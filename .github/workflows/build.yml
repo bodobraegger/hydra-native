@@ -26,10 +26,12 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # The JS bundle of the macOS program; pnpm installs the WebRTC module of this system.
+      # The JS bundle of the macOS program.
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         if: matrix.port && runner.os == 'macOS'
 
+      # The program, the capture tool and the patch bay helper. The patch bay test does not run here, so the
+      # runner needs no ffmpeg.
       - name: Build the port
         if: matrix.port
         shell: bash
@@ -71,8 +73,7 @@ jobs:
           sudo apt-get update
           sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build pkg-config libsdl3-dev libgles-dev libpulse-dev libasound2-dev \
-            libgio-2.0-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgstreamer-plugins-bad1.0-dev \
-            libsoup-3.0-dev libjson-glib-dev python3
+            libgio-2.0-dev python3
 
       # pnpm runs on the Node.js of the runner image, in the version of packageManager in package.json; make
       # runs the install.
