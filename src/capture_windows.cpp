@@ -10,7 +10,7 @@
 
 #include <d3d11.h>
 #include <dxgi.h>
-#include <shobjidl_core.h>
+#include <shobjidl.h>
 #include <windows.graphics.capture.interop.h>
 #include <windows.graphics.directx.direct3d11.interop.h>
 #include <winrt/Windows.Foundation.h>
