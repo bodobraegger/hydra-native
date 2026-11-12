@@ -21,6 +21,8 @@ struct frame_writer {
     struct process *process; // the child that reads the frames, or NULL
     int stream;
     int width, height;
+    int source_width, source_height; // of the window, when the frames are smaller
+    GLuint framebuffer, renderbuffer; // the frame at width x height, or 0 when the window has that size
     unsigned char *pending; // the newest frame for the writer thread
     unsigned char *writing;
     bool fresh, stopping;
@@ -51,12 +53,24 @@ static int write_frames(void *argument) {
     return 0;
 }
 
-static void writer_start(struct frame_writer *writer, int stream, struct process *process, int width, int height) {
+static void writer_start(struct frame_writer *writer, int stream, struct process *process, int source_width,
+                         int source_height, int width, int height) {
     size_t bytes = (size_t)width * (size_t)height * 4;
     writer->process = process;
     writer->stream = stream;
     writer->width = width;
     writer->height = height;
+    writer->source_width = source_width;
+    writer->source_height = source_height;
+    if (source_width != width || source_height != height) {
+        glGenRenderbuffers(1, &writer->renderbuffer);
+        glBindRenderbuffer(GL_RENDERBUFFER, writer->renderbuffer);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, width, height);
+        glBindRenderbuffer(GL_RENDERBUFFER, 0);
+        glGenFramebuffers(1, &writer->framebuffer);
+        glBindFramebuffer(GL_FRAMEBUFFER, writer->framebuffer);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, writer->renderbuffer);
+    }
     writer->pending = malloc(bytes);
     writer->writing = malloc(bytes);
     writer->fresh = writer->stopping = false;
@@ -73,7 +87,15 @@ static void writer_frame(struct frame_writer *writer, double now) {
     if (writer->next_frame < now) writer->next_frame = now + RECORD_FRAME_MS;
     SDL_LockMutex(writer->lock);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    // The GPU scales the window down, so that fewer bytes go to the readback and through the pipes.
+    if (writer->framebuffer) {
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, writer->framebuffer);
+        glBlitFramebuffer(0, 0, writer->source_width, writer->source_height, 0, 0, writer->width, writer->height,
+                          GL_COLOR_BUFFER_BIT, GL_LINEAR);
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, writer->framebuffer);
+    }
     glReadPixels(0, 0, writer->width, writer->height, GL_RGBA, GL_UNSIGNED_BYTE, writer->pending);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
     writer->fresh = true;
     SDL_SignalCondition(writer->ready);
     SDL_UnlockMutex(writer->lock);
@@ -95,6 +117,9 @@ static bool writer_stop(struct frame_writer *writer) {
     SDL_DestroyMutex(writer->lock);
     free(writer->pending);
     free(writer->writing);
+    glDeleteFramebuffers(1, &writer->framebuffer);
+    glDeleteRenderbuffers(1, &writer->renderbuffer);
+    writer->framebuffer = writer->renderbuffer = 0;
     writer->active = false;
     return ok;
 }
@@ -110,7 +135,7 @@ bool recorder_start(const char *path, int width, int height) {
     int input;
     struct process *process = process_start(argv, &input, NULL);
     if (!process) return false;
-    writer_start(&recorder, input, process, width, height);
+    writer_start(&recorder, input, process, width, height, width, height);
     return true;
 }
 
@@ -123,9 +148,9 @@ void recorder_frame(double now) {
 
 bool recorder_stop(void) { return recorder.active && writer_stop(&recorder); }
 
-bool publisher_start(int stream, int width, int height) {
+bool publisher_start(int stream, int source_width, int source_height, int width, int height) {
     if (publisher.active) return false;
-    writer_start(&publisher, stream, NULL, width, height);
+    writer_start(&publisher, stream, NULL, source_width, source_height, width, height);
     return true;
 }
 

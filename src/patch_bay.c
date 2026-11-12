@@ -2,6 +2,7 @@
 // js/patch-bay.js. Frames go through a local socket of the helper (a Unix socket, or a named pipe on Windows): each
 // connection starts with one line that names its channel, "output WIDTHxHEIGHT" for the output of hydra-native
 // while a peer receives it, or the channel of a received stream, whose frames then come back.
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,6 +14,9 @@
 #define MAX_PENDING (1 << 20) // bytes of lines that wait for the helper; more means that it does not read
 #define STOP_WAIT_MS 2000 // for the helper to leave the room
 #define SOCKET_NAME "hydra-native-patch-bay"
+// The output goes to the peers at most at this size, so that the encoder and the decoders keep up.
+#define MAX_STREAM_WIDTH 1280
+#define MAX_STREAM_HEIGHT 720
 
 static struct {
     struct process *process;
@@ -117,11 +121,13 @@ int patch_bay_connect(const char *channel) {
 bool patch_bay_publish(bool on, int width, int height) {
     publisher_stop();
     if (!on || !helper.process) return true;
+    double scale = fmin(1, fmin((double)MAX_STREAM_WIDTH / width, (double)MAX_STREAM_HEIGHT / height));
+    int stream_width = (int)(width * scale) & ~1, stream_height = (int)(height * scale) & ~1;
     char channel[64];
-    snprintf(channel, sizeof channel, "output %dx%d", width, height);
+    snprintf(channel, sizeof channel, "output %dx%d", stream_width, stream_height);
     int stream = patch_bay_connect(channel);
     if (stream < 0) return false;
-    if (!publisher_start(stream, width, height)) {
+    if (!publisher_start(stream, width, height, stream_width, stream_height)) {
         stream_close(stream);
         return false;
     }
