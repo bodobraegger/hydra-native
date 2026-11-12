@@ -607,8 +607,7 @@ static JSValue js_read_file(JSContext *ctx, JSValueConst this, int argc, JSValue
 // line, the setup file), else of the open sketch; "" (the working directory) without either.
 static JSValue js_script_folder(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
     const char *path = engine_running_file() ? engine_running_file() : ui_file_path();
-    const char *slash = path ? strrchr(path, '/') : NULL;
-    return JS_NewStringLen(ctx, path ? path : "", slash ? (size_t)(slash - path + 1) : 0);
+    return JS_NewStringLen(ctx, path ? path : "", path ? (size_t)(ui_base_name(path) - path) : 0);
 }
 
 static JSValue js_drawable_size(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
