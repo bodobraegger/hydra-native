@@ -107,8 +107,8 @@ the file.
 | audioGain             | 100              | input gain           | 0 to 400 percent           |
 | language              | "" ($LANG)       | language             | language of the info panel |
 | galleryServer         | "" (none)        | server               | gallery and patch bay      |
-| streamRate            | 60               | stream rate          | 1 to 60 fps of the output  |
-| streamMaxRate         | 60               | stream max rate      | 1 to 60 fps of a stream    |
+| streamRate            | 60               | stream rate out      | 1 to 60 fps of the output  |
+| streamMaxRate         | 60               | stream rate in (max) | 1 to 60 fps of a stream    |
 | l10nUrl               | "" (l10n)        | translation URL...   | editor.json of a language  |
 | socket                | "" (runtime dir) |                      | the code socket (scripts)  |
 | themes                | {}               |                      | custom themes, see below   |
@@ -244,12 +244,12 @@ MIDI message is its arrival time, in the time of `performance.now()`.
 With a gallery server (settings menu: server), `pb` joins the room 'iclc' of the signalling server at that URL, as the web editor
 does with its server, and publishes the output of hydra-native. `pb.list()` shows the peers, and
 `s0.initStream(id)` receives a peer, such as a web editor in the same room. The patch bay sends and receives
-VP8 video, and it needs ffmpeg in PATH for the video. It sends the output with the frames per second of "stream rate"
-and at most at 1280x720, and it scales a larger window down with the same aspect ratio. "stream max rate" is the
+VP8 video, and it needs ffmpeg in PATH for the video. It sends the output with the frames per second of "stream
+rate out" and at most at 1280x720, and it scales a larger window down with the same aspect ratio. "stream rate in (max)" is the
 most frames per second that hydra-native takes from a received stream: it drops the frames above it, also of a web
 editor. `s0.initStream(id, { fps: 10 })` sets this maximum for one stream; the other params of `initStream` stay the
 texture options. A receiving hydra-native tells a hydra-native sender its maximum. The sender then sends at the
-highest maximum of its receivers when that is lower than its stream rate; a web editor counts as 60.
+highest maximum of its receivers when that is lower than its stream rate out; a web editor counts as 60.
 
 The audio object `a` is the one of hydra-synth (`a.show()`, `a.setBins()`, `a.setSmooth()`, `a.fft`).
 hydra-native processes the input with a noise suppression and an automatic gain control, as getUserMedia() does

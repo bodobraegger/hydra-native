@@ -2541,9 +2541,9 @@ static void draw_settings(void) {
         flow_label(&flow, "copy", false, ACTION_COPY_STREAM_ID, 0);
     }
     free(stream_id);
-    flow_row(&flow, label_x, " \xE2\x94\x9C stream rate");
+    flow_row(&flow, label_x, " \xE2\x94\x9C stream rate out");
     flow_number(&flow, NUMBER_STREAM_RATE);
-    flow_row(&flow, label_x, " \xE2\x94\x94 stream max rate");
+    flow_row(&flow, label_x, " \xE2\x94\x94 stream rate in (max)");
     flow_number(&flow, NUMBER_STREAM_MAX_RATE);
     flow_row(&flow, label_x, "window");
     bool fullscreen = host.is_fullscreen();

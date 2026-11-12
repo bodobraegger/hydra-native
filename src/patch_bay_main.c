@@ -922,7 +922,7 @@ static void start_output(int stream, const char *format) {
     for (int index = 0; index < peer_count; index++) peers[index]->sent_keyframe = false;
 }
 
-// The setting "stream rate", or the highest maximum of the peers that receive the output when that is lower.
+// The setting "stream rate out", or the highest maximum of the peers that receive the output when that is lower.
 static int output_rate(void) {
     int highest = 0;
     for (int index = 0; index < peer_count; index++)
@@ -1387,7 +1387,7 @@ static void shut_down(void) {
     else quitting = true;
 }
 
-// A missing `rate` gives the stream the setting "stream max rate" again.
+// A missing `rate` gives the stream the setting "stream rate in (max)" again.
 static void set_max_rate(const char *name, const cJSON *rate) {
     const char *id = member_string(id_from_nick, name);
     if (!id) return;

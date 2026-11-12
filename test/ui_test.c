@@ -394,17 +394,17 @@ static void test_settings_rows(const char *settings_file) {
     EXPECT(audio_gain_now == 400 && saved_settings(settings_file).audio_gain == 400);
 
     ui_draw(800, 900, 0);
-    EXPECT(click_text("60 fps", 0)); // stream rate
+    EXPECT(click_text("60 fps", 0)); // stream rate out
     type("30 fps");
     key(SDLK_RETURN, 0);
     EXPECT(stream_rate_now == 30 && saved_settings(settings_file).stream_rate == 30);
     ui_draw(800, 900, 0);
-    EXPECT(click_text("60 fps", 0)); // stream max rate
+    EXPECT(click_text("60 fps", 0)); // stream rate in (max)
     type("0"); // below the range: 1
     key(SDLK_RETURN, 0);
     EXPECT(stream_max_rate_now == 1 && saved_settings(settings_file).stream_max_rate == 1);
     ui_draw(800, 900, 0);
-    EXPECT(click_text("+", 3)); // of stream max rate, after the two opacities and the stream rate
+    EXPECT(click_text("+", 3)); // of stream rate in (max), after the two opacities and the stream rate out
     EXPECT(stream_max_rate_now == 6 && saved_settings(settings_file).stream_max_rate == 6);
     EXPECT(stream_rate_now == 30 && saved_settings(settings_file).stream_rate == 30);
 
