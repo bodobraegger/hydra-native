@@ -113,10 +113,13 @@ else()
       b5be74ac235ff45b60c03f6bd1434df1dfbcf82fcc0742e92124a7e35fd30283 lib/libGLESv2.lib)
     file(GLOB ANGLE_RUNTIME ${VENDOR}/angle/bin/*.dll)
     set(ANGLE_GLES ${VENDOR}/angle/lib/libGLESv2.lib)
-    vendor_archive(sdl3-vc https://github.com/libsdl-org/SDL/releases/download/release-${SDL3_VERSION}/SDL3-devel-${SDL3_VERSION}-VC.zip
-      fd4c60400634df13a86b69432b22b32f23bccd6a2f4c6a34b42b471c65eb4fd2 cmake/SDL3Config.cmake)
-    find_package(SDL3 REQUIRED CONFIG PATHS ${VENDOR}/sdl3-vc/cmake NO_DEFAULT_PATH)
-    list(APPEND ANGLE_RUNTIME ${VENDOR}/sdl3-vc/lib/x64/SDL3.dll)
+    set(SDL3_RELEASE https://github.com/libsdl-org/SDL/releases/download/release-${SDL3_VERSION})
+    set(SDL3_MINGW ${VENDOR}/sdl3-mingw/x86_64-w64-mingw32)
+    vendor_archive(sdl3-mingw ${SDL3_RELEASE}/SDL3-devel-${SDL3_VERSION}-mingw.tar.gz
+      7b8f0c5453ea68e7afc6bacb79c44b8492aa312fce712fb3be5a7b3ada393cb2
+      x86_64-w64-mingw32/lib/cmake/SDL3/SDL3Config.cmake)
+    find_package(SDL3 REQUIRED CONFIG PATHS ${SDL3_MINGW}/lib/cmake/SDL3 NO_DEFAULT_PATH)
+    list(APPEND ANGLE_RUNTIME ${SDL3_MINGW}/bin/SDL3.dll)
   else()
     message(FATAL_ERROR "hydra-native builds on Linux, macOS and Windows")
   endif()
@@ -130,25 +133,22 @@ endif()
 
 # ---------------------------------------------------------------- vendored libraries
 
+# Windows builds with the MinGW-w64 toolchain llvm-mingw (clang and libc++), as QuickJS does not build with
+# MSVC. The programs link the C++ runtime and winpthreads statically, so they need no DLL of the toolchain.
 if(MSVC)
-  set(QUIET /O2 /w) # QuickJS does not build with MSVC; quickjs-ng replaces it there (PORTING.md)
-else()
-  set(QUIET -O2 -w)
+  message(FATAL_ERROR "Build on Windows with llvm-mingw (README.md); QuickJS does not build with MSVC")
+endif()
+if(WIN32)
+  add_link_options(-static)
 endif()
 
-if(NOT MSVC)
 add_library(quickjs STATIC ${VENDOR}/quickjs/quickjs.c ${VENDOR}/quickjs/dtoa.c ${VENDOR}/quickjs/libregexp.c
   ${VENDOR}/quickjs/libunicode.c ${VENDOR}/quickjs/cutils.c ${VENDOR}/quickjs/quickjs-libc.c)
 target_compile_definitions(quickjs PRIVATE _GNU_SOURCE CONFIG_VERSION="${QUICKJS_VERSION}")
-target_compile_options(quickjs PRIVATE ${QUIET})
+target_compile_options(quickjs PRIVATE -O2 -w)
 target_include_directories(quickjs PUBLIC ${VENDOR}/quickjs)
-endif()
 
-if(MSVC)
-  set(WARNINGS /W3)
-else()
-  set(WARNINGS -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers)
-endif()
+set(WARNINGS -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers)
 
 if(WIN32)
   set(PROCESS_SOURCE src/process_windows.c)
@@ -172,8 +172,18 @@ if(APPLE)
     "-framework CoreVideo" "-framework CoreGraphics" "-framework Accelerate" "-framework AppKit")
 elseif(WIN32)
   enable_language(CXX)
+  # The headers of C++/WinRT come from its generator (NuGet package Microsoft.Windows.CppWinRT), which reads the
+  # metadata of the Windows that runs the build. They need C++20 for their coroutines.
+  set(CPPWINRT_VERSION 2.0.250303.1)
+  vendor_archive(cppwinrt https://www.nuget.org/api/v2/package/Microsoft.Windows.CppWinRT/${CPPWINRT_VERSION}
+    955e3051b35db1c00177ed14ab6b7b995c3b32a53fdb6c184ea53b1dba66e439 bin/cppwinrt.exe)
+  set(CPPWINRT_HEADERS ${CMAKE_BINARY_DIR}/cppwinrt)
+  if(NOT EXISTS ${CPPWINRT_HEADERS}/winrt/base.h)
+    execute_process(COMMAND ${VENDOR}/cppwinrt/bin/cppwinrt.exe -input local -output ${CPPWINRT_HEADERS}
+      COMMAND_ERROR_IS_FATAL ANY)
+  endif()
   add_executable(hydra-native-capture src/capture_main.c src/capture_windows.cpp ${PROCESS_SOURCE})
-  # C++/WinRT of current Visual Studio needs C++20 coroutines; with C++17 it asks for the removed /await.
+  target_include_directories(hydra-native-capture PRIVATE ${CPPWINRT_HEADERS})
   set_target_properties(hydra-native-capture PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
   target_link_libraries(hydra-native-capture PRIVATE d3d11 dxgi windowsapp)
 else()
@@ -183,71 +193,72 @@ else()
 endif()
 target_compile_options(hydra-native-capture PRIVATE ${WARNINGS})
 
-# ---------------------------------------------------------------- WebRTC (Linux and macOS)
+# ---------------------------------------------------------------- WebRTC
 
 # libdatachannel with its submodules at the commits of its release, each a pinned archive, and mbedTLS for TLS,
 # DTLS and SRTP, so that no system library is needed. All are static and C++ or C; the helper itself is C.
-if(NOT WIN32)
-  enable_language(CXX)
-  set(GITHUB https://github.com)
-  vendor_archive(libdatachannel
-    ${GITHUB}/paullouisageneau/libdatachannel/archive/refs/tags/v${LIBDATACHANNEL_VERSION}.tar.gz
-    22a66aebebd8dae561d8e5181da96f2fcc203e067c5b2186c07b39af913464c0 include/rtc/rtc.h)
-  vendor_archive(libdatachannel/deps/libjuice
-    ${GITHUB}/paullouisageneau/libjuice/archive/b89c792e3612faf2f12cf35bcc56857313a06be3.tar.gz
-    713b22174e8cb2e06538fa9bac2650bda21b83c86f5128813ab4dcf8f5bea9ed CMakeLists.txt)
-  vendor_archive(libdatachannel/deps/usrsctp
-    ${GITHUB}/paullouisageneau/usrsctp/archive/fec583d54493f879d2ae44a743423bf8a04371ab.tar.gz
-    e5c114afe73c9a0ec419fab5f5b3f63f3ce57b09b90d06ea85e63dca8aed3e7c CMakeLists.txt)
-  vendor_archive(libdatachannel/deps/libsrtp
-    ${GITHUB}/cisco/libsrtp/archive/24b3bf8f19b6f5ab4cd2bcceb4f4064efca86fd5.tar.gz
-    063478e368d7cd13d04a908d152a46f90bfa728c4b324be6d413b0b92728207c CMakeLists.txt)
-  vendor_archive(libdatachannel/deps/plog
-    ${GITHUB}/SergiusTheBest/plog/archive/94899e0b926ac1b0f4750bfbd495167b4a6ae9ef.tar.gz
-    92a08bce559b5f28aa88d3fd9071567414b9f43a83fe2a05a6dd14f1da536072 CMakeLists.txt)
-  vendor_archive(mbedtls
-    ${GITHUB}/Mbed-TLS/mbedtls/releases/download/mbedtls-${MBEDTLS_VERSION}/mbedtls-${MBEDTLS_VERSION}.tar.bz2
-    a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6 include/mbedtls/ssl.h)
-  vendor_file(cjson/cJSON.c ${GITHUB_RAW}/DaveGamble/cJSON/${CJSON_COMMIT}/cJSON.c
-    298581a04a36c0165da4b0aade235c23088cb2faa58651d720ea2f3706ed0b0d)
-  vendor_file(cjson/cJSON.h ${GITHUB_RAW}/DaveGamble/cJSON/${CJSON_COMMIT}/cJSON.h
-    25b0145150d500498e4d209cec69c18c42cf818bffcc54690be3b895a2a16dee)
+enable_language(CXX)
+set(GITHUB https://github.com)
+vendor_archive(libdatachannel
+  ${GITHUB}/paullouisageneau/libdatachannel/archive/refs/tags/v${LIBDATACHANNEL_VERSION}.tar.gz
+  22a66aebebd8dae561d8e5181da96f2fcc203e067c5b2186c07b39af913464c0 include/rtc/rtc.h)
+vendor_archive(libdatachannel/deps/libjuice
+  ${GITHUB}/paullouisageneau/libjuice/archive/b89c792e3612faf2f12cf35bcc56857313a06be3.tar.gz
+  713b22174e8cb2e06538fa9bac2650bda21b83c86f5128813ab4dcf8f5bea9ed CMakeLists.txt)
+vendor_archive(libdatachannel/deps/usrsctp
+  ${GITHUB}/paullouisageneau/usrsctp/archive/fec583d54493f879d2ae44a743423bf8a04371ab.tar.gz
+  e5c114afe73c9a0ec419fab5f5b3f63f3ce57b09b90d06ea85e63dca8aed3e7c CMakeLists.txt)
+vendor_archive(libdatachannel/deps/libsrtp
+  ${GITHUB}/cisco/libsrtp/archive/24b3bf8f19b6f5ab4cd2bcceb4f4064efca86fd5.tar.gz
+  063478e368d7cd13d04a908d152a46f90bfa728c4b324be6d413b0b92728207c CMakeLists.txt)
+vendor_archive(libdatachannel/deps/plog
+  ${GITHUB}/SergiusTheBest/plog/archive/94899e0b926ac1b0f4750bfbd495167b4a6ae9ef.tar.gz
+  92a08bce559b5f28aa88d3fd9071567414b9f43a83fe2a05a6dd14f1da536072 CMakeLists.txt)
+vendor_archive(mbedtls
+  ${GITHUB}/Mbed-TLS/mbedtls/releases/download/mbedtls-${MBEDTLS_VERSION}/mbedtls-${MBEDTLS_VERSION}.tar.bz2
+  a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6 include/mbedtls/ssl.h)
+vendor_file(cjson/cJSON.c ${GITHUB_RAW}/DaveGamble/cJSON/${CJSON_COMMIT}/cJSON.c
+  298581a04a36c0165da4b0aade235c23088cb2faa58651d720ea2f3706ed0b0d)
+vendor_file(cjson/cJSON.h ${GITHUB_RAW}/DaveGamble/cJSON/${CJSON_COMMIT}/cJSON.h
+  25b0145150d500498e4d209cec69c18c42cf818bffcc54690be3b895a2a16dee)
 
-  # WebRTC needs the DTLS-SRTP extension, which the default configuration of mbedTLS leaves out.
-  file(WRITE ${CMAKE_BINARY_DIR}/mbedtls_user_config.h "#define MBEDTLS_SSL_DTLS_SRTP\n")
-  set(MBEDTLS_USER_CONFIG_FILE ${CMAKE_BINARY_DIR}/mbedtls_user_config.h CACHE FILEPATH "")
-  set(ENABLE_PROGRAMS OFF CACHE BOOL "")
-  set(ENABLE_TESTING OFF CACHE BOOL "")
-  set(MBEDTLS_FATAL_WARNINGS OFF CACHE BOOL "")
-  # The export set of libsrtp needs mbedTLS in an export set too; hydra-native installs neither.
-  set(DISABLE_PACKAGE_CONFIG_AND_INSTALL OFF CACHE BOOL "")
-  set(BUILD_SHARED_LIBS OFF) # for the third-party parts of mbedTLS; libdatachannel sets its own
-  add_subdirectory(${VENDOR}/mbedtls ${CMAKE_BINARY_DIR}/mbedtls EXCLUDE_FROM_ALL)
-  unset(BUILD_SHARED_LIBS)
-  add_library(MbedTLS::MbedTLS ALIAS mbedtls)
-  # The find module of libdatachannel, which libsrtp also uses, takes these results instead of an installed copy.
-  set(MbedTLS_INCLUDE_DIR ${VENDOR}/mbedtls/include CACHE PATH "")
-  set(MbedTLS_LIBRARY mbedtls CACHE STRING "")
-  set(MbedCrypto_LIBRARY mbedcrypto CACHE STRING "") # skips a symbol check that the module cannot run
-  set(MbedTLS_INCLUDES_X509 TRUE CACHE BOOL "")
-  set(MbedTLS_INCLUDES_CRYPTO TRUE CACHE BOOL "")
-  set(MBEDTLS_LIBRARIES mbedtls CACHE STRING "")
+# WebRTC needs the DTLS-SRTP extension, which the default configuration of mbedTLS leaves out.
+file(WRITE ${CMAKE_BINARY_DIR}/mbedtls_user_config.h "#define MBEDTLS_SSL_DTLS_SRTP\n")
+set(MBEDTLS_USER_CONFIG_FILE ${CMAKE_BINARY_DIR}/mbedtls_user_config.h CACHE FILEPATH "")
+set(ENABLE_PROGRAMS OFF CACHE BOOL "")
+set(ENABLE_TESTING OFF CACHE BOOL "")
+set(MBEDTLS_FATAL_WARNINGS OFF CACHE BOOL "")
+# The export set of libsrtp needs mbedTLS in an export set too; hydra-native installs neither.
+set(DISABLE_PACKAGE_CONFIG_AND_INSTALL OFF CACHE BOOL "")
+set(BUILD_SHARED_LIBS OFF) # for the third-party parts of mbedTLS; libdatachannel sets its own
+add_subdirectory(${VENDOR}/mbedtls ${CMAKE_BINARY_DIR}/mbedtls EXCLUDE_FROM_ALL)
+unset(BUILD_SHARED_LIBS)
+add_library(MbedTLS::MbedTLS ALIAS mbedtls)
+# The find module of libdatachannel, which libsrtp also uses, takes these results instead of an installed copy.
+set(MbedTLS_INCLUDE_DIR ${VENDOR}/mbedtls/include CACHE PATH "")
+set(MbedTLS_LIBRARY mbedtls CACHE STRING "")
+set(MbedCrypto_LIBRARY mbedcrypto CACHE STRING "") # skips a symbol check that the module cannot run
+set(MbedTLS_INCLUDES_X509 TRUE CACHE BOOL "")
+set(MbedTLS_INCLUDES_CRYPTO TRUE CACHE BOOL "")
+set(MBEDTLS_LIBRARIES mbedtls CACHE STRING "")
 
-  set(USE_MBEDTLS ON CACHE BOOL "")
-  set(NO_EXAMPLES ON CACHE BOOL "")
-  set(NO_TESTS ON CACHE BOOL "")
-  set(LIBSRTP_TEST_APPS OFF CACHE BOOL "")
-  set(ENABLE_WARNINGS_AS_ERRORS OFF CACHE BOOL "")
-  add_subdirectory(${VENDOR}/libdatachannel ${CMAKE_BINARY_DIR}/libdatachannel EXCLUDE_FROM_ALL)
-
-  # The webRTC patch bay of pb and s0.initStream (src/patch_bay_main.c), with ffmpeg as the video codec at run time.
-  add_executable(hydra-native-patch-bay src/patch_bay_main.c src/patch_bay_websocket.cpp ${VENDOR}/cjson/cJSON.c
-    ${PROCESS_SOURCE})
-  target_compile_options(hydra-native-patch-bay PRIVATE ${WARNINGS})
-  set_target_properties(hydra-native-patch-bay PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
-  target_include_directories(hydra-native-patch-bay PRIVATE ${VENDOR}/cjson)
-  target_link_libraries(hydra-native-patch-bay PRIVATE datachannel-static pthread)
+set(USE_MBEDTLS ON CACHE BOOL "")
+set(NO_EXAMPLES ON CACHE BOOL "")
+set(NO_TESTS ON CACHE BOOL "")
+set(LIBSRTP_TEST_APPS OFF CACHE BOOL "")
+set(ENABLE_WARNINGS_AS_ERRORS OFF CACHE BOOL "")
+add_subdirectory(${VENDOR}/libdatachannel ${CMAKE_BINARY_DIR}/libdatachannel EXCLUDE_FROM_ALL)
+if(WIN32) # src/configuration.cpp uses std::transform without <algorithm>, which libc++ does not include for it
+  target_compile_options(datachannel-static PRIVATE $<$<COMPILE_LANGUAGE:CXX>:SHELL:-include algorithm>)
 endif()
+
+# The webRTC patch bay of pb and s0.initStream (src/patch_bay_main.c), with ffmpeg as the video codec at run time.
+add_executable(hydra-native-patch-bay src/patch_bay_main.c src/patch_bay_websocket.cpp ${VENDOR}/cjson/cJSON.c
+  ${PROCESS_SOURCE})
+target_compile_options(hydra-native-patch-bay PRIVATE ${WARNINGS})
+set_target_properties(hydra-native-patch-bay PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+target_include_directories(hydra-native-patch-bay PRIVATE ${VENDOR}/cjson)
+target_link_libraries(hydra-native-patch-bay PRIVATE datachannel-static pthread)
 
 # ---------------------------------------------------------------- audio input and MIDI
 
@@ -291,19 +302,9 @@ else()
   target_link_libraries(hydra-audio-midi PUBLIC libremidi)
 endif()
 target_compile_options(hydra-audio-midi PRIVATE ${WARNINGS})
-target_compile_definitions(hydra-audio-midi PRIVATE $<$<C_COMPILER_ID:MSVC>:_USE_MATH_DEFINES>)
 target_link_libraries(hydra-audio-midi PUBLIC SDL3::SDL3 gles)
 
-if(WIN32)
-  # No program on Windows yet: QuickJS does not build with MSVC (quickjs-ng replaces it, PORTING.md), and the
-  # program still includes POSIX headers. The window test and the capture tool build.
-  enable_testing()
-  add_test(NAME window COMMAND window-test)
-  set_tests_properties(window PROPERTIES LABELS window)
-  return()
-endif()
-
-# ---------------------------------------------------------------- programs (Linux and macOS)
+# ---------------------------------------------------------------- programs
 
 add_executable(hydra-native src/main.c src/engine.c src/bindings.c src/sandbox.c src/snapshot.c src/code_socket.c
   src/text.c src/video.c src/fetch.c
@@ -313,7 +314,11 @@ target_compile_options(hydra-native PRIVATE ${WARNINGS})
 target_compile_definitions(hydra-native PRIVATE HYDRA_NATIVE_VERSION="${PROJECT_VERSION}")
 target_include_directories(hydra-native PRIVATE ${VENDOR}/stb)
 target_link_libraries(hydra-native PRIVATE quickjs hydra-audio-midi SDL3::SDL3 gles
-  m dl pthread)
+  m ${CMAKE_DL_LIBS} pthread)
+if(WIN32)
+  target_sources(hydra-native PRIVATE assets/icon/hydra-native.rc) # the icon of the file
+  target_link_libraries(hydra-native PRIVATE ws2_32) # the code socket
+endif()
 if(TARGET libremidi) # C++, so the C++ driver links the program
   set_target_properties(hydra-native PROPERTIES LINKER_LANGUAGE CXX)
 endif()
@@ -325,7 +330,7 @@ target_link_libraries(programs-test PRIVATE SDL3::SDL3 gles pthread)
 
 # ---------------------------------------------------------------- JavaScript
 
-find_program(PNPM pnpm REQUIRED)
+find_program(PNPM NAMES pnpm pnpm.cmd REQUIRED)
 set(NODE_MODULES ${CMAKE_SOURCE_DIR}/node_modules)
 add_custom_command(OUTPUT ${NODE_MODULES}/.modules.yaml
   COMMAND ${PNPM} install --frozen-lockfile
@@ -334,7 +339,8 @@ add_custom_command(OUTPUT ${NODE_MODULES}/.modules.yaml
 file(GLOB JS_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/js/*.js ${CMAKE_SOURCE_DIR}/js/hydra-editor/*)
 # The metafile lists the bundled npm packages for the license files of the release archive.
 add_custom_command(OUTPUT ${CMAKE_BINARY_DIR}/hydra-bundle.js ${CMAKE_BINARY_DIR}/hydra-bundle.meta.json
-  COMMAND ${NODE_MODULES}/.bin/esbuild js/main.js --bundle --format=iife --log-level=warning --inject:js/native.js
+  COMMAND ${NODE_MODULES}/.bin/esbuild$<$<BOOL:${WIN32}>:.cmd> js/main.js --bundle --format=iife --log-level=warning
+    --inject:js/native.js
     --outfile=${CMAKE_BINARY_DIR}/hydra-bundle.js --metafile=${CMAKE_BINARY_DIR}/hydra-bundle.meta.json
     --alias:regl=./js/regl-shim.js --alias:raf-loop=./js/raf-loop-shim.js --alias:meyda=./js/meyda-shim.js
   DEPENDS ${JS_SOURCES} ${NODE_MODULES}/.modules.yaml
@@ -344,14 +350,16 @@ add_custom_target(javascript ALL DEPENDS ${CMAKE_BINARY_DIR}/hydra-bundle.js)
 # ---------------------------------------------------------------- tests
 
 enable_testing()
-set(SANITIZERS -fsanitize=address,undefined)
+if(NOT WIN32) # the sanitizer runtimes of llvm-mingw are DLLs outside of the build folder
+  set(SANITIZERS -fsanitize=address,undefined)
+endif()
 
 add_executable(editor-test EXCLUDE_FROM_ALL test/editor_test.c src/editor.c)
 add_executable(ui-test EXCLUDE_FROM_ALL test/ui_test.c src/ui.c src/keymap.c src/editor.c src/settings.c
   src/signature.c)
 add_executable(audio-test EXCLUDE_FROM_ALL test/audio_test.c src/audio_processing.c)
 add_executable(process-test EXCLUDE_FROM_ALL test/process_test.c ${PROCESS_SOURCE})
-target_link_libraries(ui-test PRIVATE quickjs SDL3::SDL3 m dl pthread)
+target_link_libraries(ui-test PRIVATE quickjs SDL3::SDL3 m ${CMAKE_DL_LIBS} pthread)
 target_link_libraries(audio-test PRIVATE m)
 set(UNIT_TESTS editor-test ui-test audio-test process-test)
 if(HYDRA_LINUX)
