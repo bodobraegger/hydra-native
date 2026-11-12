@@ -1,10 +1,12 @@
-// hydra-native-patch-bay: the webRTC patch bay of hydra-native (pb, s0.initStream) on the webrtcbin of GStreamer. It
-// acts as the patch bay of the hydra web editor (src/lib/patch-bay/rtc-patch-bay.js and pb-live.js of
-// https://github.com/hydra-synth/hydra, with the peers of simple-peer 9): socket.io 2 signalling over a WebSocket of
-// libsoup, one webrtcbin per peer, VP8 video in both directions. As in rtc-patch-bay.js, the peer that asks for a
+// hydra-native-patch-bay: the webRTC patch bay of hydra-native (pb, s0.initStream) on libdatachannel. It acts as
+// the patch bay of the hydra web editor (src/lib/patch-bay/rtc-patch-bay.js and pb-live.js of
+// https://github.com/hydra-synth/hydra, with the peers of simple-peer 9): socket.io 2 signalling over a WebSocket,
+// one peer connection per peer, VP8 video in both directions. As in rtc-patch-bay.js, the peer that asks for a
 // stream (initSource) is the initiator: it offers to receive video and opens the data channel, and the other peer
 // answers with its output. A peer that asks for the stream of a peer that it only sends to starts the connection
 // again as the initiator, and then sends its output too.
+// ffmpeg does the video codec: one child encodes the output to VP8 for all peers, and one child per received stream
+// decodes it. The helper puts VP8 into RTP packets and takes it out again (RFC 7741).
 //
 // usage: hydra-native-patch-bay SERVER ROOM SOCKET
 // SOCKET is the path of a local socket for the frames. Each connection starts with one line that names its channel:
@@ -20,48 +22,77 @@
 //                                                    `resized` for a new frame size of a stream sent before
 //   { type: 'video closed', nick }                   the peer of a received stream left
 //   { type: 'broadcast', data }, { type: 'message', data }, { type: 'log', text, error }
+//
+// All work runs on the main thread in a poll loop. The callbacks of libdatachannel come from its threads: they only
+// put events into a queue for the main thread.
+#include <errno.h>
+#include <fcntl.h>
+#include <poll.h>
+#include <pthread.h>
 #include <signal.h>
+#include <stdarg.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <time.h>
 #include <unistd.h>
 
-#include <gio/gunixinputstream.h>
-#include <gio/gunixsocketaddress.h>
-#include <glib-unix.h>
-#include <glib/gstdio.h>
-#include <gst/app/gstappsink.h>
-#include <gst/app/gstappsrc.h>
-#include <gst/gst.h>
-#include <gst/sdp/sdp.h>
-#include <gst/webrtc/webrtc.h>
-#include <json-glib/json-glib.h>
-#include <libsoup/soup.h>
+#include <cJSON.h>
+#include <rtc/rtc.h>
 
-#define PUBLISH_CHECK_MS 500
+#include "patch_bay_websocket.h"
+#include "process.h"
+
 #define MIN_PING_MS 1000 // engine.io gives 25000
+#define MAX_PING_MS 3600000
 #define CLOSE_WAIT_MS 1000 // for the close handshake of the signalling WebSocket
+#define POLL_MS 100 // the resolution of the timers
 #define ID_LENGTH 8 // pb.id, the start of a random UUID as in rtc-patch-bay.js
 #define MAX_FRAME_SIDE 16384
 #define MAX_PEERS 256 // the newest peers of the room in the tables: the signalling server tells no peer that leaves
 #define MAX_UNSENT 256 // packets while the signalling server is not connected; more are dropped
-#define MAX_CONNECTIONS 16 // peer connections at the same time, each a pipeline with threads of its own
+#define MAX_CONNECTIONS 16 // peer connections at the same time
+#define MAX_LINE (1 << 20)
+#define MAX_CHANNEL_LINE 64
+#define MAX_WAITING 8 // local connections that did not send their channel line yet
+#define MAX_WATCHES (8 + MAX_WAITING + 3 * MAX_CONNECTIONS)
+#define MAX_QUEUED_PACKETS 4096 // RTP packets for the main thread; more are dropped
+#define MAX_MID 63
 #define RGBA_BYTES 4
 #define DEFAULT_PAYLOAD_TYPE 96
 #define MAX_PAYLOAD_TYPE 127 // RTP has 7 bits for it
-#define NO_VIDEO (-1)
-#define STUN_SERVER "stun://stun.l.google.com:19302" // the first STUN server of the defaults of simple-peer
+#define STUN_SERVER "stun:stun.l.google.com:19302" // the first STUN server of the defaults of simple-peer
 #define DATA_CHANNEL_LABEL "hydra-native"
-#define VIDEO_CAPS "application/x-rtp,media=video,encoding-name=VP8,clock-rate=90000,payload=%d,rtcp-fb-nack-pli=true"
-// The output frames come with the rows from the bottom (glReadPixels). The queue of appsrc drops the oldest frame
-// when the encoder is slower than hydra-native.
-#define SENDER_PIPELINE                                                                                              \
-    "appsrc name=source is-live=true format=time do-timestamp=true max-buffers=2 leaky-type=downstream"              \
-    " ! videoflip method=vertical-flip ! videoconvert ! vp8enc deadline=1 ! rtpvp8pay pt=%d"
-#define RECEIVER_PIPELINE                                                                                            \
-    "rtpvp8depay ! vp8dec ! videoconvert ! video/x-raw,format=RGBA ! appsink name=sink sync=false max-buffers=1"     \
-    " drop=true"
+#define TRACK_NAME "hydra-native" // the CNAME and the stream id (msid) of the output
+#define TRACK_ID "video"
+// The certificate files of the systems, for the check of a wss:// signalling server: Debian and Ubuntu, Fedora,
+// macOS and others.
+static const char *const CERTIFICATE_FILES[] = { "/etc/ssl/certs/ca-certificates.crt",
+                                                 "/etc/pki/tls/certs/ca-bundle.crt", "/etc/ssl/cert.pem" };
+
+// The video: ffmpeg encodes the output with a keyframe each second, so that a new receiver and a receiver after a
+// lost packet start within a second; the PLI of a receiver does not restart the encoder.
+#define OUTPUT_FPS "25" // RECORD_FPS of src/native.h, the rate of the output frames
+#define KEYFRAME_INTERVAL "25"
+#define VIDEO_BITRATE "2M"
+#define MAX_ENCODED_FRAME (1 << 22)
+#define MAX_DECODER_BACKLOG (1 << 22) // bytes of VP8 that wait for a decoder; more are dropped
+#define IVF_FILE_HEADER 32
+#define IVF_FRAME_HEADER 12
+#define IVF_TIMEBASE 1000
+#define RTP_HEADER 12
+#define RTP_VERSION 2
+#define RTP_CLOCK_KHZ 90 // VP8 uses a clock of 90 kHz
+#define RTP_MARKER 0x80
+#define MAX_RTP_PAYLOAD 1200 // with the headers below the MTU of most paths
+#define NACK_PACKETS 512 // sent packets that a NACK can ask for again
+#define KEYFRAME_REQUEST_MS 1000
+#define VP8_START 0x10 // the S bit of the payload descriptor, partition 0
+#define VP8_KEYFRAME_HEADER 10 // frame tag, start code, width and height
 // Engine.IO 3 packets, and the socket.io 2 packets inside its message packets.
 #define SIGNALLING_PATH "/socket.io/?EIO=3&transport=websocket"
 #define ENGINE_OPEN '0'
@@ -71,315 +102,472 @@
 #define SOCKET_EVENT '2'
 #define SOCKET_EVENT_PREFIX "42"
 
+enum event_type {
+    EVENT_SIGNALLING, // value: enum websocket_event
+    EVENT_DESCRIPTION, // id: the peer connection; text: the type, second: the SDP
+    EVENT_CANDIDATE, // text: the candidate, second: the mid
+    EVENT_STATE, // value: rtcState
+    EVENT_SIGNALING_STATE, // value: rtcSignalingState
+    EVENT_DATA_CHANNEL, // value: the channel of the other peer
+    EVENT_CHANNEL_OPEN, // id: the data channel
+    EVENT_CHANNEL_CLOSED,
+    EVENT_PACKET, // id: the track; text: the RTP packet
+};
+
+struct event {
+    struct event *next;
+    enum event_type type;
+    int id, value;
+    size_t size;
+    const char *second;
+    char text[];
+};
+
+struct buffer {
+    unsigned char *data;
+    size_t start, size, capacity;
+};
+
+// A received stream: RTP packets with VP8 go to an ffmpeg decoder, whose RGBA frames go to hydra-native.
+struct receiver {
+    int number, width, height; // a new frame size gives a new channel name
+    char channel_name[MAX_CHANNEL_LINE];
+    char *nick; // of the 'video' message, NULL before the first frame
+    int connection; // of hydra-native, which reads the frames, or -1
+    struct buffer to_hydra;
+    struct process *decoder;
+    int decoder_input, decoder_output;
+    struct buffer to_decoder;
+    uint32_t decoded_count;
+    unsigned char *frame; // RGBA from the decoder
+    size_t frame_used;
+    unsigned char *encoded; // the VP8 frame of the RTP packets so far
+    size_t encoded_size;
+    bool assembling, sequenced, waiting_keyframe;
+    uint32_t timestamp;
+    uint16_t next_sequence;
+    int64_t keyframe_requested;
+};
+
 struct peer {
     char *id; // the socket id of the other peer
     bool initiator, closed;
-    GstElement *pipeline, *webrtc;
-    GstElement *source; // the appsrc of the output, or NULL while this connection only receives
-    GstWebRTCDataChannel *channel;
-    guint bus_watch;
+    int connection, channel, track; // of libdatachannel, 0 when none
+    char mid[MAX_MID + 1];
+    int payload_type;
+    bool sending, sent_keyframe;
+    uint32_t ssrc;
+    uint16_t sequence;
     bool negotiating, negotiation_queued;
-    // The received stream. A new frame size gives a new channel name.
-    int number, width, height;
-    char *channel_name;
-    char *nick; // of the 'video' message, NULL before the first frame
-    GSocketConnection *connection; // of hydra-native, which reads the frames
-    bool writing;
-    guint8 *frame;
+    struct receiver receiver;
+};
+
+struct video_media {
+    bool found;
+    int payload_type; // of VP8, or -1
+    char mid[MAX_MID + 1];
+    rtcDirection direction;
 };
 
 static const char *server, *room, *socket_path;
-static GMainLoop *loop;
-static bool stopping;
+static bool stopping, quitting;
+static int64_t stop_deadline;
+static volatile sig_atomic_t quit_signal;
 static char own_id[ID_LENGTH + 1];
 static char *nick, *stream_id;
 // The tables of pb-live.js and rtc-patch-bay.js: JSON objects keep the order of their members, as JavaScript does.
-static JsonObject *nick_from_id, *id_from_nick, *peer_list;
-static GHashTable *peers; // socket id -> struct peer, the peer connections (rtcPeers)
+static cJSON *nick_from_id, *id_from_nick, *peer_list;
+static struct peer *peers[MAX_CONNECTIONS]; // the peer connections (rtcPeers)
+static int peer_count;
 static bool publishing;
 static int received_streams;
-static GDataInputStream *input;
 
-static SoupSession *session;
-static SoupWebsocketConnection *signaller;
-static bool connected; // to the socket.io namespace
-static guint ping_timer;
-static GPtrArray *unsent; // event packets before the connection, which socket.io-client also buffers
-
-// The frames of the output come through a GDataInputStream, which reads in a thread of the GLib pool. So each read
-// has a buffer of its own, and a new output cancels the read of the old one instead of closing its socket under it.
 static struct {
-    GSocketConnection *connection;
-    GDataInputStream *input;
-    GCancellable *cancellable;
-    gsize frame_size;
-    GstCaps *caps; // of the newest output, also for the peers that start later
-} output;
+    pthread_mutex_t lock;
+    struct event *first, *last;
+    int packets;
+    int wake[2];
+} events = { .lock = PTHREAD_MUTEX_INITIALIZER, .wake = { -1, -1 } };
+
+static bool connected; // to the socket.io namespace
+static bool signalling_open;
+static int64_t ping_interval, next_ping;
+static char *unsent[MAX_UNSENT]; // event packets before the connection, which socket.io-client also buffers
+static int unsent_count;
+
+static int listener = -1;
+static struct {
+    int stream;
+    size_t used;
+    char line[MAX_CHANNEL_LINE];
+} waiting[MAX_WAITING];
+
+static struct {
+    int stream; // of hydra-native, or -1
+    unsigned char *frame;
+    size_t frame_size, used;
+    struct process *encoder;
+    int encoder_input, encoder_output;
+    struct buffer to_encoder;
+    unsigned char *encoded; // the IVF stream of the encoder
+    size_t encoded_used;
+    bool header_read;
+} output = { .stream = -1, .encoder_input = -1, .encoder_output = -1 };
+
+static struct {
+    struct pollfd fds[MAX_WATCHES];
+    void (*actions[MAX_WATCHES])(void *context);
+    void *contexts[MAX_WATCHES];
+    int count;
+} watches;
+
+static char input_line[MAX_LINE];
+static size_t input_used;
 
 static void peer_close(struct peer *peer);
 static void send_state(void);
 
+// ---------------------------------------------------------------- small helpers
+
+static int64_t now_ms(void) {
+    struct timespec time;
+    clock_gettime(CLOCK_MONOTONIC, &time);
+    return (int64_t)time.tv_sec * 1000 + time.tv_nsec / 1000000;
+}
+
+static uint16_t read16(const unsigned char *bytes) { return (uint16_t)(bytes[0] << 8 | bytes[1]); }
+static uint32_t read32(const unsigned char *bytes) { return (uint32_t)read16(bytes) << 16 | read16(bytes + 2); }
+static uint16_t read16_little(const unsigned char *bytes) { return (uint16_t)(bytes[0] | bytes[1] << 8); }
+
+static void write16(unsigned char *bytes, uint16_t value) {
+    bytes[0] = (unsigned char)(value >> 8);
+    bytes[1] = (unsigned char)value;
+}
+
+static void write32(unsigned char *bytes, uint32_t value) {
+    write16(bytes, (uint16_t)(value >> 16));
+    write16(bytes + 2, (uint16_t)value);
+}
+
+static void write_little(unsigned char *bytes, uint64_t value, int count) {
+    for (int index = 0; index < count; index++) bytes[index] = (unsigned char)(value >> (8 * index));
+}
+
+static void set_nonblocking(int stream) { fcntl(stream, F_SETFL, fcntl(stream, F_GETFL) | O_NONBLOCK); }
+
+static void close_stream(int *stream) {
+    if (*stream >= 0) close(*stream);
+    *stream = -1;
+}
+
+static void buffer_free(struct buffer *buffer) {
+    free(buffer->data);
+    *buffer = (struct buffer){ 0 };
+}
+
+static bool buffer_empty(const struct buffer *buffer) { return buffer->start == buffer->size; }
+
+// Appends `size` bytes, unless the buffer would hold more than `limit` bytes.
+static bool buffer_append(struct buffer *buffer, const void *data, size_t size, size_t limit) {
+    if (buffer->start) {
+        memmove(buffer->data, buffer->data + buffer->start, buffer->size - buffer->start);
+        buffer->size -= buffer->start;
+        buffer->start = 0;
+    }
+    if (buffer->size + size > limit) return false;
+    if (buffer->size + size > buffer->capacity) {
+        unsigned char *grown = realloc(buffer->data, buffer->size + size);
+        if (!grown) return false;
+        buffer->data = grown;
+        buffer->capacity = buffer->size + size;
+    }
+    memcpy(buffer->data + buffer->size, data, size);
+    buffer->size += size;
+    return true;
+}
+
+// Writes as much as the non-blocking stream takes; false when the reader is gone.
+static bool buffer_flush(struct buffer *buffer, int stream) {
+    while (!buffer_empty(buffer)) {
+        ssize_t count = write(stream, buffer->data + buffer->start, buffer->size - buffer->start);
+        if (count < 0) return errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR;
+        buffer->start += (size_t)count;
+    }
+    buffer->start = buffer->size = 0;
+    return true;
+}
+
+static void stop_child(struct process **process, int *input, int *output_stream) {
+    close_stream(input);
+    close_stream(output_stream);
+    process_free(*process);
+    *process = NULL;
+}
+
 // ---------------------------------------------------------------- JSON lines
 
-static JsonNode *object_node(JsonObject *object) {
-    JsonNode *node = json_node_new(JSON_NODE_OBJECT);
-    json_node_take_object(node, object);
-    return node;
+static const char *member_string(const cJSON *object, const char *name) {
+    const cJSON *item = cJSON_GetObjectItemCaseSensitive(object, name);
+    return cJSON_IsString(item) ? item->valuestring : NULL;
 }
 
-static JsonNode *parse_json(const char *text) {
-    JsonParser *parser = json_parser_new();
-    JsonNode *root = json_parser_load_from_data(parser, text, -1, NULL) ? json_parser_steal_root(parser) : NULL;
-    g_object_unref(parser);
-    return root;
+static cJSON *member_object(const cJSON *object, const char *name) {
+    cJSON *item = cJSON_GetObjectItemCaseSensitive(object, name);
+    return cJSON_IsObject(item) ? item : NULL;
 }
 
-static const char *node_string(JsonNode *node) {
-    return node && JSON_NODE_HOLDS_VALUE(node) && json_node_get_value_type(node) == G_TYPE_STRING
-               ? json_node_get_string(node)
-               : NULL;
+static bool has_member(const cJSON *object, const char *name) {
+    return cJSON_GetObjectItemCaseSensitive(object, name) != NULL;
 }
 
-static JsonObject *node_object(JsonNode *node) {
-    return node && JSON_NODE_HOLDS_OBJECT(node) ? json_node_get_object(node) : NULL;
+// Sets a member and keeps its place when it exists, as JavaScript does.
+static void set_member(cJSON *object, const char *name, cJSON *value) {
+    if (has_member(object, name)) cJSON_ReplaceItemInObjectCaseSensitive(object, name, value);
+    else cJSON_AddItemToObject(object, name, value);
 }
 
-static const char *member_string(JsonObject *object, const char *name) {
-    return object ? node_string(json_object_get_member(object, name)) : NULL;
-}
-
-// Writes one line to stdout, from any thread: printf holds the lock of stdout for the whole line.
-static void print_object(JsonObject *object) {
-    JsonNode *node = object_node(object);
-    char *text = json_to_string(node, FALSE);
-    printf("%s\n", text);
+// Writes one line to stdout and frees the object.
+static void print_object(cJSON *object) {
+    char *text = cJSON_PrintUnformatted(object);
+    if (text) printf("%s\n", text);
     fflush(stdout);
-    g_free(text);
-    json_node_unref(node);
+    free(text);
+    cJSON_Delete(object);
 }
 
-static JsonObject *message_new(const char *type) {
-    JsonObject *message = json_object_new();
-    json_object_set_string_member(message, "type", type);
+static cJSON *message_new(const char *type) {
+    cJSON *message = cJSON_CreateObject();
+    cJSON_AddStringToObject(message, "type", type);
     return message;
 }
 
-G_GNUC_PRINTF(2, 3) static void log_text(bool error, const char *format, ...) {
+__attribute__((format(printf, 2, 3))) static void log_text(bool error, const char *format, ...) {
+    char text[1024];
     va_list arguments;
     va_start(arguments, format);
-    char *text = g_strdup_vprintf(format, arguments);
+    vsnprintf(text, sizeof text, format, arguments);
     va_end(arguments);
-    JsonObject *message = message_new("log");
-    json_object_set_string_member(message, "text", text);
-    if (error) json_object_set_boolean_member(message, "error", TRUE);
+    cJSON *message = message_new("log");
+    cJSON_AddStringToObject(message, "text", text);
+    if (error) cJSON_AddTrueToObject(message, "error");
     print_object(message);
-    g_free(text);
 }
 
-static JsonArray *member_names(JsonObject *object) {
-    JsonArray *names = json_array_new();
-    GList *members = json_object_get_members(object);
-    for (GList *item = members; item; item = item->next) json_array_add_string_element(names, item->data);
-    g_list_free(members);
+static cJSON *member_names(const cJSON *object) {
+    cJSON *names = cJSON_CreateArray();
+    for (const cJSON *item = object->child; item; item = item->next)
+        cJSON_AddItemToArray(names, cJSON_CreateString(item->string));
     return names;
 }
 
 static void send_state(void) {
-    JsonObject *state = message_new("state");
-    json_object_set_string_member(state, "id", own_id);
-    if (stream_id) json_object_set_string_member(state, "streamId", stream_id);
-    if (nick) json_object_set_string_member(state, "nick", nick);
-    json_object_set_array_member(state, "nicks", member_names(id_from_nick));
-    json_object_set_array_member(state, "peers", member_names(peer_list));
+    cJSON *state = message_new("state");
+    cJSON_AddStringToObject(state, "id", own_id);
+    if (stream_id) cJSON_AddStringToObject(state, "streamId", stream_id);
+    if (nick) cJSON_AddStringToObject(state, "nick", nick);
+    cJSON_AddItemToObject(state, "nicks", member_names(id_from_nick));
+    cJSON_AddItemToObject(state, "peers", member_names(peer_list));
     print_object(state);
+}
+
+// ---------------------------------------------------------------- the event queue
+
+// Called from the threads of libdatachannel: `text` (with `size` bytes) and `second` are copied.
+static void push_event(enum event_type type, int id, int value, const char *text, size_t size, const char *second) {
+    size_t second_size = second ? strlen(second) + 1 : 0;
+    struct event *event = malloc(sizeof *event + size + 1 + second_size);
+    if (!event) return;
+    *event = (struct event){ .type = type, .id = id, .value = value, .size = size };
+    if (size) memcpy(event->text, text, size);
+    event->text[size] = '\0';
+    if (second) event->second = memcpy(event->text + size + 1, second, second_size);
+    pthread_mutex_lock(&events.lock);
+    bool dropped = type == EVENT_PACKET && events.packets >= MAX_QUEUED_PACKETS;
+    if (!dropped) {
+        if (type == EVENT_PACKET) events.packets++;
+        if (events.last) events.last->next = event;
+        else events.first = event;
+        events.last = event;
+    }
+    pthread_mutex_unlock(&events.lock);
+    if (dropped) return free(event);
+    ssize_t written = write(events.wake[1], "", 1); // a full pipe already wakes the main thread
+    (void)written;
+}
+
+static struct event *pop_event(void) {
+    pthread_mutex_lock(&events.lock);
+    struct event *event = events.first;
+    if (event) {
+        events.first = event->next;
+        if (!events.first) events.last = NULL;
+        if (event->type == EVENT_PACKET) events.packets--;
+    }
+    pthread_mutex_unlock(&events.lock);
+    return event;
+}
+
+static void RTC_API on_description(int pc, const char *sdp, const char *type, void *pointer) {
+    push_event(EVENT_DESCRIPTION, pc, 0, type, strlen(type), sdp);
+}
+
+static void RTC_API on_candidate(int pc, const char *candidate, const char *mid, void *pointer) {
+    push_event(EVENT_CANDIDATE, pc, 0, candidate, strlen(candidate), mid);
+}
+
+static void RTC_API on_state(int pc, rtcState state, void *pointer) {
+    push_event(EVENT_STATE, pc, state, NULL, 0, NULL);
+}
+
+static void RTC_API on_signaling_state(int pc, rtcSignalingState state, void *pointer) {
+    push_event(EVENT_SIGNALING_STATE, pc, state, NULL, 0, NULL);
+}
+
+static void RTC_API on_channel_open(int channel, void *pointer) {
+    push_event(EVENT_CHANNEL_OPEN, channel, 0, NULL, 0, NULL);
+}
+
+static void RTC_API on_channel_closed(int channel, void *pointer) {
+    push_event(EVENT_CHANNEL_CLOSED, channel, 0, NULL, 0, NULL);
+}
+
+// The channel of the initiator arrives open, so its close callback is set here, before the main thread sees it.
+static void RTC_API on_data_channel(int pc, int channel, void *pointer) {
+    rtcSetClosedCallback(channel, on_channel_closed);
+    push_event(EVENT_DATA_CHANNEL, pc, channel, NULL, 0, NULL);
+}
+
+static void RTC_API on_track_message(int track, const char *message, int size, void *pointer) {
+    if (size > 0) push_event(EVENT_PACKET, track, 0, message, (size_t)size, NULL); // size < 0: a text message
+}
+
+static void on_websocket(enum websocket_event event, const char *text, size_t size) {
+    push_event(EVENT_SIGNALLING, 0, event, text, size, NULL);
 }
 
 // ---------------------------------------------------------------- signalling (socket.io 2)
 
 static void send_packet(char *text) {
-    if (connected && soup_websocket_connection_get_state(signaller) == SOUP_WEBSOCKET_STATE_OPEN) {
-        soup_websocket_connection_send_text(signaller, text);
-        g_free(text);
-    } else if (unsent->len < MAX_UNSENT) {
-        g_ptr_array_add(unsent, text);
-    } else {
-        g_free(text);
-    }
+    if (!text) return;
+    if (connected && websocket_send(text)) free(text);
+    else if (!connected && unsent_count < MAX_UNSENT) unsent[unsent_count++] = text;
+    else free(text);
 }
 
 // Emits a socket.io event with one or two arguments, which it takes.
-static void emit_event(const char *name, JsonNode *first, JsonNode *second) {
-    JsonArray *packet = json_array_new();
-    json_array_add_string_element(packet, name);
-    json_array_add_element(packet, first);
-    if (second) json_array_add_element(packet, second);
-    JsonNode *node = json_node_new(JSON_NODE_ARRAY);
-    json_node_take_array(node, packet);
-    char *json = json_to_string(node, FALSE);
-    send_packet(g_strconcat(SOCKET_EVENT_PREFIX, json, NULL));
-    g_free(json);
-    json_node_unref(node);
+static void emit_event(const char *name, cJSON *first, cJSON *second) {
+    cJSON *packet = cJSON_CreateArray();
+    cJSON_AddItemToArray(packet, cJSON_CreateString(name));
+    cJSON_AddItemToArray(packet, first);
+    if (second) cJSON_AddItemToArray(packet, second);
+    char *json = cJSON_PrintUnformatted(packet);
+    cJSON_Delete(packet);
+    if (!json) return;
+    char *text = malloc(strlen(SOCKET_EVENT_PREFIX) + strlen(json) + 1);
+    if (text) sprintf(text, "%s%s", SOCKET_EVENT_PREFIX, json);
+    free(json);
+    send_packet(text);
 }
 
 static void broadcast_nick(const char *previous) {
-    JsonObject *update = message_new("update-nick");
-    json_object_set_string_member(update, "id", own_id);
-    json_object_set_string_member(update, "nick", nick);
-    if (previous) json_object_set_string_member(update, "previous", previous);
-    emit_event("broadcast", object_node(update), NULL);
+    cJSON *update = message_new("update-nick");
+    cJSON_AddStringToObject(update, "id", own_id);
+    cJSON_AddStringToObject(update, "nick", nick);
+    if (previous) cJSON_AddStringToObject(update, "previous", previous);
+    emit_event("broadcast", update, NULL);
 }
 
 static void set_name(const char *name) {
     char *previous = nick;
-    nick = g_strdup(name);
-    broadcast_nick(previous);
-    g_free(previous);
+    nick = strdup(name);
+    if (nick) broadcast_nick(previous);
+    free(previous);
 }
 
 static void forget_peer(const char *id) {
     const char *name = member_string(nick_from_id, id);
-    if (name && !g_strcmp0(member_string(id_from_nick, name), id)) json_object_remove_member(id_from_nick, name);
-    json_object_remove_member(nick_from_id, id);
-    json_object_remove_member(peer_list, id);
+    const char *named = name ? member_string(id_from_nick, name) : NULL;
+    if (named && !strcmp(named, id)) cJSON_DeleteItemFromObjectCaseSensitive(id_from_nick, name);
+    cJSON_DeleteItemFromObjectCaseSensitive(nick_from_id, id);
+    cJSON_DeleteItemFromObjectCaseSensitive(peer_list, id);
 }
 
 static void new_peer(const char *id) {
-    if (!json_object_has_member(peer_list, id) && json_object_get_size(peer_list) >= MAX_PEERS) {
-        GList *members = json_object_get_members(peer_list);
-        forget_peer(members->data);
-        g_list_free(members);
+    if (!has_member(peer_list, id) && cJSON_GetArraySize(peer_list) >= MAX_PEERS) {
+        char *oldest = strdup(peer_list->child->string);
+        if (oldest) forget_peer(oldest);
+        free(oldest);
     }
-    json_object_set_null_member(peer_list, id);
-    json_object_set_string_member(nick_from_id, id, id);
-    json_object_set_string_member(id_from_nick, id, id);
+    set_member(peer_list, id, cJSON_CreateNull());
+    set_member(nick_from_id, id, cJSON_CreateString(id));
+    set_member(id_from_nick, id, cJSON_CreateString(id));
     if (nick) broadcast_nick(NULL);
 }
 
-static void receive_broadcast(JsonNode *data) {
-    JsonObject *message = message_new("broadcast");
-    json_object_set_member(message, "data", json_node_copy(data));
+static void receive_broadcast(const cJSON *data) {
+    cJSON *message = message_new("broadcast");
+    cJSON_AddItemToObject(message, "data", cJSON_Duplicate(data, true));
     print_object(message);
-    JsonObject *update = node_object(data);
-    const char *id = member_string(update, "id"), *name = member_string(update, "nick");
-    if (g_strcmp0(member_string(update, "type"), "update-nick") || !id || !name ||
-        !json_object_has_member(peer_list, id) || !g_strcmp0(member_string(update, "previous"), name))
+    const char *type = member_string(data, "type"), *id = member_string(data, "id");
+    const char *name = member_string(data, "nick"), *previous = member_string(data, "previous");
+    if (!type || strcmp(type, "update-nick") || !id || !name || !has_member(peer_list, id) ||
+        (previous && !strcmp(previous, name)))
         return;
     const char *old = member_string(nick_from_id, id);
-    if (old) json_object_remove_member(id_from_nick, old);
-    json_object_set_string_member(nick_from_id, id, name);
-    json_object_set_string_member(id_from_nick, name, id);
+    if (old) cJSON_DeleteItemFromObjectCaseSensitive(id_from_nick, old);
+    set_member(nick_from_id, id, cJSON_CreateString(name));
+    set_member(id_from_nick, name, cJSON_CreateString(id));
 }
 
-// ---------------------------------------------------------------- peers on webrtcbin
+// ---------------------------------------------------------------- peers on libdatachannel
 
-typedef void (*peer_task)(struct peer *peer, gpointer data);
-
-struct task {
-    struct peer *peer;
-    peer_task run;
-    gpointer data;
-    GDestroyNotify free_data;
-};
-
-static void peer_clear(gpointer pointer) {
-    struct peer *peer = pointer;
-    g_free(peer->id);
-    g_free(peer->channel_name);
-    g_free(peer->nick);
-    g_free(peer->frame);
-    if (peer->source) gst_object_unref(peer->source);
-    if (peer->channel) g_object_unref(peer->channel);
-    gst_object_unref(peer->webrtc);
-    gst_object_unref(peer->pipeline);
+static void send_signal(struct peer *peer, cJSON *signal) {
+    cJSON *message = cJSON_CreateObject();
+    cJSON_AddStringToObject(message, "id", peer->id);
+    cJSON_AddItemToObject(message, "message", signal);
+    cJSON_AddStringToObject(message, "type", "signal");
+    emit_event("message", message, NULL);
 }
 
-static struct peer *peer_acquire(struct peer *peer) { return g_atomic_rc_box_acquire(peer); }
-static void peer_release(gpointer peer) { g_atomic_rc_box_release_full(peer, peer_clear); }
-
-static gboolean run_task(gpointer pointer) {
-    struct task *task = pointer;
-    if (!task->peer->closed) task->run(task->peer, task->data);
-    return G_SOURCE_REMOVE;
+static struct peer *peer_with_id(const char *id) {
+    for (int index = 0; index < peer_count; index++)
+        if (!strcmp(peers[index]->id, id)) return peers[index];
+    return NULL;
 }
 
-static void free_task(gpointer pointer) {
-    struct task *task = pointer;
-    if (task->free_data) task->free_data(task->data);
-    peer_release(task->peer);
-    g_free(task);
+static struct peer *peer_with_connection(int connection) {
+    for (int index = 0; index < peer_count; index++)
+        if (peers[index]->connection == connection) return peers[index];
+    return NULL;
 }
 
-// Runs `run` on the main thread: webrtcbin and the streaming threads of GStreamer call from threads of their own.
-static void schedule(struct peer *peer, peer_task run, gpointer data, GDestroyNotify free_data) {
-    struct task *task = g_new(struct task, 1);
-    *task = (struct task){ peer_acquire(peer), run, data, free_data };
-    g_idle_add_full(G_PRIORITY_DEFAULT, run_task, task, free_task);
+static struct peer *peer_with_channel(int channel) {
+    for (int index = 0; index < peer_count; index++)
+        if (peers[index]->channel == channel) return peers[index];
+    return NULL;
 }
 
-static void send_signal(struct peer *peer, gpointer signal) {
-    JsonObject *message = json_object_new();
-    json_object_set_string_member(message, "id", peer->id);
-    json_object_set_member(message, "message", json_node_copy(signal));
-    json_object_set_string_member(message, "type", "signal");
-    emit_event("message", object_node(message), NULL);
+static struct peer *peer_with_track(int track) {
+    for (int index = 0; index < peer_count; index++)
+        if (peers[index]->track == track) return peers[index];
+    return NULL;
 }
 
-static void schedule_signal(struct peer *peer, JsonObject *signal) {
-    schedule(peer, send_signal, object_node(signal), (GDestroyNotify)json_node_unref);
-}
-
-static GstCaps *video_caps(int payload_type) {
-    char *text = g_strdup_printf(VIDEO_CAPS, payload_type);
-    GstCaps *caps = gst_caps_from_string(text);
-    g_free(text);
-    return caps;
-}
-
-static void close_connection(GSocketConnection **connection) {
-    if (!*connection) return;
-    g_socket_close(g_socket_connection_get_socket(*connection), NULL);
-    g_clear_object(connection);
+static struct peer *peer_with_channel_name(const char *name) {
+    for (int index = 0; index < peer_count; index++)
+        if (!strcmp(peers[index]->receiver.channel_name, name)) return peers[index];
+    return NULL;
 }
 
 // simple-peer: a peer that answers an offer without video asks the initiator for a video transceiver. The web
 // editor offers only the data channel, because simple-peer 9 ignores its offerConstraints.
-static void request_video(struct peer *peer, gpointer data) {
-    if (peer->source) return;
-    JsonObject *request = json_object_new();
-    json_object_set_string_member(request, "kind", "video");
-    JsonObject *signal = message_new("transceiverRequest");
-    json_object_set_object_member(signal, "transceiverRequest", request);
-    JsonNode *node = object_node(signal);
-    send_signal(peer, node);
-    json_node_unref(node);
-}
-
-// An offer or an answer of webrtcbin: it becomes the local description and goes to the peer.
-static void on_description_created(GstPromise *promise, gpointer data) {
-    struct peer *peer = data;
-    bool replied = gst_promise_wait(promise) == GST_PROMISE_RESULT_REPLIED;
-    const GstStructure *reply = replied ? gst_promise_get_reply(promise) : NULL;
-    const char *field = reply && gst_structure_has_field(reply, "offer") ? "offer" : "answer";
-    GstWebRTCSessionDescription *description = NULL;
-    if (reply) gst_structure_get(reply, field, GST_TYPE_WEBRTC_SESSION_DESCRIPTION, &description, NULL);
-    gst_promise_unref(promise);
-    if (!description) {
-        log_text(true, "webrtcbin made no %s", field);
-        return;
-    }
-    g_signal_emit_by_name(peer->webrtc, "set-local-description", description, NULL);
-    bool answer = description->type == GST_WEBRTC_SDP_TYPE_ANSWER;
-    JsonObject *signal = message_new(gst_webrtc_sdp_type_to_string(description->type));
-    char *sdp = gst_sdp_message_as_text(description->sdp);
-    json_object_set_string_member(signal, "sdp", sdp);
-    g_free(sdp);
-    gst_webrtc_session_description_free(description);
-    schedule_signal(peer, signal);
-    if (answer) schedule(peer, request_video, NULL, NULL);
-}
-
-static GstPromise *description_promise(struct peer *peer) {
-    return gst_promise_new_with_change_func(on_description_created, peer_acquire(peer), peer_release);
+static void request_video(struct peer *peer) {
+    if (peer->sending) return;
+    cJSON *request = cJSON_CreateObject();
+    cJSON_AddStringToObject(request, "kind", "video");
+    cJSON *signal = message_new("transceiverRequest");
+    cJSON_AddItemToObject(signal, "transceiverRequest", request);
+    send_signal(peer, signal);
 }
 
 // simple-peer: an initiator queues a negotiation that comes during another one.
@@ -389,377 +577,514 @@ static void negotiate(struct peer *peer) {
         return;
     }
     peer->negotiating = true;
-    g_signal_emit_by_name(peer->webrtc, "create-offer", NULL, description_promise(peer));
-}
-
-static void start_negotiation(struct peer *peer, gpointer data) {
-    if (peer->initiator) negotiate(peer);
-}
-
-static void check_signaling_state(struct peer *peer, gpointer data) {
-    GstWebRTCSignalingState state;
-    g_object_get(peer->webrtc, "signaling-state", &state, NULL);
-    if (state != GST_WEBRTC_SIGNALING_STATE_STABLE) return;
-    peer->negotiating = false;
-    if (!peer->negotiation_queued) return;
-    peer->negotiation_queued = false;
-    negotiate(peer);
-}
-
-static void check_ice_state(struct peer *peer, gpointer data) {
-    GstWebRTCICEConnectionState state;
-    g_object_get(peer->webrtc, "ice-connection-state", &state, NULL);
-    if (state == GST_WEBRTC_ICE_CONNECTION_STATE_FAILED || state == GST_WEBRTC_ICE_CONNECTION_STATE_CLOSED)
-        peer_close(peer);
-}
-
-static void close_peer_task(struct peer *peer, gpointer data) { peer_close(peer); }
-static void connected_task(struct peer *peer, gpointer data) { send_state(); }
-
-static void on_negotiation_needed(GstElement *webrtc, gpointer peer) { schedule(peer, start_negotiation, NULL, NULL); }
-
-static void on_signaling_state(GObject *webrtc, GParamSpec *property, gpointer peer) {
-    schedule(peer, check_signaling_state, NULL, NULL);
-}
-
-static void on_ice_state(GObject *webrtc, GParamSpec *property, gpointer peer) {
-    schedule(peer, check_ice_state, NULL, NULL);
-}
-
-static void on_ice_candidate(GstElement *webrtc, guint line, const char *text, gpointer peer) {
-    JsonObject *candidate = json_object_new();
-    json_object_set_string_member(candidate, "candidate", text);
-    json_object_set_int_member(candidate, "sdpMLineIndex", line);
-    GstWebRTCSessionDescription *local = NULL;
-    g_object_get(webrtc, "local-description", &local, NULL);
-    if (local && line < gst_sdp_message_medias_len(local->sdp)) {
-        const char *mid = gst_sdp_media_get_attribute_val(gst_sdp_message_get_media(local->sdp, line), "mid");
-        if (mid) json_object_set_string_member(candidate, "sdpMid", mid);
+    if (rtcSetLocalDescription(peer->connection, "offer") < 0) {
+        peer->negotiating = false;
+        log_text(true, "cannot make an offer for %s", peer->id);
     }
-    if (local) gst_webrtc_session_description_free(local);
-    JsonObject *signal = message_new("candidate");
-    json_object_set_object_member(signal, "candidate", candidate);
-    schedule_signal(peer, signal);
 }
 
-static void on_channel_open(GstWebRTCDataChannel *channel, gpointer peer) {
-    schedule(peer, connected_task, NULL, NULL);
-}
-
-static void on_channel_close(GstWebRTCDataChannel *channel, gpointer peer) {
-    schedule(peer, close_peer_task, NULL, NULL);
-}
-
-static void watch_channel(struct peer *peer) {
-    g_signal_connect(peer->channel, "on-open", G_CALLBACK(on_channel_open), peer);
-    g_signal_connect(peer->channel, "on-close", G_CALLBACK(on_channel_close), peer);
-}
-
-// The data channel of the initiator (simple-peer) arrives open: it counts as the connection.
-static void adopt_channel(struct peer *peer, gpointer channel) {
-    if (peer->channel) return;
-    peer->channel = g_object_ref(channel);
-    watch_channel(peer);
-    send_state();
-}
-
-static void on_data_channel(GstElement *webrtc, GstWebRTCDataChannel *channel, gpointer peer) {
-    schedule(peer, adopt_channel, g_object_ref(channel), g_object_unref);
-}
-
-static void on_frame_written(GObject *source, GAsyncResult *result, gpointer data) {
-    struct peer *peer = data;
-    bool written = g_output_stream_write_all_finish(G_OUTPUT_STREAM(source), result, NULL, NULL);
-    peer->writing = false;
-    if (!written && peer->connection &&
-        source == G_OBJECT(g_io_stream_get_output_stream(G_IO_STREAM(peer->connection))))
-        close_connection(&peer->connection);
-    peer_release(peer);
-}
-
-// The first frame of a stream announces it as 'got video' of pb-live.js; a new frame size opens a new channel.
-static void open_channel(struct peer *peer, int width, int height) {
-    close_connection(&peer->connection);
-    if (!peer->number) peer->number = ++received_streams;
-    peer->width = width;
-    peer->height = height;
-    g_free(peer->channel_name);
-    peer->channel_name = g_strdup_printf("stream-%d-%dx%d", peer->number, width, height);
-    peer->frame = g_realloc(peer->frame, (gsize)width * height * RGBA_BYTES);
-    JsonObject *message = message_new("video");
-    if (peer->nick) json_object_set_boolean_member(message, "resized", TRUE);
-    else peer->nick = g_strdup(json_object_get_string_member_with_default(nick_from_id, peer->id, peer->id));
-    json_object_set_string_member(message, "nick", peer->nick);
-    json_object_set_string_member(message, "channel", peer->channel_name);
-    json_object_set_int_member(message, "width", width);
-    json_object_set_int_member(message, "height", height);
-    print_object(message);
-}
-
-static void receive_frame(struct peer *peer, gpointer sample) {
-    const GstStructure *format = gst_caps_get_structure(gst_sample_get_caps(sample), 0);
-    int width = 0, height = 0;
-    gst_structure_get_int(format, "width", &width);
-    gst_structure_get_int(format, "height", &height);
-    if (width <= 0 || height <= 0) return;
-    if (!peer->channel_name || width != peer->width || height != peer->height) open_channel(peer, width, height);
-    // Not connected (yet), or hydra-native reads slower than frames come: drop this frame.
-    if (!peer->connection || peer->writing) return;
-    gsize size = (gsize)width * height * RGBA_BYTES;
-    if (gst_buffer_extract(gst_sample_get_buffer(sample), 0, peer->frame, size) != size) return;
-    peer->writing = true;
-    g_output_stream_write_all_async(g_io_stream_get_output_stream(G_IO_STREAM(peer->connection)), peer->frame, size,
-                                    G_PRIORITY_DEFAULT, NULL, on_frame_written, peer_acquire(peer));
-}
-
-static GstFlowReturn on_sample(GstAppSink *sink, gpointer peer) {
-    GstSample *sample = gst_app_sink_pull_sample(sink);
-    if (sample) schedule(peer, receive_frame, sample, (GDestroyNotify)gst_sample_unref);
-    return GST_FLOW_OK;
-}
-
-static void on_pad_added(GstElement *webrtc, GstPad *pad, gpointer data) {
-    struct peer *peer = data;
-    if (GST_PAD_DIRECTION(pad) != GST_PAD_SRC) return;
-    GstCaps *caps = gst_pad_get_current_caps(pad);
-    const char *encoding = caps ? gst_structure_get_string(gst_caps_get_structure(caps, 0), "encoding-name") : NULL;
-    bool video = encoding && !g_ascii_strcasecmp(encoding, "VP8");
-    if (caps) gst_caps_unref(caps);
-    GError *error = NULL;
-    GstElement *receiver = gst_parse_bin_from_description(video ? RECEIVER_PIPELINE : "fakesink", TRUE, &error);
-    if (!receiver) {
-        log_text(true, "cannot receive the stream: %s", error->message);
-        g_error_free(error);
-        return;
+// The video track of the connection, with the payload type of VP8 that the offer gives; `mid` NULL for a new one.
+static bool add_track(struct peer *peer, const char *mid, rtcDirection direction, int payload_type) {
+    peer->ssrc = arc4random();
+    rtcTrackInit init = { .direction = direction, .codec = RTC_CODEC_VP8, .payloadType = payload_type,
+                          .ssrc = peer->ssrc, .mid = mid, .name = TRACK_NAME, .msid = TRACK_NAME,
+                          .trackId = TRACK_ID };
+    int track = rtcAddTrackEx(peer->connection, &init);
+    if (track < 0) {
+        log_text(true, "cannot add the video of %s", peer->id);
+        return false;
     }
-    if (video) {
-        GstElement *sink = gst_bin_get_by_name(GST_BIN(receiver), "sink");
-        GstAppSinkCallbacks callbacks = { .new_sample = on_sample };
-        gst_app_sink_set_callbacks(GST_APP_SINK(sink), &callbacks, peer, NULL);
-        gst_object_unref(sink);
-    }
-    gst_bin_add(GST_BIN(peer->pipeline), receiver);
-    gst_element_sync_state_with_parent(receiver);
-    GstPad *sink_pad = gst_element_get_static_pad(receiver, "sink");
-    if (gst_pad_link(pad, sink_pad) != GST_PAD_LINK_OK) log_text(true, "cannot link the received stream");
-    gst_object_unref(sink_pad);
+    peer->track = track;
+    peer->payload_type = payload_type;
+    peer->sending = direction == RTC_DIRECTION_SENDONLY || direction == RTC_DIRECTION_SENDRECV;
+    peer->receiver.waiting_keyframe = true;
+    rtcGetTrackMid(track, peer->mid, sizeof peer->mid);
+    rtcChainRtcpReceivingSession(track); // receiver reports, and the PLI of rtcRequestKeyframe
+    if (peer->sending) rtcChainRtcpNackResponder(track, NACK_PACKETS);
+    rtcSetMessageCallback(track, on_track_message);
+    return true;
 }
 
-static gboolean on_bus_message(GstBus *bus, GstMessage *message, gpointer data) {
-    if (GST_MESSAGE_TYPE(message) != GST_MESSAGE_ERROR) return G_SOURCE_CONTINUE;
-    GError *error = NULL;
-    gst_message_parse_error(message, &error, NULL);
-    log_text(true, "%s: %s", GST_OBJECT_NAME(message->src), error->message);
-    g_error_free(error);
-    return G_SOURCE_CONTINUE;
-}
-
-static void set_codec(GstWebRTCRTPTransceiver *transceiver, int payload_type) {
-    GstCaps *caps = video_caps(payload_type);
-    g_object_set(transceiver, "codec-preferences", caps, NULL);
-    gst_caps_unref(caps);
-}
-
-static bool has_transceiver(struct peer *peer) {
-    GstWebRTCRTPTransceiver *transceiver = NULL;
-    g_signal_emit_by_name(peer->webrtc, "get-transceiver", 0, &transceiver);
-    if (transceiver) gst_object_unref(transceiver);
-    return transceiver != NULL;
-}
-
-static void add_receiver(struct peer *peer) {
-    GstCaps *caps = video_caps(DEFAULT_PAYLOAD_TYPE);
-    GstWebRTCRTPTransceiver *transceiver = NULL;
-    g_signal_emit_by_name(peer->webrtc, "add-transceiver", GST_WEBRTC_RTP_TRANSCEIVER_DIRECTION_RECVONLY, caps,
-                          &transceiver);
-    gst_caps_unref(caps);
-    if (transceiver) gst_object_unref(transceiver);
-}
-
-// The output of hydra-native to the peer, with the payload type of VP8 in the offer of the peer.
-static void add_sender(struct peer *peer, int payload_type) {
-    char *description = g_strdup_printf(SENDER_PIPELINE, payload_type);
-    GError *error = NULL;
-    GstElement *sender = gst_parse_bin_from_description(description, TRUE, &error);
-    g_free(description);
-    if (!sender) {
-        log_text(true, "cannot send the output: %s", error->message);
-        g_error_free(error);
-        return;
-    }
-    peer->source = gst_bin_get_by_name(GST_BIN(sender), "source");
-    if (output.caps) gst_app_src_set_caps(GST_APP_SRC(peer->source), output.caps);
-    gst_bin_add(GST_BIN(peer->pipeline), sender);
-    GstPad *pad = gst_element_request_pad_simple(peer->webrtc, "sink_%u");
-    GstPad *source_pad = gst_element_get_static_pad(sender, "src");
-    if (gst_pad_link(source_pad, pad) != GST_PAD_LINK_OK) log_text(true, "cannot link the output");
-    GstWebRTCRTPTransceiver *transceiver = NULL;
-    g_object_get(pad, "transceiver", &transceiver, NULL);
-    set_codec(transceiver, payload_type);
-    if (peer->initiator) g_object_set(transceiver, "direction", GST_WEBRTC_RTP_TRANSCEIVER_DIRECTION_SENDRECV, NULL);
-    gst_object_unref(transceiver);
-    gst_object_unref(source_pad);
-    gst_object_unref(pad);
-    gst_element_sync_state_with_parent(sender);
-}
-
-// The payload type of VP8 in a description, DEFAULT_PAYLOAD_TYPE for video without VP8, or NO_VIDEO.
-static int vp8_payload_type(const GstSDPMessage *sdp) {
-    int found = NO_VIDEO;
-    for (guint index = 0; index < gst_sdp_message_medias_len(sdp); index++) {
-        const GstSDPMedia *media = gst_sdp_message_get_media(sdp, index);
-        if (g_strcmp0(gst_sdp_media_get_media(media), "video")) continue;
-        found = DEFAULT_PAYLOAD_TYPE;
-        for (guint attribute = 0; attribute < gst_sdp_media_attributes_len(media); attribute++) {
-            const GstSDPAttribute *map = gst_sdp_media_get_attribute(media, attribute);
-            int payload_type;
+// The first video section of a description: its mid, direction and the payload type of VP8.
+static struct video_media find_video(const char *sdp) {
+    struct video_media video = { .payload_type = -1, .direction = RTC_DIRECTION_SENDRECV };
+    bool inside = false;
+    for (const char *line = sdp; *line;) {
+        size_t length = strcspn(line, "\r\n");
+        if (!strncmp(line, "m=", 2)) {
+            if (video.found) break;
+            inside = !strncmp(line, "m=video ", 8);
+            video.found = inside;
+        } else if (inside) {
+            int payload_type, used = 0;
             char encoding[16];
-            if (!g_strcmp0(map->key, "rtpmap") && map->value &&
-                sscanf(map->value, "%d %15[^/]", &payload_type, encoding) == 2 && payload_type >= 0 &&
-                payload_type <= MAX_PAYLOAD_TYPE && !g_ascii_strcasecmp(encoding, "VP8"))
-                return payload_type;
+            if (!strncmp(line, "a=mid:", 6) && length - 6 <= MAX_MID) {
+                memcpy(video.mid, line + 6, length - 6);
+                video.mid[length - 6] = '\0';
+            } else if (video.payload_type < 0 && sscanf(line, "a=rtpmap:%d %15[^/\r\n]%n", &payload_type, encoding,
+                                                        &used) == 2 && (size_t)used <= length && payload_type >= 0 &&
+                       payload_type <= MAX_PAYLOAD_TYPE && !strcasecmp(encoding, "VP8")) {
+                video.payload_type = payload_type;
+            } else if (!strncmp(line, "a=sendonly", length) && length == 10) {
+                video.direction = RTC_DIRECTION_RECVONLY; // the direction of the answer
+            } else if (!strncmp(line, "a=recvonly", length) && length == 10) {
+                video.direction = RTC_DIRECTION_SENDONLY;
+            } else if (!strncmp(line, "a=inactive", length) && length == 10) {
+                video.direction = RTC_DIRECTION_INACTIVE;
+            }
         }
+        line += length;
+        while (*line == '\r' || *line == '\n') line++;
     }
-    return found;
+    return video;
 }
 
-static void on_remote_offer_set(GstPromise *promise, gpointer peer) {
-    bool replied = gst_promise_wait(promise) == GST_PROMISE_RESULT_REPLIED;
-    const GstStructure *reply = replied ? gst_promise_get_reply(promise) : NULL;
-    bool failed = !replied || (reply && gst_structure_has_field(reply, "error"));
-    gst_promise_unref(promise);
-    if (failed) log_text(true, "webrtcbin refused the offer of the peer");
-    else g_signal_emit_by_name(((struct peer *)peer)->webrtc, "create-answer", NULL, description_promise(peer));
-}
-
-static void set_remote_description(struct peer *peer, const char *type, const char *text) {
-    GstWebRTCSDPType sdp_type = !g_strcmp0(type, "offer")    ? GST_WEBRTC_SDP_TYPE_OFFER
-                                : !g_strcmp0(type, "answer") ? GST_WEBRTC_SDP_TYPE_ANSWER
-                                                             : 0;
-    GstSDPMessage *sdp = NULL;
-    if (!sdp_type || gst_sdp_message_new_from_text(text, &sdp) != GST_SDP_OK) {
-        log_text(true, "a signal with an invalid description");
-        if (sdp) gst_sdp_message_free(sdp);
+// An offer of the initiator: a non-initiator answers it with its output where the offer has video.
+static void receive_offer(struct peer *peer, const char *sdp) {
+    struct video_media video = find_video(sdp);
+    if (rtcSetRemoteDescription(peer->connection, sdp, "offer") < 0) {
+        log_text(true, "the offer of %s is invalid", peer->id);
         return;
     }
-    int payload_type = sdp_type == GST_WEBRTC_SDP_TYPE_OFFER ? vp8_payload_type(sdp) : NO_VIDEO;
-    if (payload_type != NO_VIDEO && !peer->initiator && !peer->source) add_sender(peer, payload_type);
-    GstWebRTCSessionDescription *description = gst_webrtc_session_description_new(sdp_type, sdp);
-    GstPromise *promise = sdp_type == GST_WEBRTC_SDP_TYPE_OFFER
-                              ? gst_promise_new_with_change_func(on_remote_offer_set, peer_acquire(peer), peer_release)
-                              : NULL;
-    g_signal_emit_by_name(peer->webrtc, "set-remote-description", description, promise);
-    gst_webrtc_session_description_free(description);
+    if (video.found && video.payload_type < 0) log_text(true, "the video of %s is not VP8", peer->id);
+    else if (video.found && !video.mid[0]) log_text(true, "the video of %s has no mid", peer->id);
+    else if (video.found && (!peer->track || strcmp(peer->mid, video.mid)))
+        add_track(peer, video.mid, video.direction, video.payload_type);
+    if (rtcSetLocalDescription(peer->connection, "answer") < 0) log_text(true, "cannot answer %s", peer->id);
 }
 
 // A signal of simple-peer: a description, a candidate, or a request of the non-initiator to negotiate again.
-static void peer_signal(struct peer *peer, JsonObject *signal) {
-    JsonNode *renegotiate = json_object_get_member(signal, "renegotiate");
-    if (peer->initiator && renegotiate && JSON_NODE_HOLDS_VALUE(renegotiate) && json_node_get_boolean(renegotiate))
-        negotiate(peer);
-    JsonObject *request = node_object(json_object_get_member(signal, "transceiverRequest"));
-    // An initiator has its video transceiver from the start: a request adds one only if that failed.
+static void peer_signal(struct peer *peer, const cJSON *signal) {
+    if (peer->initiator && cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(signal, "renegotiate"))) negotiate(peer);
+    const cJSON *request = member_object(signal, "transceiverRequest");
+    // An initiator has its video track from the start: a request adds one only if that failed.
     if (peer->initiator && request) {
-        if (g_strcmp0(member_string(request, "kind"), "video")) log_text(false, "the patch bay receives only video");
-        else if (!has_transceiver(peer)) add_receiver(peer); // webrtcbin then negotiates
+        const char *kind = member_string(request, "kind");
+        if (!kind || strcmp(kind, "video")) log_text(false, "the patch bay receives only video");
+        else if (!peer->track && add_track(peer, NULL, RTC_DIRECTION_RECVONLY, DEFAULT_PAYLOAD_TYPE)) negotiate(peer);
     }
-    JsonObject *candidate = node_object(json_object_get_member(signal, "candidate"));
+    const cJSON *candidate = member_object(signal, "candidate");
     const char *text = member_string(candidate, "candidate");
-    if (text && text[0]) {
-        guint line = (guint)json_object_get_int_member_with_default(candidate, "sdpMLineIndex", 0);
-        g_signal_emit_by_name(peer->webrtc, "add-ice-candidate", line, text);
-    }
-    const char *sdp = member_string(signal, "sdp");
-    if (sdp) set_remote_description(peer, member_string(signal, "type"), sdp);
+    if (text && text[0] && rtcAddRemoteCandidate(peer->connection, text, member_string(candidate, "sdpMid")) < 0)
+        log_text(true, "an invalid candidate of %s", peer->id);
+    const char *sdp = member_string(signal, "sdp"), *type = member_string(signal, "type");
+    if (!sdp) return;
+    if (type && !strcmp(type, "offer")) receive_offer(peer, sdp);
+    else if (type && !strcmp(type, "answer") && rtcSetRemoteDescription(peer->connection, sdp, "answer") >= 0) return;
+    else log_text(true, "an invalid description of %s", peer->id);
 }
 
 static struct peer *peer_create(const char *id, bool initiator, bool send) {
-    if (g_hash_table_size(peers) >= MAX_CONNECTIONS) {
+    if (peer_count >= MAX_CONNECTIONS) {
         log_text(true, "no connection to %s: the patch bay has %d connections", id, MAX_CONNECTIONS);
         return NULL;
     }
-    GstElement *webrtc = gst_element_factory_make("webrtcbin", NULL);
-    if (!webrtc) {
-        log_text(true, "no webrtcbin: install gstreamer1.0-plugins-bad and gstreamer1.0-nice");
+    const char *ice_servers[] = { STUN_SERVER };
+    rtcConfiguration configuration = { .iceServers = ice_servers, .iceServersCount = 1,
+                                       .disableAutoNegotiation = true,
+                                       // simple-peer adds the video in a later negotiation than the data channel
+                                       .forceMediaTransport = true };
+    int connection = rtcCreatePeerConnection(&configuration);
+    struct peer *peer = connection < 0 ? NULL : calloc(1, sizeof *peer);
+    char *copy = peer ? strdup(id) : NULL;
+    if (!copy) {
+        if (connection >= 0) rtcDeletePeerConnection(connection);
+        free(peer);
+        log_text(true, "cannot connect to %s", id);
         return NULL;
     }
-    struct peer *peer = g_atomic_rc_box_new0(struct peer);
-    peer->id = g_strdup(id);
+    peer->id = copy;
     peer->initiator = initiator;
-    peer->pipeline = gst_pipeline_new(NULL);
-    peer->webrtc = gst_object_ref(webrtc);
-    g_object_set(webrtc, "bundle-policy", GST_WEBRTC_BUNDLE_POLICY_MAX_BUNDLE, "stun-server", STUN_SERVER, NULL);
-    gst_bin_add(GST_BIN(peer->pipeline), webrtc);
-    g_signal_connect(webrtc, "on-negotiation-needed", G_CALLBACK(on_negotiation_needed), peer);
-    g_signal_connect(webrtc, "on-ice-candidate", G_CALLBACK(on_ice_candidate), peer);
-    g_signal_connect(webrtc, "notify::signaling-state", G_CALLBACK(on_signaling_state), peer);
-    g_signal_connect(webrtc, "notify::ice-connection-state", G_CALLBACK(on_ice_state), peer);
-    g_signal_connect(webrtc, "on-data-channel", G_CALLBACK(on_data_channel), peer);
-    g_signal_connect(webrtc, "pad-added", G_CALLBACK(on_pad_added), peer);
-    GstBus *bus = gst_element_get_bus(peer->pipeline);
-    peer->bus_watch = gst_bus_add_watch(bus, on_bus_message, peer);
-    gst_object_unref(bus);
-    g_hash_table_insert(peers, peer->id, peer);
+    peer->connection = connection;
+    peer->receiver.connection = peer->receiver.decoder_input = peer->receiver.decoder_output = -1;
+    peers[peer_count++] = peer;
+    rtcSetLocalDescriptionCallback(connection, on_description);
+    rtcSetLocalCandidateCallback(connection, on_candidate);
+    rtcSetStateChangeCallback(connection, on_state);
+    rtcSetSignalingStateChangeCallback(connection, on_signaling_state);
+    rtcSetDataChannelCallback(connection, on_data_channel);
     // A non-initiator adds its output when an offer with video comes, with the payload type of the offer.
-    if (initiator && send) add_sender(peer, DEFAULT_PAYLOAD_TYPE);
-    else if (initiator) add_receiver(peer);
-    gst_element_set_state(peer->pipeline, GST_STATE_PLAYING);
     if (initiator) {
-        g_signal_emit_by_name(webrtc, "create-data-channel", DATA_CHANNEL_LABEL, NULL, &peer->channel);
-        if (peer->channel) watch_channel(peer);
+        add_track(peer, NULL, send ? RTC_DIRECTION_SENDRECV : RTC_DIRECTION_RECVONLY, DEFAULT_PAYLOAD_TYPE);
+        int channel = rtcCreateDataChannel(connection, DATA_CHANNEL_LABEL);
+        if (channel >= 0) {
+            peer->channel = channel;
+            rtcSetOpenCallback(channel, on_channel_open);
+            rtcSetClosedCallback(channel, on_channel_closed);
+        }
+        negotiate(peer);
     }
     send_state();
     return peer;
 }
 
+static void stop_decoder(struct receiver *receiver) {
+    stop_child(&receiver->decoder, &receiver->decoder_input, &receiver->decoder_output);
+    buffer_free(&receiver->to_decoder);
+    free(receiver->frame);
+    receiver->frame = NULL;
+    receiver->frame_used = 0;
+}
+
 static void peer_close(struct peer *peer) {
     if (peer->closed) return;
     peer->closed = true;
-    g_source_remove(peer->bus_watch);
-    gst_element_set_state(peer->pipeline, GST_STATE_NULL);
-    g_signal_handlers_disconnect_by_data(peer->webrtc, peer);
-    if (peer->channel) g_signal_handlers_disconnect_by_data(peer->channel, peer);
-    close_connection(&peer->connection);
-    if (peer->nick) {
-        JsonObject *message = message_new("video closed");
-        json_object_set_string_member(message, "nick", peer->nick);
+    struct receiver *receiver = &peer->receiver;
+    stop_decoder(receiver);
+    close_stream(&receiver->connection);
+    buffer_free(&receiver->to_hydra);
+    if (receiver->nick) {
+        cJSON *message = message_new("video closed");
+        cJSON_AddStringToObject(message, "nick", receiver->nick);
         print_object(message);
     }
-    if (g_hash_table_lookup(peers, peer->id) == peer) g_hash_table_remove(peers, peer->id); // releases the peer
+    if (peer->channel) rtcDeleteDataChannel(peer->channel);
+    if (peer->track) rtcDeleteTrack(peer->track);
+    rtcDeletePeerConnection(peer->connection); // waits for its callbacks; their events find no peer later
+    for (int index = 0; index < peer_count; index++) {
+        if (peers[index] != peer) continue;
+        peers[index] = peers[--peer_count];
+        break;
+    }
+    free(receiver->nick);
+    free(receiver->encoded);
+    free(peer->id);
+    free(peer);
     send_state();
 }
 
 static void init_source(const char *name) {
     const char *id = member_string(id_from_nick, name);
     if (!id) return;
-    struct peer *peer = g_hash_table_lookup(peers, id);
+    struct peer *peer = peer_with_id(id);
     if (!peer) {
         peer_create(id, true, false);
     } else if (!peer->initiator) {
         // rtc-patch-bay.js: a connection that only sends starts again in both directions.
+        char *copy = strdup(id);
         peer_close(peer);
-        peer_create(id, true, true);
+        if (copy) peer_create(copy, true, true);
+        free(copy);
     }
+}
+
+// ---------------------------------------------------------------- sending the output
+
+// Sends one VP8 frame in RTP packets; a receiver starts with a keyframe.
+static void send_frame(struct peer *peer, const unsigned char *frame, size_t size, uint32_t timestamp) {
+    bool keyframe = !(frame[0] & 1);
+    if (!peer->sending || !rtcIsOpen(peer->track) || (!peer->sent_keyframe && !keyframe)) return;
+    peer->sent_keyframe = true;
+    unsigned char packet[RTP_HEADER + 1 + MAX_RTP_PAYLOAD];
+    for (size_t offset = 0; offset < size;) {
+        size_t chunk = size - offset < MAX_RTP_PAYLOAD ? size - offset : MAX_RTP_PAYLOAD;
+        packet[0] = RTP_VERSION << 6;
+        packet[1] = (unsigned char)((offset + chunk == size ? RTP_MARKER : 0) | peer->payload_type);
+        write16(packet + 2, peer->sequence++);
+        write32(packet + 4, timestamp);
+        write32(packet + 8, peer->ssrc);
+        packet[RTP_HEADER] = offset ? 0 : VP8_START;
+        memcpy(packet + RTP_HEADER + 1, frame + offset, chunk);
+        rtcSendMessage(peer->track, (const char *)packet, (int)(RTP_HEADER + 1 + chunk));
+        offset += chunk;
+    }
+}
+
+static void stop_output(void) {
+    close_stream(&output.stream);
+    stop_child(&output.encoder, &output.encoder_input, &output.encoder_output);
+    buffer_free(&output.to_encoder);
+    free(output.frame);
+    free(output.encoded);
+    output.frame = output.encoded = NULL;
+    output.used = output.encoded_used = 0;
+    output.header_read = false;
+}
+
+// The IVF stream of the encoder: a file header, then each frame with a header of its own.
+static void read_encoder(void *context) {
+    if (output.encoder_output < 0) return;
+    size_t capacity = IVF_FILE_HEADER + IVF_FRAME_HEADER + MAX_ENCODED_FRAME;
+    ssize_t count = read(output.encoder_output, output.encoded + output.encoded_used, capacity - output.encoded_used);
+    if (count == 0 || (count < 0 && errno != EAGAIN && errno != EINTR)) {
+        log_text(true, "the video encoder (ffmpeg) ended");
+        return stop_output();
+    }
+    if (count < 0) return;
+    output.encoded_used += (size_t)count;
+    size_t start = 0;
+    if (!output.header_read && output.encoded_used >= IVF_FILE_HEADER) {
+        output.header_read = true;
+        start = IVF_FILE_HEADER;
+    }
+    while (output.header_read && output.encoded_used - start >= IVF_FRAME_HEADER) {
+        const unsigned char *header = output.encoded + start;
+        size_t size = (size_t)header[0] | (size_t)header[1] << 8 | (size_t)header[2] << 16 | (size_t)header[3] << 24;
+        if (!size || size > MAX_ENCODED_FRAME) {
+            log_text(true, "the video encoder sent an invalid frame");
+            return stop_output();
+        }
+        if (output.encoded_used - start < IVF_FRAME_HEADER + size) break;
+        uint32_t timestamp = (uint32_t)(now_ms() * RTP_CLOCK_KHZ);
+        for (int index = 0; index < peer_count; index++)
+            send_frame(peers[index], header + IVF_FRAME_HEADER, size, timestamp);
+        start += IVF_FRAME_HEADER + size;
+    }
+    memmove(output.encoded, output.encoded + start, output.encoded_used - start);
+    output.encoded_used -= start;
+}
+
+static void write_encoder(void *context) {
+    if (output.encoder_input >= 0 && !buffer_flush(&output.to_encoder, output.encoder_input)) {
+        log_text(true, "the video encoder (ffmpeg) ended");
+        stop_output();
+    }
+}
+
+// Frames of the output; a frame that comes while the encoder still reads the one before is dropped.
+static void read_output(void *context) {
+    if (output.stream < 0) return;
+    ssize_t count = read(output.stream, output.frame + output.used, output.frame_size - output.used);
+    if (count == 0 || (count < 0 && errno != EAGAIN && errno != EINTR)) return stop_output();
+    if (count < 0) return;
+    output.used += (size_t)count;
+    if (output.used < output.frame_size) return;
+    output.used = 0;
+    if (buffer_empty(&output.to_encoder) && output.encoder_input >= 0) {
+        buffer_append(&output.to_encoder, output.frame, output.frame_size, output.frame_size);
+        write_encoder(NULL);
+    }
+}
+
+// One connection per publishing period of hydra-native, with the frame size in its first line.
+static void start_output(int stream, const char *size) {
+    int width = 0, height = 0;
+    if (!size || sscanf(size, "%dx%d", &width, &height) != 2 || width <= 0 || height <= 0 ||
+        width > MAX_FRAME_SIDE || height > MAX_FRAME_SIDE) {
+        close(stream);
+        return;
+    }
+    stop_output();
+    output.stream = stream;
+    output.frame_size = (size_t)width * (size_t)height * RGBA_BYTES;
+    output.frame = malloc(output.frame_size);
+    output.encoded = malloc(IVF_FILE_HEADER + IVF_FRAME_HEADER + MAX_ENCODED_FRAME);
+    char dimensions[32];
+    snprintf(dimensions, sizeof dimensions, "%dx%d", width, height);
+    const char *argv[] = { "ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgba", "-s",
+                           dimensions, "-r", OUTPUT_FPS, "-i", "-", "-vf", "vflip", "-pix_fmt", "yuv420p", "-c:v",
+                           "libvpx", "-deadline", "realtime", "-cpu-used", "8", "-lag-in-frames", "0",
+                           "-error-resilient", "1", "-g", KEYFRAME_INTERVAL, "-b:v", VIDEO_BITRATE, "-f", "ivf",
+                           "-flush_packets", "1", "-", NULL };
+    if (output.frame && output.encoded)
+        output.encoder = process_start(argv, &output.encoder_input, &output.encoder_output);
+    if (!output.encoder) {
+        log_text(true, "cannot start the video encoder: the patch bay needs ffmpeg");
+        return stop_output();
+    }
+    set_nonblocking(output.stream);
+    set_nonblocking(output.encoder_input);
+    set_nonblocking(output.encoder_output);
+    for (int index = 0; index < peer_count; index++) peers[index]->sent_keyframe = false;
+}
+
+// ---------------------------------------------------------------- receiving streams
+
+static void request_keyframe(struct peer *peer) {
+    int64_t now = now_ms();
+    if (now - peer->receiver.keyframe_requested < KEYFRAME_REQUEST_MS) return;
+    peer->receiver.keyframe_requested = now;
+    rtcRequestKeyframe(peer->track);
+}
+
+// A lost packet: the decoder waits for the next keyframe, as the depacketizer has no jitter buffer.
+static void lose_frame(struct peer *peer) {
+    peer->receiver.assembling = false;
+    peer->receiver.waiting_keyframe = true;
+    request_keyframe(peer);
+}
+
+// The first frame of a stream announces it as 'got video' of pb-live.js; a new frame size opens a new channel.
+static void open_channel(struct peer *peer, int width, int height) {
+    struct receiver *receiver = &peer->receiver;
+    close_stream(&receiver->connection);
+    buffer_free(&receiver->to_hydra);
+    if (!receiver->number) receiver->number = ++received_streams;
+    receiver->width = width;
+    receiver->height = height;
+    snprintf(receiver->channel_name, sizeof receiver->channel_name, "stream-%d-%dx%d", receiver->number, width,
+             height);
+    cJSON *message = message_new("video");
+    if (receiver->nick) {
+        cJSON_AddTrueToObject(message, "resized");
+    } else {
+        const char *name = member_string(nick_from_id, peer->id);
+        receiver->nick = strdup(name ? name : peer->id);
+    }
+    cJSON_AddStringToObject(message, "nick", receiver->nick ? receiver->nick : peer->id);
+    cJSON_AddStringToObject(message, "channel", receiver->channel_name);
+    cJSON_AddNumberToObject(message, "width", width);
+    cJSON_AddNumberToObject(message, "height", height);
+    print_object(message);
+}
+
+static bool start_decoder(struct peer *peer, int width, int height) {
+    struct receiver *receiver = &peer->receiver;
+    stop_decoder(receiver);
+    receiver->frame = malloc((size_t)width * (size_t)height * RGBA_BYTES);
+    const char *argv[] = { "ffmpeg", "-hide_banner", "-loglevel", "error", "-probesize", "32", "-analyzeduration", "0",
+                           "-flags", "low_delay", "-f", "ivf", "-i", "-", "-fps_mode", "passthrough", "-f", "rawvideo",
+                           "-pix_fmt", "rgba", "-flush_packets", "1", "-", NULL };
+    if (receiver->frame) receiver->decoder = process_start(argv, &receiver->decoder_input, &receiver->decoder_output);
+    if (!receiver->decoder) {
+        log_text(true, "cannot start the video decoder: the patch bay needs ffmpeg");
+        stop_decoder(receiver);
+        return false;
+    }
+    set_nonblocking(receiver->decoder_input);
+    set_nonblocking(receiver->decoder_output);
+    unsigned char header[IVF_FILE_HEADER] = { 'D', 'K', 'I', 'F', 0, 0, IVF_FILE_HEADER, 0, 'V', 'P', '8', '0' };
+    write_little(header + 12, (uint64_t)width, 2);
+    write_little(header + 14, (uint64_t)height, 2);
+    write_little(header + 16, IVF_TIMEBASE, 4);
+    write_little(header + 20, 1, 4);
+    buffer_append(&receiver->to_decoder, header, sizeof header, MAX_DECODER_BACKLOG);
+    receiver->decoded_count = 0;
+    open_channel(peer, width, height);
+    return true;
+}
+
+static void write_decoder(void *context) {
+    struct receiver *receiver = &((struct peer *)context)->receiver;
+    if (receiver->decoder_input >= 0 && !buffer_flush(&receiver->to_decoder, receiver->decoder_input)) {
+        log_text(true, "the video decoder (ffmpeg) ended");
+        stop_decoder(receiver);
+    }
+}
+
+// A complete VP8 frame: a keyframe gives the frame size, and a new size starts a new decoder.
+static void decode_frame(struct peer *peer, const unsigned char *frame, size_t size) {
+    struct receiver *receiver = &peer->receiver;
+    static const unsigned char START_CODE[] = { 0x9d, 0x01, 0x2a };
+    if (!(frame[0] & 1)) {
+        if (size < VP8_KEYFRAME_HEADER || memcmp(frame + 3, START_CODE, sizeof START_CODE)) return lose_frame(peer);
+        int width = read16_little(frame + 6) & 0x3fff, height = read16_little(frame + 8) & 0x3fff;
+        if (!width || !height) return lose_frame(peer);
+        if ((!receiver->decoder || width != receiver->width || height != receiver->height) &&
+            !start_decoder(peer, width, height))
+            return;
+        receiver->waiting_keyframe = false;
+    } else if (receiver->waiting_keyframe || !receiver->decoder) {
+        return request_keyframe(peer);
+    }
+    unsigned char header[IVF_FRAME_HEADER];
+    write_little(header, size, 4);
+    write_little(header + 4, receiver->decoded_count++, 8);
+    if (!buffer_append(&receiver->to_decoder, header, sizeof header, MAX_DECODER_BACKLOG) ||
+        !buffer_append(&receiver->to_decoder, frame, size, MAX_DECODER_BACKLOG))
+        return lose_frame(peer); // the frame may be cut; the next keyframe starts clean
+    write_decoder(peer);
+}
+
+// An RTP packet with VP8 (RFC 3550, RFC 7741). A gap in the sequence numbers drops the frame.
+static void receive_packet(struct peer *peer, const unsigned char *packet, size_t size) {
+    struct receiver *receiver = &peer->receiver;
+    if (size < RTP_HEADER || packet[0] >> 6 != RTP_VERSION || (packet[1] & 0x7f) != peer->payload_type) return;
+    size_t header = RTP_HEADER + 4 * (size_t)(packet[0] & 0x0f), end = size;
+    if (packet[0] & 0x10) { // header extension
+        if (size < header + 4) return;
+        header += 4 + 4 * (size_t)read16(packet + header + 2);
+    }
+    if (packet[0] & 0x20) { // padding
+        if (packet[size - 1] > size) return;
+        end -= packet[size - 1];
+    }
+    if (header > end) return;
+    uint16_t sequence = read16(packet + 2);
+    if (receiver->sequenced && sequence != receiver->next_sequence) lose_frame(peer);
+    receiver->sequenced = true;
+    receiver->next_sequence = sequence + 1;
+    const unsigned char *payload = packet + header;
+    size_t length = end - header, descriptor = 1;
+    if (!length) return; // padding only
+    if (payload[0] & 0x80 && length > 1) { // extended control bits: picture id, TL0PICIDX, TID and KEYIDX
+        unsigned char extension = payload[1];
+        descriptor = 2;
+        if (extension & 0x80) descriptor += descriptor < length && payload[descriptor] & 0x80 ? 2 : 1;
+        if (extension & 0x40) descriptor++;
+        if (extension & 0x30) descriptor++;
+    }
+    if (descriptor >= length) return;
+    uint32_t timestamp = read32(packet + 4);
+    if ((payload[0] & 0x17) == VP8_START) {
+        receiver->assembling = true;
+        receiver->encoded_size = 0;
+        receiver->timestamp = timestamp;
+    } else if (!receiver->assembling || timestamp != receiver->timestamp) {
+        return;
+    }
+    size_t part = length - descriptor;
+    if (!receiver->encoded) receiver->encoded = malloc(MAX_ENCODED_FRAME);
+    if (!receiver->encoded || receiver->encoded_size + part > MAX_ENCODED_FRAME) return lose_frame(peer);
+    memcpy(receiver->encoded + receiver->encoded_size, payload + descriptor, part);
+    receiver->encoded_size += part;
+    if (!(packet[1] & RTP_MARKER)) return;
+    receiver->assembling = false;
+    decode_frame(peer, receiver->encoded, receiver->encoded_size);
+}
+
+static void write_hydra(void *context) {
+    struct receiver *receiver = &((struct peer *)context)->receiver;
+    if (receiver->connection >= 0 && !buffer_flush(&receiver->to_hydra, receiver->connection)) {
+        close_stream(&receiver->connection);
+        buffer_free(&receiver->to_hydra);
+    }
+}
+
+// RGBA frames of the decoder; one that comes while hydra-native still reads the one before is dropped.
+static void read_decoder(void *context) {
+    struct peer *peer = context;
+    struct receiver *receiver = &peer->receiver;
+    if (receiver->decoder_output < 0) return;
+    size_t frame_size = (size_t)receiver->width * (size_t)receiver->height * RGBA_BYTES;
+    ssize_t count = read(receiver->decoder_output, receiver->frame + receiver->frame_used,
+                         frame_size - receiver->frame_used);
+    if (count == 0 || (count < 0 && errno != EAGAIN && errno != EINTR)) {
+        log_text(true, "the video decoder (ffmpeg) ended");
+        stop_decoder(receiver);
+        return lose_frame(peer);
+    }
+    if (count < 0) return;
+    receiver->frame_used += (size_t)count;
+    if (receiver->frame_used < frame_size) return;
+    receiver->frame_used = 0;
+    if (receiver->connection < 0 || !buffer_empty(&receiver->to_hydra)) return;
+    buffer_append(&receiver->to_hydra, receiver->frame, frame_size, frame_size);
+    write_hydra(peer);
 }
 
 // ---------------------------------------------------------------- the events of the signalling server
 
-static void receive_message(JsonNode *data) {
-    JsonObject *message = node_object(data);
-    if (g_strcmp0(member_string(message, "type"), "signal")) {
-        JsonObject *line = message_new("message");
-        json_object_set_member(line, "data", json_node_copy(data));
+static void receive_message(const cJSON *data) {
+    const char *type = member_string(data, "type");
+    if (!type || strcmp(type, "signal")) {
+        cJSON *line = message_new("message");
+        cJSON_AddItemToObject(line, "data", cJSON_Duplicate(data, true));
         print_object(line);
         return;
     }
-    const char *id = member_string(message, "id");
-    JsonObject *signal = node_object(json_object_get_member(message, "message"));
+    const char *id = member_string(data, "id");
+    const cJSON *signal = member_object(data, "message");
     if (!id || !signal) return;
-    struct peer *peer = g_hash_table_lookup(peers, id);
-    if (!peer && !json_object_has_member(peer_list, id)) return; // not a peer of the room
+    struct peer *peer = peer_with_id(id);
+    if (!peer && !has_member(peer_list, id)) {
+        log_text(true, "a signal of %s, which is not a peer of the room", id);
+        return;
+    }
     // simple-peer sends offers only as the initiator: an offer to an initiator comes from a new connection of the
     // other peer, which asked for our stream (init_source).
-    if (peer && peer->initiator && !g_strcmp0(member_string(signal, "type"), "offer")) {
+    const char *signal_type = member_string(signal, "type");
+    if (peer && peer->initiator && signal_type && !strcmp(signal_type, "offer")) {
         peer_close(peer);
         peer = NULL;
     }
@@ -767,25 +1092,20 @@ static void receive_message(JsonNode *data) {
     if (peer) peer_signal(peer, signal);
 }
 
-static void receive_event(JsonArray *event) {
-    if (json_array_get_length(event) < 2) return;
-    const char *name = node_string(json_array_get_element(event, 0));
-    JsonNode *argument = json_array_get_element(event, 1);
-    if (!g_strcmp0(name, "ready")) {
-        JsonObject *ready = node_object(argument);
-        JsonNode *list = ready ? json_object_get_member(ready, "peers") : NULL;
-        JsonArray *ids = list && JSON_NODE_HOLDS_ARRAY(list) ? json_node_get_array(list) : NULL;
-        for (guint index = 0; ids && index < json_array_get_length(ids); index++) {
-            const char *id = node_string(json_array_get_element(ids, index));
-            if (id) new_peer(id);
-        }
+static void receive_event(const cJSON *event) {
+    if (!cJSON_IsArray(event) || cJSON_GetArraySize(event) < 2) return;
+    const cJSON *first = cJSON_GetArrayItem(event, 0), *argument = cJSON_GetArrayItem(event, 1);
+    const char *name = cJSON_IsString(first) ? first->valuestring : "";
+    if (!strcmp(name, "ready")) {
+        const cJSON *ids = cJSON_GetObjectItemCaseSensitive(argument, "peers");
+        for (const cJSON *id = cJSON_IsArray(ids) ? ids->child : NULL; id; id = id->next)
+            if (cJSON_IsString(id)) new_peer(id->valuestring);
         if (!nick) set_name(own_id);
-    } else if (!g_strcmp0(name, "new peer")) {
-        const char *id = node_string(argument);
-        if (id) new_peer(id);
-    } else if (!g_strcmp0(name, "broadcast")) {
+    } else if (!strcmp(name, "new peer")) {
+        if (cJSON_IsString(argument)) new_peer(argument->valuestring);
+    } else if (!strcmp(name, "broadcast")) {
         receive_broadcast(argument);
-    } else if (!g_strcmp0(name, "message")) {
+    } else if (!strcmp(name, "message")) {
         receive_message(argument);
         return;
     } else {
@@ -794,262 +1114,299 @@ static void receive_event(JsonArray *event) {
     send_state();
 }
 
-static gboolean send_ping(gpointer data) {
-    if (soup_websocket_connection_get_state(signaller) != SOUP_WEBSOCKET_STATE_OPEN) {
-        ping_timer = 0;
-        return G_SOURCE_REMOVE;
-    }
-    soup_websocket_connection_send_text(signaller, ENGINE_PING);
-    return G_SOURCE_CONTINUE;
-}
-
 static void open_engine(const char *text) {
-    JsonNode *node = parse_json(text);
-    JsonObject *handshake = node_object(node);
-    g_free(stream_id);
-    stream_id = g_strdup(member_string(handshake, "sid"));
-    gint64 interval = handshake ? json_object_get_int_member_with_default(handshake, "pingInterval", 0) : 0;
-    if (node) json_node_unref(node);
-    if (interval <= 0) return;
-    g_clear_handle_id(&ping_timer, g_source_remove);
-    ping_timer = g_timeout_add((guint)CLAMP(interval, MIN_PING_MS, G_MAXINT), send_ping, NULL);
-}
-
-static void on_signalling_message(SoupWebsocketConnection *connection, gint type, GBytes *bytes, gpointer data) {
-    gsize size;
-    const char *bytes_data = g_bytes_get_data(bytes, &size);
-    char *text = g_strndup(bytes_data, size);
-    if (text[0] == ENGINE_OPEN) {
-        open_engine(text + 1);
-    } else if (text[0] == ENGINE_MESSAGE && text[1] == SOCKET_CONNECT) {
-        connected = true;
-        for (guint index = 0; index < unsent->len; index++)
-            soup_websocket_connection_send_text(signaller, g_ptr_array_index(unsent, index));
-        g_ptr_array_set_size(unsent, 0);
-    } else if (text[0] == ENGINE_MESSAGE && text[1] == SOCKET_EVENT) {
-        JsonNode *node = parse_json(text + 2);
-        if (node && JSON_NODE_HOLDS_ARRAY(node)) receive_event(json_node_get_array(node));
-        if (node) json_node_unref(node);
+    cJSON *handshake = cJSON_Parse(text);
+    free(stream_id);
+    const char *sid = member_string(handshake, "sid");
+    stream_id = sid ? strdup(sid) : NULL;
+    const cJSON *interval = cJSON_GetObjectItemCaseSensitive(handshake, "pingInterval");
+    if (cJSON_IsNumber(interval) && interval->valuedouble > 0) {
+        double milliseconds = interval->valuedouble;
+        ping_interval = milliseconds < MIN_PING_MS ? MIN_PING_MS : milliseconds > MAX_PING_MS ? MAX_PING_MS
+                                                                                              : (int64_t)milliseconds;
+        next_ping = now_ms() + ping_interval;
     }
-    g_free(text);
+    cJSON_Delete(handshake);
 }
 
-static void on_signalling_closed(SoupWebsocketConnection *connection, gpointer data) {
-    connected = false;
-    if (stopping) g_main_loop_quit(loop);
-    else log_text(true, "the signalling server %s closed the connection", server);
+static void receive_signalling(const struct event *event) {
+    const char *text = event->text;
+    switch ((enum websocket_event)event->value) {
+    case WEBSOCKET_OPEN:
+        signalling_open = true;
+        break;
+    case WEBSOCKET_MESSAGE:
+        if (text[0] == ENGINE_OPEN) {
+            open_engine(text + 1);
+        } else if (text[0] == ENGINE_MESSAGE && text[1] == SOCKET_CONNECT) {
+            connected = true;
+            for (int index = 0; index < unsent_count; index++) send_packet(unsent[index]);
+            unsent_count = 0;
+        } else if (text[0] == ENGINE_MESSAGE && text[1] == SOCKET_EVENT) {
+            cJSON *packet = cJSON_Parse(text + 2);
+            receive_event(packet);
+            cJSON_Delete(packet);
+        }
+        break;
+    case WEBSOCKET_ERROR:
+        log_text(true, "the signalling server %s: %s", server, text);
+        break;
+    case WEBSOCKET_CLOSED:
+        connected = signalling_open = false;
+        ping_interval = 0;
+        if (stopping) quitting = true;
+        else log_text(true, "the signalling server %s closed the connection", server);
+        break;
+    }
 }
 
-static void on_signalling_connected(GObject *source, GAsyncResult *result, gpointer data) {
-    GError *error = NULL;
-    signaller = soup_session_websocket_connect_finish(session, result, &error);
-    if (!signaller) {
-        log_text(true, "cannot connect to the signalling server %s: %s", server, error->message);
-        g_error_free(error);
-        if (stopping) g_main_loop_quit(loop);
+static void handle_event(const struct event *event) {
+    if (event->type == EVENT_SIGNALLING) return receive_signalling(event);
+    struct peer *peer = event->type == EVENT_PACKET                 ? peer_with_track(event->id)
+                        : event->type == EVENT_CHANNEL_OPEN ||
+                                  event->type == EVENT_CHANNEL_CLOSED ? peer_with_channel(event->id)
+                                                                      : peer_with_connection(event->id);
+    if (!peer) {
+        if (event->type == EVENT_DATA_CHANNEL) rtcDeleteDataChannel(event->value); // of a closed connection
         return;
     }
-    g_signal_connect(signaller, "message", G_CALLBACK(on_signalling_message), NULL);
-    g_signal_connect(signaller, "closed", G_CALLBACK(on_signalling_closed), NULL);
-    if (stopping) soup_websocket_connection_close(signaller, SOUP_WEBSOCKET_CLOSE_NORMAL, NULL);
+    cJSON *signal;
+    switch (event->type) {
+    case EVENT_DESCRIPTION:
+        signal = message_new(event->text);
+        cJSON_AddStringToObject(signal, "sdp", event->second);
+        send_signal(peer, signal);
+        if (!strcmp(event->text, "answer")) request_video(peer);
+        break;
+    case EVENT_CANDIDATE:
+        signal = message_new("candidate");
+        cJSON *candidate = cJSON_AddObjectToObject(signal, "candidate");
+        cJSON_AddStringToObject(candidate, "candidate", event->text);
+        if (event->second && event->second[0]) cJSON_AddStringToObject(candidate, "sdpMid", event->second);
+        send_signal(peer, signal);
+        break;
+    case EVENT_STATE:
+        if (event->value == RTC_FAILED || event->value == RTC_CLOSED) peer_close(peer);
+        break;
+    case EVENT_SIGNALING_STATE:
+        if (event->value != RTC_SIGNALING_STABLE) break;
+        peer->negotiating = false;
+        if (!peer->negotiation_queued) break;
+        peer->negotiation_queued = false;
+        negotiate(peer);
+        break;
+    case EVENT_DATA_CHANNEL:
+        // The data channel of the initiator (simple-peer) arrives open: it counts as the connection.
+        if (peer->channel) {
+            rtcDeleteDataChannel(event->value);
+            break;
+        }
+        peer->channel = event->value;
+        send_state();
+        break;
+    case EVENT_CHANNEL_OPEN:
+        send_state();
+        break;
+    case EVENT_CHANNEL_CLOSED:
+        peer_close(peer);
+        break;
+    case EVENT_PACKET:
+        receive_packet(peer, (const unsigned char *)event->text, event->size);
+        break;
+    case EVENT_SIGNALLING:
+        break;
+    }
+}
+
+static void handle_events(void *context) {
+    char drain[256];
+    while (read(events.wake[0], drain, sizeof drain) > 0) {}
+    struct event *event;
+    while ((event = pop_event())) {
+        if (!quitting) handle_event(event);
+        free(event);
+    }
 }
 
 static bool connect_signalling(void) {
     size_t length = strlen(server);
     while (length && server[length - 1] == '/') length--;
-    char *url = g_strdup_printf("%.*s%s", (int)length, server, SIGNALLING_PATH);
-    SoupMessage *message = soup_message_new(SOUP_METHOD_GET, url);
-    g_free(url);
-    if (!message) return false;
-    session = soup_session_new();
-    soup_session_websocket_connect_async(session, message, NULL, NULL, G_PRIORITY_DEFAULT, NULL,
-                                         on_signalling_connected, NULL);
-    g_object_unref(message);
-    return true;
+    const char *scheme = !strncmp(server, "https://", 8) ? "wss://" : !strncmp(server, "http://", 7) ? "ws://" : NULL;
+    if (!scheme) return false;
+    size_t skip = scheme[2] == 's' ? 8 : 7;
+    char url[2048];
+    if ((size_t)snprintf(url, sizeof url, "%s%.*s%s", scheme, (int)(length - skip), server + skip, SIGNALLING_PATH) >=
+        sizeof url)
+        return false;
+    const char *certificates = NULL;
+    for (size_t index = 0; index < sizeof CERTIFICATE_FILES / sizeof *CERTIFICATE_FILES && !certificates; index++)
+        if (!access(CERTIFICATE_FILES[index], R_OK)) certificates = CERTIFICATE_FILES[index];
+    if (!certificates && skip == 8) log_text(true, "no CA certificates to check the signalling server %s", server);
+    return websocket_open(url, certificates, on_websocket);
 }
 
 // ---------------------------------------------------------------- the local socket
 
-static void stop_output(void) {
-    if (output.cancellable) g_cancellable_cancel(output.cancellable);
-    g_clear_object(&output.cancellable);
-    g_clear_object(&output.connection);
-    g_clear_object(&output.input);
-}
-
-static void on_output_frame(GObject *source, GAsyncResult *result, gpointer data);
-
-static void read_output_frame(void) {
-    guint8 *frame = g_malloc(output.frame_size);
-    g_input_stream_read_all_async(G_INPUT_STREAM(output.input), frame, output.frame_size, G_PRIORITY_DEFAULT,
-                                  output.cancellable, on_output_frame, frame);
-}
-
-static void on_output_frame(GObject *source, GAsyncResult *result, gpointer data) {
-    gsize count = 0;
-    bool read = g_input_stream_read_all_finish(G_INPUT_STREAM(source), result, &count, NULL);
-    guint8 *frame = data;
-    if (source != G_OBJECT(output.input)) return g_free(frame); // the stream of a closed output
-    if (!read || count < output.frame_size) {
-        g_free(frame);
-        return stop_output();
-    }
-    GstBuffer *buffer = gst_buffer_new_wrapped(frame, output.frame_size);
-    GHashTableIter iterator;
-    struct peer *peer;
-    g_hash_table_iter_init(&iterator, peers);
-    while (g_hash_table_iter_next(&iterator, NULL, (gpointer *)&peer))
-        if (peer->source) gst_app_src_push_buffer(GST_APP_SRC(peer->source), gst_buffer_ref(buffer));
-    gst_buffer_unref(buffer);
-    read_output_frame();
-}
-
-// One connection per publishing period of hydra-native, with the frame size in its first line.
-static void start_output(GSocketConnection *connection, GDataInputStream *stream, const char *size) {
-    int width = 0, height = 0;
-    if (!size || sscanf(size, "%dx%d", &width, &height) != 2 || width <= 0 || height <= 0 ||
-        width > MAX_FRAME_SIDE || height > MAX_FRAME_SIDE) {
-        close_connection(&connection);
-        g_object_unref(stream);
+static void read_channel_line(void *context) {
+    int slot = (int)(intptr_t)context;
+    int stream = waiting[slot].stream;
+    if (stream < 0) return;
+    ssize_t count = read(stream, waiting[slot].line + waiting[slot].used, 1); // the frames follow the line
+    if (count < 0 && (errno == EAGAIN || errno == EINTR)) return;
+    if (count <= 0) return close_stream(&waiting[slot].stream);
+    if (waiting[slot].line[waiting[slot].used] != '\n') {
+        if (++waiting[slot].used == MAX_CHANNEL_LINE) close_stream(&waiting[slot].stream);
         return;
     }
-    stop_output();
-    output.connection = connection;
-    output.input = stream;
-    output.cancellable = g_cancellable_new();
-    output.frame_size = (gsize)width * height * RGBA_BYTES;
-    if (output.caps) gst_caps_unref(output.caps);
-    output.caps = gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, "RGBA", "width", G_TYPE_INT, width,
-                                      "height", G_TYPE_INT, height, "framerate", GST_TYPE_FRACTION, 0, 1, NULL);
-    GHashTableIter iterator;
-    struct peer *peer;
-    g_hash_table_iter_init(&iterator, peers);
-    while (g_hash_table_iter_next(&iterator, NULL, (gpointer *)&peer))
-        if (peer->source) gst_app_src_set_caps(GST_APP_SRC(peer->source), output.caps);
-    read_output_frame();
-}
-
-static struct peer *peer_with_channel(const char *name) {
-    GHashTableIter iterator;
-    struct peer *peer;
-    g_hash_table_iter_init(&iterator, peers);
-    while (g_hash_table_iter_next(&iterator, NULL, (gpointer *)&peer))
-        if (!g_strcmp0(peer->channel_name, name)) return peer;
-    return NULL;
-}
-
-static void on_channel_line(GObject *source, GAsyncResult *result, gpointer data) {
-    GDataInputStream *stream = G_DATA_INPUT_STREAM(source);
-    GSocketConnection *connection = data;
-    char *line = g_data_input_stream_read_line_finish(stream, result, NULL, NULL);
-    char *size = line ? strchr(line, ' ') : NULL;
+    waiting[slot].line[waiting[slot].used] = '\0';
+    waiting[slot].stream = -1;
+    char *line = waiting[slot].line, *size = strchr(line, ' ');
     if (size) *size++ = '\0';
-    struct peer *peer = line ? peer_with_channel(line) : NULL;
-    if (line && !strcmp(line, "output")) {
-        start_output(connection, stream, size);
+    struct peer *peer = line[0] ? peer_with_channel_name(line) : NULL;
+    if (!strcmp(line, "output")) {
+        start_output(stream, size);
     } else if (peer) {
-        close_connection(&peer->connection);
-        peer->connection = connection;
-        g_object_unref(stream);
+        close_stream(&peer->receiver.connection);
+        buffer_free(&peer->receiver.to_hydra);
+        peer->receiver.connection = stream;
     } else {
-        close_connection(&connection);
-        g_object_unref(stream);
+        close(stream);
     }
-    g_free(line);
 }
 
-static gboolean on_incoming(GSocketService *service, GSocketConnection *connection, GObject *listener, gpointer data) {
-    GDataInputStream *stream = g_data_input_stream_new(g_io_stream_get_input_stream(G_IO_STREAM(connection)));
-    g_filter_input_stream_set_close_base_stream(G_FILTER_INPUT_STREAM(stream), FALSE);
-    g_data_input_stream_read_line_async(stream, G_PRIORITY_DEFAULT, NULL, on_channel_line, g_object_ref(connection));
-    return TRUE;
+static void accept_connection(void *context) {
+    int stream = accept(listener, NULL, NULL);
+    if (stream < 0) return;
+    fcntl(stream, F_SETFD, FD_CLOEXEC);
+    set_nonblocking(stream);
+    for (int slot = 0; slot < MAX_WAITING; slot++) {
+        if (waiting[slot].stream >= 0) continue;
+        waiting[slot].stream = stream;
+        waiting[slot].used = 0;
+        return;
+    }
+    close(stream);
 }
 
 static bool listen_local(void) {
-    g_unlink(socket_path);
-    GSocketService *service = g_socket_service_new();
-    GSocketAddress *address = g_unix_socket_address_new(socket_path);
-    GError *error = NULL;
-    bool listening = g_socket_listener_add_address(G_SOCKET_LISTENER(service), address, G_SOCKET_TYPE_STREAM,
-                                                   G_SOCKET_PROTOCOL_DEFAULT, NULL, NULL, &error);
-    g_object_unref(address);
-    if (!listening) {
-        fprintf(stderr, "hydra-native-patch-bay: cannot listen on %s: %s\n", socket_path, error->message);
-        g_error_free(error);
+    struct sockaddr_un address = { .sun_family = AF_UNIX };
+    if (strlen(socket_path) >= sizeof address.sun_path) {
+        fprintf(stderr, "hydra-native-patch-bay: the socket path %s is too long\n", socket_path);
         return false;
     }
-    g_signal_connect(service, "incoming", G_CALLBACK(on_incoming), NULL);
-    g_socket_service_start(service);
+    strcpy(address.sun_path, socket_path);
+    unlink(socket_path);
+    listener = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (listener < 0 || bind(listener, (struct sockaddr *)&address, sizeof address) || listen(listener, MAX_WAITING)) {
+        fprintf(stderr, "hydra-native-patch-bay: cannot listen on %s: %s\n", socket_path, strerror(errno));
+        return false;
+    }
+    fcntl(listener, F_SETFD, FD_CLOEXEC);
+    set_nonblocking(listener);
+    for (int slot = 0; slot < MAX_WAITING; slot++) waiting[slot].stream = -1;
     return true;
 }
 
 // ---------------------------------------------------------------- stdin and the end
 
-static gboolean quit(gpointer data) {
-    g_main_loop_quit(loop);
-    return G_SOURCE_REMOVE;
-}
-
-// The end of the input, SIGTERM or SIGINT: leave the room as pb._destroy() does. Closed data channels tell the peers
-// at once; the pipelines end with the process, so that the close of the WebSocket gives the channels the time to send.
+// The end of the input, SIGTERM or SIGINT: leave the room as pb._destroy() does. Closed data channels tell the
+// peers at once; the connections end with the process, so that the close of the WebSocket gives the channels the
+// time to send.
 static void shut_down(void) {
     if (stopping) return;
     stopping = true;
-    GHashTableIter iterator;
-    struct peer *peer;
-    g_hash_table_iter_init(&iterator, peers);
-    while (g_hash_table_iter_next(&iterator, NULL, (gpointer *)&peer))
-        if (peer->channel) gst_webrtc_data_channel_close(peer->channel);
+    stop_deadline = now_ms() + CLOSE_WAIT_MS;
+    for (int index = 0; index < peer_count; index++)
+        if (peers[index]->channel) rtcClose(peers[index]->channel);
     stop_output();
-    if (signaller && soup_websocket_connection_get_state(signaller) == SOUP_WEBSOCKET_STATE_OPEN)
-        soup_websocket_connection_close(signaller, SOUP_WEBSOCKET_CLOSE_NORMAL, NULL);
-    else if (signaller) g_main_loop_quit(loop);
-    g_timeout_add(CLOSE_WAIT_MS, quit, NULL);
+    if (signalling_open) websocket_close();
+    else quitting = true;
 }
 
-static gboolean on_quit_signal(gpointer data) {
-    shut_down();
-    return G_SOURCE_CONTINUE;
-}
-
-static void call(const char *method, JsonArray *arguments) {
-    JsonNode *first = arguments && json_array_get_length(arguments) ? json_array_get_element(arguments, 0) : NULL;
-    if (!g_strcmp0(method, "initSource") && node_string(first)) init_source(node_string(first));
-    else if (!g_strcmp0(method, "setName") && node_string(first)) set_name(node_string(first));
-    else if (!g_strcmp0(method, "broadcast") && first) emit_event("broadcast", json_node_copy(first), NULL);
+static void call(const char *method, const cJSON *arguments) {
+    const cJSON *first = cJSON_IsArray(arguments) ? cJSON_GetArrayItem(arguments, 0) : NULL;
+    const char *text = cJSON_IsString(first) ? first->valuestring : NULL;
+    if (!method) return;
+    if (!strcmp(method, "initSource") && text) init_source(text);
+    else if (!strcmp(method, "setName") && text) set_name(text);
+    else if (!strcmp(method, "broadcast") && first) emit_event("broadcast", cJSON_Duplicate(first, true), NULL);
     else return;
     send_state();
 }
 
-static void read_input(void);
-
-static void on_input_line(GObject *source, GAsyncResult *result, gpointer data) {
-    char *line = g_data_input_stream_read_line_finish(input, result, NULL, NULL);
-    if (!line) return shut_down();
-    JsonNode *node = parse_json(line);
-    JsonObject *message = node_object(node);
-    if (!g_strcmp0(member_string(message, "type"), "call")) {
-        JsonNode *arguments = json_object_get_member(message, "args");
-        call(member_string(message, "method"),
-             arguments && JSON_NODE_HOLDS_ARRAY(arguments) ? json_node_get_array(arguments) : NULL);
+static void read_input(void *context) {
+    ssize_t count = read(STDIN_FILENO, input_line + input_used, MAX_LINE - 1 - input_used);
+    if (count < 0 && (errno == EAGAIN || errno == EINTR)) return;
+    if (count <= 0) return shut_down();
+    input_used += (size_t)count;
+    char *start = input_line, *end;
+    while ((end = memchr(start, '\n', input_used - (size_t)(start - input_line)))) {
+        *end = '\0';
+        cJSON *message = cJSON_Parse(start);
+        const char *type = member_string(message, "type");
+        if (type && !strcmp(type, "call"))
+            call(member_string(message, "method"), cJSON_GetObjectItemCaseSensitive(message, "args"));
+        cJSON_Delete(message);
+        start = end + 1;
     }
-    if (node) json_node_unref(node);
-    g_free(line);
-    read_input();
+    input_used -= (size_t)(start - input_line);
+    memmove(input_line, start, input_used);
+    if (input_used == MAX_LINE - 1) input_used = 0; // a line too long for the buffer is dropped
 }
 
-static void read_input(void) {
-    g_data_input_stream_read_line_async(input, G_PRIORITY_DEFAULT, NULL, on_input_line, NULL);
-}
-
-static gboolean check_publish(gpointer data) {
-    bool on = g_hash_table_size(peers) > 0;
-    if (on == publishing) return G_SOURCE_CONTINUE;
+static void check_publish(void) {
+    bool on = peer_count > 0;
+    if (on == publishing) return;
     publishing = on;
-    JsonObject *message = message_new("publish");
-    json_object_set_boolean_member(message, "on", on);
+    cJSON *message = message_new("publish");
+    cJSON_AddBoolToObject(message, "on", on);
     print_object(message);
-    return G_SOURCE_CONTINUE;
+}
+
+static void on_quit_signal(int number) {
+    quit_signal = 1;
+    ssize_t written = write(events.wake[1], "", 1);
+    (void)written;
+}
+
+static void watch(int stream, short wanted, void (*action)(void *context), void *context) {
+    if (stream < 0 || watches.count == MAX_WATCHES) return;
+    watches.fds[watches.count] = (struct pollfd){ .fd = stream, .events = wanted };
+    watches.actions[watches.count] = action;
+    watches.contexts[watches.count++] = context;
+}
+
+// Each turn polls the streams of this moment. The actions that can close a peer (stdin and the events) come last,
+// so that the actions before them never see a freed peer; each action uses the stream of its context, which an
+// action before it may have closed.
+static void run_once(void) {
+    watches.count = 0;
+    watch(listener, POLLIN, accept_connection, NULL);
+    for (int slot = 0; slot < MAX_WAITING; slot++)
+        watch(waiting[slot].stream, POLLIN, read_channel_line, (void *)(intptr_t)slot);
+    watch(output.stream, POLLIN, read_output, NULL);
+    watch(output.encoder_output, POLLIN, read_encoder, NULL);
+    if (!buffer_empty(&output.to_encoder)) watch(output.encoder_input, POLLOUT, write_encoder, NULL);
+    for (int index = 0; index < peer_count; index++) {
+        struct receiver *receiver = &peers[index]->receiver;
+        watch(receiver->decoder_output, POLLIN, read_decoder, peers[index]);
+        if (!buffer_empty(&receiver->to_decoder)) watch(receiver->decoder_input, POLLOUT, write_decoder, peers[index]);
+        if (!buffer_empty(&receiver->to_hydra)) watch(receiver->connection, POLLOUT, write_hydra, peers[index]);
+    }
+    if (!stopping) watch(STDIN_FILENO, POLLIN, read_input, NULL);
+    watch(events.wake[0], POLLIN, handle_events, NULL);
+    if (poll(watches.fds, (nfds_t)watches.count, POLL_MS) > 0) {
+        for (int index = 0; index < watches.count; index++)
+            if (watches.fds[index].revents) watches.actions[index](watches.contexts[index]);
+    }
+    int64_t now = now_ms();
+    if (quit_signal) shut_down();
+    if (stopping && now >= stop_deadline) quitting = true;
+    if (ping_interval && signalling_open && now >= next_ping) {
+        websocket_send(ENGINE_PING);
+        next_ping = now + ping_interval;
+    }
+    check_publish();
 }
 
 int main(int argc, char **argv) {
@@ -1061,33 +1418,37 @@ int main(int argc, char **argv) {
     room = argv[2];
     socket_path = argv[3];
     signal(SIGPIPE, SIG_IGN); // hydra-native may close our stdout or a frame channel first
-    gst_init(NULL, NULL);
-    if (!listen_local()) return 1;
-    char *uuid = g_uuid_string_random();
-    g_strlcpy(own_id, uuid, sizeof own_id);
-    g_free(uuid);
-    nick_from_id = json_object_new();
-    id_from_nick = json_object_new();
-    peer_list = json_object_new();
-    peers = g_hash_table_new_full(g_str_hash, g_str_equal, NULL, peer_release);
-    unsent = g_ptr_array_new_with_free_func(g_free);
-    loop = g_main_loop_new(NULL, FALSE);
+    if (pipe(events.wake) || !listen_local()) return 1;
+    for (int index = 0; index < 2; index++) {
+        fcntl(events.wake[index], F_SETFD, FD_CLOEXEC);
+        set_nonblocking(events.wake[index]);
+    }
+    struct sigaction quit_action = { .sa_handler = on_quit_signal };
+    sigaction(SIGTERM, &quit_action, NULL);
+    sigaction(SIGINT, &quit_action, NULL);
+    snprintf(own_id, sizeof own_id, "%08x", arc4random());
+    nick_from_id = cJSON_CreateObject();
+    id_from_nick = cJSON_CreateObject();
+    peer_list = cJSON_CreateObject();
 
-    JsonObject *user = json_object_new();
-    json_object_set_string_member(user, "uuid", own_id);
-    JsonNode *room_node = json_node_new(JSON_NODE_VALUE);
-    json_node_set_string(room_node, room);
-    emit_event("join", room_node, object_node(user));
+    cJSON *user = cJSON_CreateObject();
+    cJSON_AddStringToObject(user, "uuid", own_id);
+    emit_event("join", cJSON_CreateString(room), user);
     if (!connect_signalling()) log_text(true, "invalid signalling server %s", server);
 
-    GInputStream *standard_input = g_unix_input_stream_new(STDIN_FILENO, FALSE);
-    input = g_data_input_stream_new(standard_input);
-    g_object_unref(standard_input);
-    read_input();
-    g_timeout_add(PUBLISH_CHECK_MS, check_publish, NULL);
-    g_unix_signal_add(SIGTERM, on_quit_signal, NULL);
-    g_unix_signal_add(SIGINT, on_quit_signal, NULL);
-    g_main_loop_run(loop);
-    g_unlink(socket_path);
+    while (!quitting) run_once();
+
+    while (peer_count) peer_close(peers[0]);
+    stop_output();
+    for (int slot = 0; slot < MAX_WAITING; slot++) close_stream(&waiting[slot].stream);
+    for (int index = 0; index < unsent_count; index++) free(unsent[index]);
+    handle_events(NULL);
+    close(listener);
+    unlink(socket_path);
+    cJSON_Delete(nick_from_id);
+    cJSON_Delete(id_from_nick);
+    cJSON_Delete(peer_list);
+    free(nick);
+    free(stream_id);
     return 0;
 }

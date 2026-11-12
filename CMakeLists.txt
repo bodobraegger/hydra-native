@@ -183,21 +183,6 @@ else()
 endif()
 target_compile_options(hydra-native-capture PRIVATE ${WARNINGS})
 
-# The webRTC patch bay of pb and s0.initStream (src/patch_bay_main.c): webrtcbin of GStreamer, with the signalling
-# over a WebSocket of libsoup. Linux only for now (PORTING.md).
-if(HYDRA_LINUX)
-  pkg_check_modules(PATCH_BAY IMPORTED_TARGET gstreamer-1.0 gstreamer-webrtc-1.0 gstreamer-sdp-1.0
-    gstreamer-app-1.0 libsoup-3.0 json-glib-1.0 gio-unix-2.0)
-  if(PATCH_BAY_FOUND)
-    add_executable(hydra-native-patch-bay src/patch_bay_main.c)
-    target_compile_options(hydra-native-patch-bay PRIVATE ${WARNINGS})
-    target_compile_definitions(hydra-native-patch-bay PRIVATE GST_USE_UNSTABLE_API) # the API of webrtcbin
-    target_link_libraries(hydra-native-patch-bay PRIVATE PkgConfig::PATCH_BAY)
-  else()
-    message(STATUS "The patch bay (pb) is not built: GStreamer, libsoup 3 or json-glib development files are missing")
-  endif()
-endif()
-
 # ---------------------------------------------------------------- WebRTC (Linux and macOS)
 
 # libdatachannel with its submodules at the commits of its release, each a pinned archive, and mbedTLS for TLS,
@@ -236,7 +221,9 @@ if(NOT WIN32)
   set(MBEDTLS_FATAL_WARNINGS OFF CACHE BOOL "")
   # The export set of libsrtp needs mbedTLS in an export set too; hydra-native installs neither.
   set(DISABLE_PACKAGE_CONFIG_AND_INSTALL OFF CACHE BOOL "")
+  set(BUILD_SHARED_LIBS OFF) # for the third-party parts of mbedTLS; libdatachannel sets its own
   add_subdirectory(${VENDOR}/mbedtls ${CMAKE_BINARY_DIR}/mbedtls EXCLUDE_FROM_ALL)
+  unset(BUILD_SHARED_LIBS)
   add_library(MbedTLS::MbedTLS ALIAS mbedtls)
   # The find module of libdatachannel, which libsrtp also uses, takes these results instead of an installed copy.
   set(MbedTLS_INCLUDE_DIR ${VENDOR}/mbedtls/include CACHE PATH "")
@@ -252,6 +239,14 @@ if(NOT WIN32)
   set(LIBSRTP_TEST_APPS OFF CACHE BOOL "")
   set(ENABLE_WARNINGS_AS_ERRORS OFF CACHE BOOL "")
   add_subdirectory(${VENDOR}/libdatachannel ${CMAKE_BINARY_DIR}/libdatachannel EXCLUDE_FROM_ALL)
+
+  # The webRTC patch bay of pb and s0.initStream (src/patch_bay_main.c), with ffmpeg as the video codec at run time.
+  add_executable(hydra-native-patch-bay src/patch_bay_main.c src/patch_bay_websocket.cpp ${VENDOR}/cjson/cJSON.c
+    ${PROCESS_SOURCE})
+  target_compile_options(hydra-native-patch-bay PRIVATE ${WARNINGS})
+  set_target_properties(hydra-native-patch-bay PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+  target_include_directories(hydra-native-patch-bay PRIVATE ${VENDOR}/cjson)
+  target_link_libraries(hydra-native-patch-bay PRIVATE datachannel-static pthread)
 endif()
 
 # ---------------------------------------------------------------- audio input and MIDI
