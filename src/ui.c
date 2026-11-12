@@ -3038,12 +3038,13 @@ static void draw_row(size_t line, size_t row_start, size_t row_end, size_t inden
 // is inside it. It is not part of the editor text; a click on it runs the setup file again.
 static void draw_setup_line(void) {
     const char *path = settings.setup_file;
-    char *sketch = file_path ? absolute_path(file_path) : NULL;
+    char *sketch = file_path ? absolute_path(file_path) : NULL, *setup = absolute_path(path);
     const char *name = sketch ? ui_base_name(sketch) : NULL;
-    if (name && name != sketch && !strncmp(path, sketch, (size_t)(name - sketch))) path += name - sketch;
+    if (name && name != sketch && !strncmp(setup, sketch, (size_t)(name - sketch))) path = setup + (name - sketch);
     char text[SETTINGS_TEXT + 32];
     snprintf(text, sizeof text, "await loadScript(\"%s\")", path);
     free(sketch);
+    free(setup);
     size_t columns = text_columns(text) < visible_columns() ? text_columns(text) : visible_columns();
     overlay_set_layer(OVERLAY_CODE_BACKGROUND);
     overlay_rect(MARGIN - TEXT_PADDING, MARGIN, (float)columns * overlay_char_width() + 2 * TEXT_PADDING,
