@@ -5,7 +5,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
 
 #include <SDL3/SDL.h>
 
@@ -566,10 +565,10 @@ static JSValue js_write_file(JSContext *ctx, JSValueConst this, int argc, JSValu
     if (path && text && sandbox_allows_path(path)) {
         char directory[PATH_MAX];
         snprintf(directory, sizeof directory, "%s", path);
-        for (char *slash = strchr(directory + 1, '/'); slash; slash = strchr(slash + 1, '/')) {
+        char *slash = strrchr(directory, '/');
+        if (slash && slash != directory) {
             *slash = '\0';
-            mkdir(directory, 0755);
-            *slash = '/';
+            SDL_CreateDirectory(directory); // with its parents
         }
         FILE *file = fopen(path, "wb");
         ok = file && fwrite(text, 1, length, file) == length;
