@@ -155,7 +155,8 @@ macos-arm64)
 	;;
 windows-x64)
 	rm -f "$root/dist/$name.zip"
-	(cd "$stage" && powershell -NoProfile -Command "Compress-Archive -Path '$name' -DestinationPath '$(cygpath -w "$root/dist/$name.zip")'")
+	# The bsdtar of Windows; Compress-Archive of Windows PowerShell writes backslashes into the paths of the zip.
+	(cd "$stage" && "$(cygpath -u "$SYSTEMROOT")/System32/tar.exe" -a -cf "$(cygpath -w "$root/dist/$name.zip")" "$name")
 	echo "$root/dist/$name.zip"
 	;;
 esac
