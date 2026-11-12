@@ -1,6 +1,6 @@
 // The process of hydra-native-patch-bay (src/patch_bay_main.c): JSON lines go to its stdin, its stdout lines go to
 // js/patch-bay.js. Frames go through a local socket of the helper (a Unix socket, or a named pipe on Windows): each
-// connection starts with one line that names its channel, "output WIDTHxHEIGHT" for the output of hydra-native
+// connection starts with one line that names its channel, "output WIDTHxHEIGHT FPS" for the output of hydra-native
 // while a peer receives it, or the channel of a received stream, whose frames then come back.
 #include <math.h>
 #include <stdio.h>
@@ -124,7 +124,7 @@ bool patch_bay_publish(bool on, int width, int height) {
     double scale = fmin(1, fmin((double)MAX_STREAM_WIDTH / width, (double)MAX_STREAM_HEIGHT / height));
     int stream_width = (int)(width * scale) & ~1, stream_height = (int)(height * scale) & ~1;
     char channel[64];
-    snprintf(channel, sizeof channel, "output %dx%d", stream_width, stream_height);
+    snprintf(channel, sizeof channel, "output %dx%d %d", stream_width, stream_height, PUBLISH_FPS);
     int stream = patch_bay_connect(channel);
     if (stream < 0) return false;
     if (!publisher_start(stream, width, height, stream_width, stream_height)) {

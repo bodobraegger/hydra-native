@@ -10,7 +10,7 @@
 //
 // usage: hydra-native-patch-bay SERVER ROOM SOCKET
 // SOCKET is the path of a local socket for the frames. Each connection starts with one line that names its channel:
-//   output WIDTHxHEIGHT                            hydra-native sends RGBA frames of its output (rows from the bottom)
+//   output WIDTHxHEIGHT FPS                        hydra-native sends RGBA frames of its output (rows from the bottom)
 //   stream-N-WIDTHxHEIGHT                          the helper sends the RGBA frames of a received stream
 // stdin, one JSON object per line, from src/patch_bay.c:
 //   { type: 'call', method, args }                 a method of pb: initSource, setName, broadcast
@@ -76,8 +76,7 @@ static const char *const CERTIFICATE_FILES[] = { "/etc/ssl/certs/ca-certificates
 
 // The video: ffmpeg encodes the output with a keyframe each second, so that a new receiver and a receiver after a
 // lost packet start within a second; the PLI of a receiver does not restart the encoder.
-#define OUTPUT_FPS "25" // RECORD_FPS of src/native.h, the rate of the output frames
-#define KEYFRAME_INTERVAL "25"
+#define MAX_OUTPUT_FPS 240
 #define VIDEO_BITRATE "2M"
 #define MAX_ENCODED_FRAME (1 << 22)
 #define MAX_DECODER_BACKLOG (1 << 22) // bytes of VP8 that wait for a decoder; more are dropped
@@ -856,11 +855,11 @@ static void read_output(void *context) {
     }
 }
 
-// One connection per publishing period of hydra-native, with the frame size in its first line.
-static void start_output(int stream, const char *size) {
-    int width = 0, height = 0;
-    if (!size || sscanf(size, "%dx%d", &width, &height) != 2 || width <= 0 || height <= 0 ||
-        width > MAX_FRAME_SIDE || height > MAX_FRAME_SIDE) {
+// One connection per publishing period of hydra-native, with the frame size and rate in its first line.
+static void start_output(int stream, const char *format) {
+    int width = 0, height = 0, rate = 0;
+    if (!format || sscanf(format, "%dx%d %d", &width, &height, &rate) != 3 || width <= 0 || height <= 0 ||
+        width > MAX_FRAME_SIDE || height > MAX_FRAME_SIDE || rate <= 0 || rate > MAX_OUTPUT_FPS) {
         close(stream);
         return;
     }
@@ -869,12 +868,13 @@ static void start_output(int stream, const char *size) {
     output.frame_size = (size_t)width * (size_t)height * RGBA_BYTES;
     output.frame = malloc(output.frame_size);
     output.encoded = malloc(IVF_FILE_HEADER + IVF_FRAME_HEADER + MAX_ENCODED_FRAME);
-    char dimensions[32];
+    char dimensions[32], fps[16];
     snprintf(dimensions, sizeof dimensions, "%dx%d", width, height);
+    snprintf(fps, sizeof fps, "%d", rate); // also the keyframe interval: one second
     const char *argv[] = { "ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgba", "-s",
-                           dimensions, "-r", OUTPUT_FPS, "-i", "-", "-vf", "vflip", "-pix_fmt", "yuv420p", "-c:v",
+                           dimensions, "-r", fps, "-i", "-", "-vf", "vflip", "-pix_fmt", "yuv420p", "-c:v",
                            "libvpx", "-deadline", "realtime", "-cpu-used", "8", "-lag-in-frames", "0",
-                           "-error-resilient", "1", "-g", KEYFRAME_INTERVAL, "-b:v", VIDEO_BITRATE, "-f", "ivf",
+                           "-error-resilient", "1", "-g", fps, "-b:v", VIDEO_BITRATE, "-f", "ivf",
                            "-flush_packets", "1", "-", NULL };
     if (output.frame && output.encoded)
         output.encoder = process_start(argv, &output.encoder_input, &output.encoder_output);
@@ -1261,11 +1261,11 @@ static void read_channel_line(void *context) {
     }
     waiting[slot].line[waiting[slot].used] = '\0';
     waiting[slot].stream = -1;
-    char *line = waiting[slot].line, *size = strchr(line, ' ');
-    if (size) *size++ = '\0';
+    char *line = waiting[slot].line, *format = strchr(line, ' ');
+    if (format) *format++ = '\0';
     struct peer *peer = line[0] ? peer_with_channel_name(line) : NULL;
     if (!strcmp(line, "output")) {
-        start_output(stream, size);
+        start_output(stream, format);
     } else if (peer) {
         close_stream(&peer->receiver.connection);
         buffer_free(&peer->receiver.to_hydra);

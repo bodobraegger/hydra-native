@@ -63,11 +63,12 @@ bool text_draw(unsigned texture, const struct text_options *options);
 
 // Recording of the hydra output to a WebM file through ffmpeg (vidRecorder).
 #define RECORD_FPS 25 // captureStream(25) in hydra-synth
+#define PUBLISH_FPS 60 // of the output for the patch bay
 bool recorder_start(const char *path, int width, int height);
 bool recorder_active(void);
 void recorder_frame(double now); // call after the hydra frame and before the code overlay
 bool recorder_stop(void); // waits for ffmpeg; false when it failed
-// The output frames for the patch bay (25 fps, rows from the bottom) into `stream`, which the publisher closes:
+// The output frames for the patch bay (PUBLISH_FPS, rows from the bottom) into `stream`, which the publisher closes:
 // the window of source_width x source_height, scaled to width x height.
 bool publisher_start(int stream, int source_width, int source_height, int width, int height);
 void publisher_stop(void);

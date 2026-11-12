@@ -12,8 +12,6 @@
 #include "native.h"
 #include "process.h"
 
-#define RECORD_FRAME_MS (1000.0 / RECORD_FPS)
-
 // Frames of the output for a pipe: ffmpeg for the recording, and the webRTC patch bay (hydra-native-patch-bay)
 // while a peer receives the output.
 struct frame_writer {
@@ -26,13 +24,15 @@ struct frame_writer {
     unsigned char *pending; // the newest frame for the writer thread
     unsigned char *writing;
     bool fresh, stopping;
+    double frame_ms; // the time between two frames
     double next_frame;
     SDL_Thread *thread;
     SDL_Mutex *lock;
     SDL_Condition *ready;
 };
 
-static struct frame_writer recorder, publisher;
+static struct frame_writer recorder = { .frame_ms = 1000.0 / RECORD_FPS },
+                           publisher = { .frame_ms = 1000.0 / PUBLISH_FPS };
 
 static int write_frames(void *argument) {
     struct frame_writer *writer = argument;
@@ -83,8 +83,8 @@ static void writer_start(struct frame_writer *writer, int stream, struct process
 
 static void writer_frame(struct frame_writer *writer, double now) {
     if (!writer->active || now < writer->next_frame) return;
-    writer->next_frame = writer->next_frame == 0 ? now + RECORD_FRAME_MS : writer->next_frame + RECORD_FRAME_MS;
-    if (writer->next_frame < now) writer->next_frame = now + RECORD_FRAME_MS;
+    writer->next_frame = writer->next_frame == 0 ? now + writer->frame_ms : writer->next_frame + writer->frame_ms;
+    if (writer->next_frame < now) writer->next_frame = now + writer->frame_ms;
     SDL_LockMutex(writer->lock);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     // The GPU scales the window down, so that fewer bytes go to the readback and through the pipes.
