@@ -932,9 +932,10 @@ static bool start_decoder(struct peer *peer, int width, int height) {
     struct receiver *receiver = &peer->receiver;
     stop_decoder(receiver);
     receiver->frame = malloc((size_t)width * (size_t)height * RGBA_BYTES);
+    // One thread for the decoder and for the rawvideo encoder of the output: frame threads hold frames back.
     const char *argv[] = { "ffmpeg", "-hide_banner", "-loglevel", "error", "-probesize", "32", "-analyzeduration", "0",
-                           "-flags", "low_delay", "-f", "ivf", "-i", "-", "-fps_mode", "passthrough", "-f", "rawvideo",
-                           "-pix_fmt", "rgba", "-flush_packets", "1", "-", NULL };
+                           "-flags", "low_delay", "-threads", "1", "-f", "ivf", "-i", "-", "-fps_mode", "passthrough",
+                           "-threads", "1", "-f", "rawvideo", "-pix_fmt", "rgba", "-flush_packets", "1", "-", NULL };
     if (receiver->frame) receiver->decoder = process_start(argv, &receiver->decoder_input, &receiver->decoder_output);
     if (!receiver->decoder) {
         log_text(true, "cannot start the video decoder: the patch bay needs ffmpeg");
