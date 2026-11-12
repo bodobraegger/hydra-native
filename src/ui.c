@@ -13,6 +13,9 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include <SDL3/SDL_filesystem.h>
+#include <SDL3/SDL_stdinc.h>
+
 #include "editor.h"
 #include "keymap.h"
 #include "overlay.h"
@@ -522,6 +525,10 @@ static char *read_whole_file(const char *path, size_t *length) {
 // The name of a file without its folder; NULL for NULL.
 static const char *base_name(const char *path) {
     const char *slash = path ? strrchr(path, '/') : NULL;
+#if defined(_WIN32)
+    const char *backslash = path ? strrchr(path, '\\') : NULL;
+    if (backslash && (!slash || backslash > slash)) slash = backslash;
+#endif
     return slash ? slash + 1 : path;
 }
 
@@ -552,7 +559,11 @@ static struct {
 // The recovery names the file with its absolute path, so that a start in another folder finds it. A file that does
 // not exist yet keeps its path as it is.
 static char *absolute_path(const char *path) {
+#if defined(_WIN32)
+    char *resolved = _fullpath(NULL, path, 0);
+#else
     char *resolved = realpath(path, NULL);
+#endif
     return resolved ? resolved : strdup(path);
 }
 
@@ -641,7 +652,7 @@ static void save(void) {
     FILE *file = fopen(temporary, "wb");
     bool ok = file && fwrite(editor.text, 1, editor.length, file) == editor.length;
     if (file && fclose(file) != 0) ok = false;
-    if (ok && rename(temporary, file_path) != 0) ok = false;
+    if (ok && !SDL_RenamePath(temporary, file_path)) ok = false; // rename() of Windows fails on an existing file
     char text[MAX_MESSAGE];
     if (ok) {
         editor.modified = false;
@@ -1047,7 +1058,7 @@ static void accept_completion(void) {
 // ---------------------------------------------------------------- prompts: find, replace, go to line, palette
 
 static bool palette_matches(enum command command) {
-    return command != COMMAND_NONE && strcasestr(command_description(command), prompt.query) != NULL;
+    return command != COMMAND_NONE && SDL_strcasestr(command_description(command), prompt.query) != NULL;
 }
 
 static enum command palette_command(size_t index) {
