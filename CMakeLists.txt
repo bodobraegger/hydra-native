@@ -140,6 +140,7 @@ if(MSVC)
 endif()
 if(WIN32)
   add_link_options(-static)
+  add_compile_definitions(_WIN32_WINNT=0x0A00) # Windows 10, for its APIs in the headers of MinGW-w64
 endif()
 
 add_library(quickjs STATIC ${VENDOR}/quickjs/quickjs.c ${VENDOR}/quickjs/dtoa.c ${VENDOR}/quickjs/libregexp.c
