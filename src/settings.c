@@ -39,6 +39,7 @@ void settings_defaults(struct settings *settings) {
     settings->code_background_opacity = SETTINGS_THEME_OPACITY;
     settings->completion_opacity = SETTINGS_DEFAULT_COMPLETION_OPACITY;
     settings->audio_gain = SETTINGS_DEFAULT_AUDIO_GAIN;
+    settings->stream_rate = settings->stream_max_rate = SETTINGS_MAX_STREAM_RATE;
     settings->code_visible = true;
 }
 
@@ -133,11 +134,11 @@ static int read_choice(JSContext *ctx, JSValueConst object, const char *key, con
     return current;
 }
 
-// A number from 0 to `maximum`, rounded; a negative or missing number keeps `*out`.
-static void read_percent(JSContext *ctx, JSValueConst object, const char *key, int maximum, int *out) {
+// A number from `minimum` to `maximum`, rounded; a negative or missing number keeps `*out`.
+static void read_integer(JSContext *ctx, JSValueConst object, const char *key, int minimum, int maximum, int *out) {
     double number = *out;
     read_number(ctx, object, key, &number);
-    if (number >= 0) *out = number > maximum ? maximum : (int)(number + 0.5);
+    if (number >= 0) *out = number > maximum ? maximum : number < minimum ? minimum : (int)(number + 0.5);
 }
 
 // Calls `pair` for each property of an object whose value is a string (or, for arrays of strings, each item).
@@ -242,9 +243,11 @@ bool settings_load(struct settings *settings, const char *path, char *error, siz
         READ_CHOICE("autocompleteStyle", style_names, autocomplete_style);
         READ_CHOICE("autocompleteTrigger", trigger_names, autocomplete_trigger);
         READ_CHOICE("signatureHelp", signature_help_names, signature_help);
-        read_percent(ctx, root, "autocompleteOpacity", 100, &settings->completion_opacity);
-        read_percent(ctx, root, "codeBackgroundOpacity", 100, &settings->code_background_opacity);
-        read_percent(ctx, root, "audioGain", SETTINGS_MAX_AUDIO_GAIN, &settings->audio_gain);
+        read_integer(ctx, root, "autocompleteOpacity", 0, 100, &settings->completion_opacity);
+        read_integer(ctx, root, "codeBackgroundOpacity", 0, 100, &settings->code_background_opacity);
+        read_integer(ctx, root, "audioGain", 0, SETTINGS_MAX_AUDIO_GAIN, &settings->audio_gain);
+        read_integer(ctx, root, "streamRate", 1, SETTINGS_MAX_STREAM_RATE, &settings->stream_rate);
+        read_integer(ctx, root, "streamMaxRate", 1, SETTINGS_MAX_STREAM_RATE, &settings->stream_max_rate);
         READ_CHOICE("codeBackgroundBlend", blend_names, code_background_blend);
         READ_CHOICE("codeTextBlend", blend_names, code_text_blend);
 #undef READ_CHOICE
@@ -333,6 +336,8 @@ bool settings_save(const struct settings *settings, const char *path, char *erro
         JS_SetPropertyStr(ctx, root, "watch", JS_NewBool(ctx, settings->watch));
         set_string(ctx, root, "audioSource", settings->audio_source);
         JS_SetPropertyStr(ctx, root, "audioGain", JS_NewInt32(ctx, settings->audio_gain));
+        JS_SetPropertyStr(ctx, root, "streamRate", JS_NewInt32(ctx, settings->stream_rate));
+        JS_SetPropertyStr(ctx, root, "streamMaxRate", JS_NewInt32(ctx, settings->stream_max_rate));
         set_string(ctx, root, "language", settings->language);
         set_string(ctx, root, "galleryServer", settings->gallery_server);
         set_string(ctx, root, "l10nUrl", settings->l10n_url);

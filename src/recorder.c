@@ -31,8 +31,7 @@ struct frame_writer {
     SDL_Condition *ready;
 };
 
-static struct frame_writer recorder = { .frame_ms = 1000.0 / RECORD_FPS },
-                           publisher = { .frame_ms = 1000.0 / PUBLISH_FPS };
+static struct frame_writer recorder = { .frame_ms = 1000.0 / RECORD_FPS }, publisher;
 
 static int write_frames(void *argument) {
     struct frame_writer *writer = argument;
@@ -148,8 +147,9 @@ void recorder_frame(double now) {
 
 bool recorder_stop(void) { return recorder.active && writer_stop(&recorder); }
 
-bool publisher_start(int stream, int source_width, int source_height, int width, int height) {
+bool publisher_start(int stream, int source_width, int source_height, int width, int height, int rate) {
     if (publisher.active) return false;
+    publisher.frame_ms = 1000.0 / rate;
     writer_start(&publisher, stream, NULL, source_width, source_height, width, height);
     return true;
 }

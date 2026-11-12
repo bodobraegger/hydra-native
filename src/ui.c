@@ -38,6 +38,7 @@
 #define MAX_SNIPPET 512
 #define OPACITY_STEP 10 // percent, for the - and + of the opacities in the settings menu
 #define GAIN_STEP 10 // percent, for the - and + of "input gain"
+#define RATE_STEP 5 // frames per second, for the - and + of the stream rates
 #define MIN_COMPLETION_PREFIX 2
 #define MAX_PALETTE_ROWS 12
 #define MAX_ROWS_PER_LINE 1024
@@ -1219,7 +1220,14 @@ static uint32_t code_background_color(void) {
 
 // A click on a number of the settings menu turns it into a text field: Enter applies the typed value (clamped,
 // with an optional unit), Escape cancels, Up and Down (and the wheel) step it, Shift by ten steps.
-enum number_kind { NUMBER_OPACITY, NUMBER_FONT_SIZE, NUMBER_AUDIO_GAIN, NUMBER_COMPLETION_OPACITY };
+enum number_kind {
+    NUMBER_OPACITY,
+    NUMBER_FONT_SIZE,
+    NUMBER_AUDIO_GAIN,
+    NUMBER_COMPLETION_OPACITY,
+    NUMBER_STREAM_RATE,
+    NUMBER_STREAM_MAX_RATE,
+};
 static const struct {
     const char *unit; // accepted after the number, and shown after it
     double minimum, maximum;
@@ -1229,6 +1237,8 @@ static const struct {
     [NUMBER_FONT_SIZE] = { "px", OVERLAY_MIN_FONT_SIZE, OVERLAY_MAX_FONT_SIZE, (int)FONT_SIZE_STEP },
     [NUMBER_AUDIO_GAIN] = { "%", 0, SETTINGS_MAX_AUDIO_GAIN, GAIN_STEP },
     [NUMBER_COMPLETION_OPACITY] = { "%", 0, 100, OPACITY_STEP },
+    [NUMBER_STREAM_RATE] = { "fps", 1, SETTINGS_MAX_STREAM_RATE, RATE_STEP },
+    [NUMBER_STREAM_MAX_RATE] = { "fps", 1, SETTINGS_MAX_STREAM_RATE, RATE_STEP },
 };
 #define MAX_NUMBER_TEXT 16
 #define LARGE_STEPS 10
@@ -1247,6 +1257,8 @@ static double number_value(enum number_kind kind) {
     case NUMBER_FONT_SIZE: return overlay_font_size();
     case NUMBER_AUDIO_GAIN: return settings.audio_gain;
     case NUMBER_COMPLETION_OPACITY: return settings.completion_opacity;
+    case NUMBER_STREAM_RATE: return settings.stream_rate;
+    case NUMBER_STREAM_MAX_RATE: return settings.stream_max_rate;
     }
     return 0;
 }
@@ -1267,6 +1279,12 @@ static void set_number(enum number_kind kind, double value) {
         break;
     case NUMBER_COMPLETION_OPACITY:
         settings.completion_opacity = (int)lround(value);
+        break;
+    case NUMBER_STREAM_RATE:
+    case NUMBER_STREAM_MAX_RATE:
+        if (kind == NUMBER_STREAM_RATE) settings.stream_rate = (int)lround(value);
+        else settings.stream_max_rate = (int)lround(value);
+        host.set_stream_rates(settings.stream_rate, settings.stream_max_rate);
         break;
     }
     save_settings();
@@ -2506,6 +2524,10 @@ static void draw_settings(void) {
         flow_label(&flow, "copy", false, ACTION_COPY_STREAM_ID, 0);
     }
     free(stream_id);
+    flow_row(&flow, label_x, " \xE2\x94\x9C stream rate");
+    flow_number(&flow, NUMBER_STREAM_RATE);
+    flow_row(&flow, label_x, " \xE2\x94\x94 stream max rate");
+    flow_number(&flow, NUMBER_STREAM_MAX_RATE);
     flow_row(&flow, label_x, "window");
     bool fullscreen = host.is_fullscreen();
     flow_label(&flow, "fullscreen", fullscreen, ACTION_FULLSCREEN, !fullscreen);

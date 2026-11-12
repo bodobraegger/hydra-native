@@ -424,11 +424,11 @@ static JSValue js_patch_bay_send(JSContext *ctx, JSValueConst this, int argc, JS
     return JS_NewBool(ctx, ok);
 }
 
-// patchBayPublish(on): the output frames go to the helper (at the size of the drawable, even) while `on`.
+// patchBayPublish(on, fps): the output frames go to the helper (at the size of the drawable, even) while `on`.
 static JSValue js_patch_bay_publish(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
-    int width, height;
+    int width, height, rate = to_int(ctx, argv[1]);
     SDL_GetWindowSizeInPixels(window, &width, &height);
-    return JS_NewBool(ctx, patch_bay_publish(JS_ToBool(ctx, argv[0]), width & ~1, height & ~1));
+    return JS_NewBool(ctx, patch_bay_publish(JS_ToBool(ctx, argv[0]), width & ~1, height & ~1, rate));
 }
 
 // patchBayVideo(channel, width, height): a video source for the frames of a stream that the helper receives.
@@ -728,7 +728,7 @@ static const JSCFunctionListEntry native_functions[] = {
     JS_CFUNC_DEF("patchBaySend", 1, js_patch_bay_send),
     JS_CFUNC_DEF("patchBayStop", 0, js_patch_bay_stop),
     JS_CFUNC_DEF("galleryServer", 0, js_gallery_server),
-    JS_CFUNC_DEF("patchBayPublish", 1, js_patch_bay_publish),
+    JS_CFUNC_DEF("patchBayPublish", 2, js_patch_bay_publish),
     JS_CFUNC_DEF("patchBayVideo", 3, js_patch_bay_video),
     JS_CFUNC_DEF("httpRequest", 4, js_http_request),
     JS_CFUNC_DEF("midiStart", 0, js_midi_start),

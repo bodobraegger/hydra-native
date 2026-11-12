@@ -19,6 +19,8 @@
   "audioGain": 100,
   "language": "",
   "galleryServer": "",
+  "streamRate": 60,
+  "streamMaxRate": 60,
   "l10nUrl": "",
   "socket": "",
   "themes": {

@@ -7,17 +7,24 @@
 // again as the initiator, and then sends its output too.
 // ffmpeg does the video codec: one child encodes the output to VP8 for all peers, and one child per received stream
 // decodes it. The helper puts VP8 into RTP packets and takes it out again (RFC 7741).
+// The frame rate: a receiver drops the decoded frames above its maximum, and it tells a hydra-native sender that
+// maximum with a signalling message { type: 'maxRate', message: fps } (the web editor ignores it). The sender
+// encodes at its own rate or at the highest maximum of its receivers, when that is lower.
 //
 // usage: hydra-native-patch-bay SERVER ROOM SOCKET
 // SOCKET is the path of a local socket for the frames. Each connection starts with one line that names its channel:
 //   output WIDTHxHEIGHT FPS                        hydra-native sends RGBA frames of its output (rows from the bottom)
 //   stream-N-WIDTHxHEIGHT                          the helper sends the RGBA frames of a received stream
 // stdin, one JSON object per line, from src/patch_bay.c:
-//   { type: 'call', method, args }                 a method of pb: initSource, setName, broadcast
+//   { type: 'call', method, args }                 a method of pb: initSource, setName, broadcast, and
+//                                                    setMaxRate(nick, fps) for the fps of s0.initStream
+//   { type: 'rates', streamRate, streamMaxRate }   the settings: frames per second of the output, and the most
+//                                                    frames per second of each received stream
 // stdout, one JSON object per line:
 //   { type: 'state', id, streamId, nick, nicks, peers }  after each change of the peers or names; streamId is the
 //                                                    socket id, which the other peers list in peers
-//   { type: 'publish', on }                         whether a peer connection wants the output frames
+//   { type: 'publish', on, fps }                    whether a peer connection wants the output frames, and their
+//                                                    rate: streamRate, or less when all receivers take less
 //   { type: 'video', nick, channel, width, height, resized } a received stream, whose frames come on `channel`;
 //                                                    `resized` for a new frame size of a stream sent before
 //   { type: 'video closed', nick }                   the peer of a received stream left
@@ -67,6 +74,8 @@
 #define MAX_PAYLOAD_TYPE 127 // RTP has 7 bits for it
 #define STUN_SERVER "stun:stun.l.google.com:19302" // the first STUN server of the defaults of simple-peer
 #define DATA_CHANNEL_LABEL "hydra-native"
+#define MAX_RATE_MESSAGE "maxRate"
+#define MAX_STREAM_RATE 60 // frames per second, SETTINGS_MAX_STREAM_RATE: also the maximum of a web editor
 #define TRACK_NAME "hydra-native" // the CNAME and the stream id (msid) of the output
 #define TRACK_ID "video"
 // The certificate files of the systems, for the check of a wss:// signalling server: Debian and Ubuntu, Fedora,
@@ -146,6 +155,7 @@ struct receiver {
     uint32_t timestamp;
     uint16_t next_sequence;
     int64_t keyframe_requested;
+    double next_frame_ms; // the time of the next frame for hydra-native at the maximum rate
 };
 
 struct peer {
@@ -158,6 +168,7 @@ struct peer {
     uint32_t ssrc;
     uint16_t sequence;
     bool negotiating, negotiation_queued;
+    int max_rate; // the most frames per second that the peer takes, from its maxRate message
     struct receiver receiver;
 };
 
@@ -179,6 +190,9 @@ static cJSON *nick_from_id, *id_from_nick, *peer_list;
 static struct peer *peers[MAX_CONNECTIONS]; // the peer connections (rtcPeers)
 static int peer_count;
 static bool publishing;
+static int publish_rate;
+static int stream_rate = MAX_STREAM_RATE, stream_max_rate = MAX_STREAM_RATE; // the settings of hydra-native
+static cJSON *rate_from_id; // the fps of s0.initStream for the stream of a peer
 static int received_streams;
 
 static struct {
@@ -489,6 +503,7 @@ static void forget_peer(const char *id) {
     if (named && !strcmp(named, id)) cJSON_DeleteItemFromObjectCaseSensitive(id_from_nick, name);
     cJSON_DeleteItemFromObjectCaseSensitive(nick_from_id, id);
     cJSON_DeleteItemFromObjectCaseSensitive(peer_list, id);
+    cJSON_DeleteItemFromObjectCaseSensitive(rate_from_id, id);
 }
 
 static void new_peer(const char *id) {
@@ -520,12 +535,29 @@ static void receive_broadcast(const cJSON *data) {
 
 // ---------------------------------------------------------------- peers on libdatachannel
 
-static void send_signal(struct peer *peer, cJSON *signal) {
+// A message of the signalling server to the peer, which takes `content`.
+static void send_message(struct peer *peer, const char *type, cJSON *content) {
     cJSON *message = cJSON_CreateObject();
     cJSON_AddStringToObject(message, "id", peer->id);
-    cJSON_AddItemToObject(message, "message", signal);
-    cJSON_AddStringToObject(message, "type", "signal");
+    cJSON_AddItemToObject(message, "message", content);
+    cJSON_AddStringToObject(message, "type", type);
     emit_event("message", message, NULL);
+}
+
+static void send_signal(struct peer *peer, cJSON *signal) { send_message(peer, "signal", signal); }
+
+static int clamp_rate(double rate) { return rate < 1 ? 1 : rate > MAX_STREAM_RATE ? MAX_STREAM_RATE : (int)rate; }
+
+// The most frames per second that this hydra-native takes from the stream of the peer.
+static int receive_rate(const struct peer *peer) {
+    const cJSON *rate = cJSON_GetObjectItemCaseSensitive(rate_from_id, peer->id);
+    return cJSON_IsNumber(rate) ? rate->valueint : stream_max_rate;
+}
+
+// The peer knows a message only after its connection exists: the message goes when the data channel is open.
+static void send_max_rate(struct peer *peer) {
+    if (peer->channel && rtcIsOpen(peer->channel))
+        send_message(peer, MAX_RATE_MESSAGE, cJSON_CreateNumber(receive_rate(peer)));
 }
 
 static struct peer *peer_with_id(const char *id) {
@@ -695,6 +727,7 @@ static struct peer *peer_create(const char *id, bool initiator, bool send) {
     peer->id = copy;
     peer->initiator = initiator;
     peer->connection = connection;
+    peer->max_rate = MAX_STREAM_RATE;
     peer->receiver.connection = peer->receiver.decoder_input = peer->receiver.decoder_output = -1;
     peers[peer_count++] = peer;
     rtcSetLocalDescriptionCallback(connection, on_description);
@@ -889,6 +922,14 @@ static void start_output(int stream, const char *format) {
     for (int index = 0; index < peer_count; index++) peers[index]->sent_keyframe = false;
 }
 
+// The setting "stream rate", or the highest maximum of the peers that receive the output when that is lower.
+static int output_rate(void) {
+    int highest = 0;
+    for (int index = 0; index < peer_count; index++)
+        if (peers[index]->sending && peers[index]->max_rate > highest) highest = peers[index]->max_rate;
+    return highest && highest < stream_rate ? highest : stream_rate;
+}
+
 // ---------------------------------------------------------------- receiving streams
 
 static void request_keyframe(struct peer *peer) {
@@ -1035,6 +1076,17 @@ static void receive_packet(struct peer *peer, const unsigned char *packet, size_
     decode_frame(peer, receiver->encoded, receiver->encoded_size);
 }
 
+// At most receive_rate() frames per second, with a tolerance of half a frame interval, so that the jitter of a
+// stream at that rate drops no frame. After a pause, the schedule starts again.
+static bool frame_due(struct peer *peer) {
+    struct receiver *receiver = &peer->receiver;
+    double now = (double)now_ms(), interval = 1000.0 / receive_rate(peer);
+    if (now < receiver->next_frame_ms - interval / 2) return false;
+    receiver->next_frame_ms = now - receiver->next_frame_ms > interval ? now + interval
+                                                                       : receiver->next_frame_ms + interval;
+    return true;
+}
+
 static void write_hydra(void *context) {
     struct receiver *receiver = &((struct peer *)context)->receiver;
     if (receiver->connection >= 0 && !buffer_flush(&receiver->to_hydra, receiver->connection)) {
@@ -1043,7 +1095,8 @@ static void write_hydra(void *context) {
     }
 }
 
-// RGBA frames of the decoder; one that comes while hydra-native still reads the one before is dropped.
+// RGBA frames of the decoder; one that comes while hydra-native still reads the one before, or above the maximum
+// rate, is dropped.
 static void read_decoder(void *context) {
     struct peer *peer = context;
     struct receiver *receiver = &peer->receiver;
@@ -1060,7 +1113,7 @@ static void read_decoder(void *context) {
     receiver->frame_used += (size_t)count;
     if (receiver->frame_used < frame_size) return;
     receiver->frame_used = 0;
-    if (receiver->connection < 0 || !buffer_empty(&receiver->to_hydra)) return;
+    if (receiver->connection < 0 || !buffer_empty(&receiver->to_hydra) || !frame_due(peer)) return;
     buffer_append(&receiver->to_hydra, receiver->frame, frame_size, frame_size);
     write_hydra(peer);
 }
@@ -1069,6 +1122,13 @@ static void read_decoder(void *context) {
 
 static void receive_message(const cJSON *data) {
     const char *type = member_string(data, "type");
+    if (type && !strcmp(type, MAX_RATE_MESSAGE)) {
+        const char *id = member_string(data, "id");
+        const cJSON *rate = cJSON_GetObjectItemCaseSensitive(data, "message");
+        struct peer *peer = id ? peer_with_id(id) : NULL;
+        if (peer && cJSON_IsNumber(rate)) peer->max_rate = clamp_rate(rate->valuedouble);
+        return;
+    }
     if (!type || strcmp(type, "signal")) {
         cJSON *line = message_new("message");
         cJSON_AddItemToObject(line, "data", cJSON_Duplicate(data, true));
@@ -1204,9 +1264,11 @@ static void handle_event(const struct event *event) {
             break;
         }
         peer->channel = event->value;
+        send_max_rate(peer);
         send_state();
         break;
     case EVENT_CHANNEL_OPEN:
+        send_max_rate(peer);
         send_state();
         break;
     case EVENT_CHANNEL_CLOSED:
@@ -1325,11 +1387,31 @@ static void shut_down(void) {
     else quitting = true;
 }
 
+// A missing `rate` gives the stream the setting "stream max rate" again.
+static void set_max_rate(const char *name, const cJSON *rate) {
+    const char *id = member_string(id_from_nick, name);
+    if (!id) return;
+    if (cJSON_IsNumber(rate)) set_member(rate_from_id, id, cJSON_CreateNumber(clamp_rate(rate->valuedouble)));
+    else cJSON_DeleteItemFromObjectCaseSensitive(rate_from_id, id);
+    struct peer *peer = peer_with_id(id);
+    if (peer) send_max_rate(peer);
+}
+
+static void set_rates(const cJSON *message) {
+    const cJSON *rate = cJSON_GetObjectItemCaseSensitive(message, "streamRate");
+    const cJSON *max_rate = cJSON_GetObjectItemCaseSensitive(message, "streamMaxRate");
+    if (cJSON_IsNumber(rate)) stream_rate = clamp_rate(rate->valuedouble);
+    if (!cJSON_IsNumber(max_rate) || clamp_rate(max_rate->valuedouble) == stream_max_rate) return;
+    stream_max_rate = clamp_rate(max_rate->valuedouble);
+    for (int index = 0; index < peer_count; index++) send_max_rate(peers[index]);
+}
+
 static void call(const char *method, const cJSON *arguments) {
     const cJSON *first = cJSON_IsArray(arguments) ? cJSON_GetArrayItem(arguments, 0) : NULL;
     const char *text = cJSON_IsString(first) ? first->valuestring : NULL;
     if (!method) return;
     if (!strcmp(method, "initSource") && text) init_source(text);
+    else if (!strcmp(method, "setMaxRate") && text) set_max_rate(text, cJSON_GetArrayItem(arguments, 1));
     else if (!strcmp(method, "setName") && text) set_name(text);
     else if (!strcmp(method, "broadcast") && first) emit_event("broadcast", cJSON_Duplicate(first, true), NULL);
     else return;
@@ -1348,6 +1430,8 @@ static void read_input(void *context) {
         const char *type = member_string(message, "type");
         if (type && !strcmp(type, "call"))
             call(member_string(message, "method"), cJSON_GetObjectItemCaseSensitive(message, "args"));
+        else if (type && !strcmp(type, "rates"))
+            set_rates(message);
         cJSON_Delete(message);
         start = end + 1;
     }
@@ -1356,12 +1440,16 @@ static void read_input(void *context) {
     if (input_used == MAX_LINE - 1) input_used = 0; // a line too long for the buffer is dropped
 }
 
+// A new rate restarts the encoder: hydra-native opens a new output connection with that rate.
 static void check_publish(void) {
     bool on = peer_count > 0;
-    if (on == publishing) return;
+    int rate = output_rate();
+    if (on == publishing && (!on || rate == publish_rate)) return;
     publishing = on;
+    publish_rate = rate;
     cJSON *message = message_new("publish");
     cJSON_AddBoolToObject(message, "on", on);
+    cJSON_AddNumberToObject(message, "fps", rate);
     print_object(message);
 }
 
@@ -1432,6 +1520,7 @@ int main(int argc, char **argv) {
     nick_from_id = cJSON_CreateObject();
     id_from_nick = cJSON_CreateObject();
     peer_list = cJSON_CreateObject();
+    rate_from_id = cJSON_CreateObject();
 
     cJSON *user = cJSON_CreateObject();
     cJSON_AddStringToObject(user, "uuid", own_id);
@@ -1450,6 +1539,7 @@ int main(int argc, char **argv) {
     cJSON_Delete(nick_from_id);
     cJSON_Delete(id_from_nick);
     cJSON_Delete(peer_list);
+    cJSON_Delete(rate_from_id);
     free(nick);
     free(stream_id);
     return 0;

@@ -30,6 +30,7 @@ enum code_blend { CODE_BLEND_NORMAL, CODE_BLEND_DIFFERENCE };
 #define SETTINGS_DEFAULT_AUDIO_GAIN 100 // percent
 #define SETTINGS_DEFAULT_COMPLETION_OPACITY 60 // percent
 #define SETTINGS_MAX_AUDIO_GAIN 400
+#define SETTINGS_MAX_STREAM_RATE 60 // frames per second of the patch bay, also the default of both rates
 // editor.renderWhitespace of VS Code
 enum render_whitespace {
     WHITESPACE_NONE,
@@ -64,6 +65,8 @@ struct settings {
     int code_background_opacity; // 0 to 100 percent, or SETTINGS_THEME_OPACITY
     enum code_blend code_background_blend, code_text_blend;
     int audio_gain; // percent, applied to the audio input before the analysis
+    int stream_rate; // frames per second of the output that the patch bay sends
+    int stream_max_rate; // the most frames per second that the patch bay takes from a received stream
     bool word_wrap;
     bool code_visible;
     bool fullscreen;

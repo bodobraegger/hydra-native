@@ -390,6 +390,7 @@ int main(int argc, char **argv) {
     signal(SIGPIPE, SIG_IGN);
     audio_set_gain(settings.audio_gain);
     share_set_server(settings.gallery_server);
+    patch_bay_set_rates(settings.stream_rate, settings.stream_max_rate);
     if (!create_window(&options)) return 1;
     // After SDL, which installs handlers of its own: the first SIGINT or SIGTERM ends the loop, so that the child
     // processes stop; a second one ends the process at once.
@@ -451,6 +452,7 @@ int main(int argc, char **argv) {
         .set_audio_gain = audio_set_gain,
         .choose_file = choose_file,
         .set_server = share_set_server,
+        .set_stream_rates = patch_bay_set_rates,
     };
     if (!ui_init(&settings, settings_file[0] ? settings_file : NULL, sketch, &host)) return 1;
     if (settings_error[0]) ui_show_message(settings_error, true); // the defaults apply, and the file stays as it is

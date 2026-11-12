@@ -33,6 +33,8 @@ struct ui_host {
     void (*choose_file)(bool save);
     // The gallery and patch bay server ("" is off). Only this call sets it, so that code of a sketch cannot.
     void (*set_server)(const char *url);
+    // The frames per second of the patch bay: of the output, and the most of each received stream.
+    void (*set_stream_rates)(int rate, int max_rate);
 };
 
 // The settings of this run, with the changes of the settings menu (main.c reads "watch" from it).

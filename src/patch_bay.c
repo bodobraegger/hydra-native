@@ -28,6 +28,7 @@ static struct {
     // main thread wait in a write.
     char *pending;
     size_t pending_size, pending_capacity;
+    int rate, max_rate; // of patch_bay_set_rates
 } helper = { .input = -1, .output = -1 };
 
 // Writes the waiting lines as far as the helper takes them; false when the helper is gone.
@@ -45,6 +46,19 @@ static bool flush_pending(void) {
     return true;
 }
 
+static void send_rates(void) {
+    char line[96];
+    snprintf(line, sizeof line, "{\"type\":\"rates\",\"streamRate\":%d,\"streamMaxRate\":%d}", helper.rate,
+             helper.max_rate);
+    patch_bay_send(line);
+}
+
+void patch_bay_set_rates(int rate, int max_rate) {
+    helper.rate = rate;
+    helper.max_rate = max_rate;
+    if (helper.process) send_rates();
+}
+
 bool patch_bay_start(const char *program, const char *server, const char *room) {
     if (helper.process) return true;
     stream_local_address(helper.address, sizeof helper.address, SOCKET_NAME);
@@ -53,6 +67,7 @@ bool patch_bay_start(const char *program, const char *server, const char *room) 
     if (!helper.process) return false;
     helper.buffer = malloc(MAX_LINE);
     helper.used = 0;
+    send_rates();
     return true;
 }
 
@@ -118,16 +133,17 @@ int patch_bay_connect(const char *channel) {
     return stream;
 }
 
-bool patch_bay_publish(bool on, int width, int height) {
+bool patch_bay_publish(bool on, int width, int height, int rate) {
     publisher_stop();
     if (!on || !helper.process) return true;
+    if (rate <= 0) return false;
     double scale = fmin(1, fmin((double)MAX_STREAM_WIDTH / width, (double)MAX_STREAM_HEIGHT / height));
     int stream_width = (int)(width * scale) & ~1, stream_height = (int)(height * scale) & ~1;
     char channel[64];
-    snprintf(channel, sizeof channel, "output %dx%d %d", stream_width, stream_height, PUBLISH_FPS);
+    snprintf(channel, sizeof channel, "output %dx%d %d", stream_width, stream_height, rate);
     int stream = patch_bay_connect(channel);
     if (stream < 0) return false;
-    if (!publisher_start(stream, width, height, stream_width, stream_height)) {
+    if (!publisher_start(stream, width, height, stream_width, stream_height, rate)) {
         stream_close(stream);
         return false;
     }

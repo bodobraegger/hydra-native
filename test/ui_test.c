@@ -173,6 +173,11 @@ static bool is_fullscreen(void) { return fullscreen_now; }
 static void set_vsync(bool vsync) { vsync_now = vsync; }
 static void set_audio_gain(int percent) { audio_gain_now = percent; }
 static void set_server(const char *url) { snprintf(patch_bay_server, sizeof patch_bay_server, "%s", url); }
+static int stream_rate_now, stream_max_rate_now;
+static void set_stream_rates(int rate, int max_rate) {
+    stream_rate_now = rate;
+    stream_max_rate_now = max_rate;
+}
 
 // The file dialogs answer at once with chosen_path; ui_test opens no real dialog.
 static void choose_file(bool save) {
@@ -192,7 +197,7 @@ static int quits; // the calls of the quit function of the host
 static void quit(void) { quits++; }
 static const struct ui_host test_host = { evaluate, toggle_fullscreen, is_fullscreen, quit, call, nothing, share,
                                           set_title, set_vsync, audio_devices, set_audio, set_audio_gain, choose_file,
-                                          set_server };
+                                          set_server, set_stream_rates };
 
 // ---------------------------------------------------------------- input helpers
 
@@ -425,6 +430,21 @@ static void test_settings_rows(const char *settings_file) {
     type("900%"); // above the range: 400
     key(SDLK_RETURN, 0);
     EXPECT(audio_gain_now == 400 && saved_settings(settings_file).audio_gain == 400);
+
+    ui_draw(800, 900, 0);
+    EXPECT(click_text("60 fps", 0)); // stream rate
+    type("30 fps");
+    key(SDLK_RETURN, 0);
+    EXPECT(stream_rate_now == 30 && saved_settings(settings_file).stream_rate == 30);
+    ui_draw(800, 900, 0);
+    EXPECT(click_text("60 fps", 0)); // stream max rate
+    type("0"); // below the range: 1
+    key(SDLK_RETURN, 0);
+    EXPECT(stream_max_rate_now == 1 && saved_settings(settings_file).stream_max_rate == 1);
+    ui_draw(800, 900, 0);
+    EXPECT(click_text("+", 3)); // of stream max rate, after the two opacities and the stream rate
+    EXPECT(stream_max_rate_now == 6 && saved_settings(settings_file).stream_max_rate == 6);
+    EXPECT(stream_rate_now == 30 && saved_settings(settings_file).stream_rate == 30);
 
     ui_draw(800, 900, 0);
     EXPECT(click_text("Microphone A", 0));

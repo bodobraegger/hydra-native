@@ -49,6 +49,14 @@ export function installSources (sourcePrototype) {
     return source
   }
 
+  // initStream(id, { fps }): the most frames per second of that stream, in place of the setting "stream max rate".
+  // The other params are the texture options of hydra-synth.
+  const initStream = sourcePrototype.initStream
+  sourcePrototype.initStream = function (streamName, { fps, ...params } = {}) {
+    if (streamName && this.pb) this.pb.setMaxRate(streamName, fps)
+    return initStream.call(this, streamName, params)
+  }
+
   // The shell command of the sketch writes raw RGBA frames to its stdout.
   sourcePrototype.initCommand = function (command, options) {
     return initHandle(this, options, (width, height) => native.videoOpen(command, width, height))

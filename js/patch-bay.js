@@ -38,6 +38,9 @@ export class PatchBay extends EventEmitter {
 
   broadcast (data) { this.call('broadcast', data) }
 
+  // The most frames per second of the stream of `nick`; undefined gives it the setting "stream max rate" again.
+  setMaxRate (nick, fps) { this.call('setMaxRate', nick, fps) }
+
   list () {
     console.log(this.nicks)
     return this.nicks
@@ -51,7 +54,7 @@ export class PatchBay extends EventEmitter {
         })
         break
       case 'publish':
-        native.patchBayPublish(message.on)
+        native.patchBayPublish(message.on, message.fps)
         break
       case 'video': this.receiveVideo(message); break
       case 'video closed': this.videos.get(message.nick)?.close(); break
