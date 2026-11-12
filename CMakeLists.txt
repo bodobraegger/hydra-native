@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(hydra-native VERSION 0.1.1 LANGUAGES C)
+project(hydra-native VERSION 0.1.2 LANGUAGES C)
 
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE RelWithDebInfo)
