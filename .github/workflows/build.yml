@@ -89,7 +89,8 @@ jobs:
         run: |
           version=
           if [ "$GITHUB_REF_TYPE" = tag ]; then version=$GITHUB_REF_NAME; fi
-          echo "archive=$(HYDRA_NATIVE_BUILD=$PWD/build tools/package.sh $version)" >> "$GITHUB_OUTPUT"
+          archive=$(HYDRA_NATIVE_BUILD=$PWD/build tools/package.sh $version)
+          echo "archive=$(cygpath -m "$archive")" >> "$GITHUB_OUTPUT" # upload-artifact takes no path of Git Bash
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: matrix.port
