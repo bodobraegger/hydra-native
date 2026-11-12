@@ -6,7 +6,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
 #include <unistd.h>
 
 #include <SDL3/SDL.h>
@@ -196,13 +195,9 @@ static void handle_events(void) {
     }
 }
 
-#if defined(__APPLE__)
-#define st_mtim st_mtimespec // the name of the same field on macOS
-#endif
-
 static long long modification_time(const char *path) {
-    struct stat info;
-    return stat(path, &info) == 0 ? info.st_mtim.tv_sec * 1000000000LL + info.st_mtim.tv_nsec : 0;
+    SDL_PathInfo info;
+    return SDL_GetPathInfo(path, &info) ? info.modify_time : 0;
 }
 
 // ---------------------------------------------------------------- setup and main loop
@@ -377,7 +372,12 @@ static void toggle_fullscreen(void) { SDL_SetWindowFullscreen(window, !is_fullsc
 
 static void request_quit(void) { quit_requested = true; }
 
-static void handle_quit_signal(int signal_number) { quit_requested = true; }
+// The first SIGINT or SIGTERM ends the loop, so that the child processes stop; a second one ends the process at
+// once. On Windows the C runtime raises SIGINT for Ctrl+C in the console.
+static void handle_quit_signal(int signal_number) {
+    quit_requested = true;
+    signal(signal_number, SIG_DFL);
+}
 
 int main(int argc, char **argv) {
     // The settings file first: the socket and the window need it.
@@ -395,16 +395,15 @@ int main(int argc, char **argv) {
     if (!code_socket_path(socket_path, sizeof socket_path, settings.socket)) return 2;
     if (options.send) return code_socket_send(socket_path);
 
+#ifdef SIGPIPE // Windows has none: a write to a closed pipe fails
     signal(SIGPIPE, SIG_IGN);
+#endif
     audio_set_gain(settings.audio_gain);
     share_set_server(settings.gallery_server);
     patch_bay_set_rates(settings.stream_rate, settings.stream_max_rate);
     if (!create_window(&options)) return 1;
-    // After SDL, which installs handlers of its own: the first SIGINT or SIGTERM ends the loop, so that the child
-    // processes stop; a second one ends the process at once.
-    struct sigaction quit_action = { .sa_handler = handle_quit_signal, .sa_flags = SA_RESETHAND };
-    sigaction(SIGINT, &quit_action, NULL);
-    sigaction(SIGTERM, &quit_action, NULL);
+    signal(SIGINT, handle_quit_signal); // after SDL, which installs handlers of its own
+    signal(SIGTERM, handle_quit_signal);
 
     engine_start(argc, argv);
     JSValue global = JS_GetGlobalObject(js);
