@@ -16,6 +16,9 @@ set(VENDOR ${CMAKE_SOURCE_DIR}/vendor CACHE PATH "Downloaded sources")
 set(QUICKJS_VERSION 2026-06-04)
 set(STB_COMMIT 4e9b368bfc071e97206ea5c6adba68dd0cbf8897)
 set(LIBREMIDI_VERSION 5.4.3)
+set(LIBDATACHANNEL_VERSION 0.24.6)
+set(MBEDTLS_VERSION 3.6.7)
+set(CJSON_COMMIT c859b25da02955fef659d658b8f324b5cde87be3) # v1.7.19
 set(GITHUB_RAW https://raw.githubusercontent.com)
 
 # Downloads `url` to `path` in up to 3 attempts; sets `result` to TRUE when the file has the hash.
@@ -50,7 +53,8 @@ function(vendor_archive name url sha256 marker)
   if(NOT downloaded)
     message(FATAL_ERROR "Cannot download ${url}")
   endif()
-  set(extract ${VENDOR}/.extract-${name}) # on the file system of vendor/, for the rename
+  string(REPLACE / - folder ${name}) # a name such as libdatachannel/deps/plog
+  set(extract ${VENDOR}/.extract-${folder}) # on the file system of vendor/, for the rename
   file(REMOVE_RECURSE ${extract})
   file(ARCHIVE_EXTRACT INPUT ${download} DESTINATION ${extract})
   file(GLOB top LIST_DIRECTORIES true ${extract}/*)
@@ -192,6 +196,62 @@ if(HYDRA_LINUX)
   else()
     message(STATUS "The patch bay (pb) is not built: GStreamer, libsoup 3 or json-glib development files are missing")
   endif()
+endif()
+
+# ---------------------------------------------------------------- WebRTC (Linux and macOS)
+
+# libdatachannel with its submodules at the commits of its release, each a pinned archive, and mbedTLS for TLS,
+# DTLS and SRTP, so that no system library is needed. All are static and C++ or C; the helper itself is C.
+if(NOT WIN32)
+  enable_language(CXX)
+  set(GITHUB https://github.com)
+  vendor_archive(libdatachannel
+    ${GITHUB}/paullouisageneau/libdatachannel/archive/refs/tags/v${LIBDATACHANNEL_VERSION}.tar.gz
+    22a66aebebd8dae561d8e5181da96f2fcc203e067c5b2186c07b39af913464c0 include/rtc/rtc.h)
+  vendor_archive(libdatachannel/deps/libjuice
+    ${GITHUB}/paullouisageneau/libjuice/archive/b89c792e3612faf2f12cf35bcc56857313a06be3.tar.gz
+    713b22174e8cb2e06538fa9bac2650bda21b83c86f5128813ab4dcf8f5bea9ed CMakeLists.txt)
+  vendor_archive(libdatachannel/deps/usrsctp
+    ${GITHUB}/paullouisageneau/usrsctp/archive/fec583d54493f879d2ae44a743423bf8a04371ab.tar.gz
+    e5c114afe73c9a0ec419fab5f5b3f63f3ce57b09b90d06ea85e63dca8aed3e7c CMakeLists.txt)
+  vendor_archive(libdatachannel/deps/libsrtp
+    ${GITHUB}/cisco/libsrtp/archive/24b3bf8f19b6f5ab4cd2bcceb4f4064efca86fd5.tar.gz
+    063478e368d7cd13d04a908d152a46f90bfa728c4b324be6d413b0b92728207c CMakeLists.txt)
+  vendor_archive(libdatachannel/deps/plog
+    ${GITHUB}/SergiusTheBest/plog/archive/94899e0b926ac1b0f4750bfbd495167b4a6ae9ef.tar.gz
+    92a08bce559b5f28aa88d3fd9071567414b9f43a83fe2a05a6dd14f1da536072 CMakeLists.txt)
+  vendor_archive(mbedtls
+    ${GITHUB}/Mbed-TLS/mbedtls/releases/download/mbedtls-${MBEDTLS_VERSION}/mbedtls-${MBEDTLS_VERSION}.tar.bz2
+    a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6 include/mbedtls/ssl.h)
+  vendor_file(cjson/cJSON.c ${GITHUB_RAW}/DaveGamble/cJSON/${CJSON_COMMIT}/cJSON.c
+    298581a04a36c0165da4b0aade235c23088cb2faa58651d720ea2f3706ed0b0d)
+  vendor_file(cjson/cJSON.h ${GITHUB_RAW}/DaveGamble/cJSON/${CJSON_COMMIT}/cJSON.h
+    25b0145150d500498e4d209cec69c18c42cf818bffcc54690be3b895a2a16dee)
+
+  # WebRTC needs the DTLS-SRTP extension, which the default configuration of mbedTLS leaves out.
+  file(WRITE ${CMAKE_BINARY_DIR}/mbedtls_user_config.h "#define MBEDTLS_SSL_DTLS_SRTP\n")
+  set(MBEDTLS_USER_CONFIG_FILE ${CMAKE_BINARY_DIR}/mbedtls_user_config.h CACHE FILEPATH "")
+  set(ENABLE_PROGRAMS OFF CACHE BOOL "")
+  set(ENABLE_TESTING OFF CACHE BOOL "")
+  set(MBEDTLS_FATAL_WARNINGS OFF CACHE BOOL "")
+  # The export set of libsrtp needs mbedTLS in an export set too; hydra-native installs neither.
+  set(DISABLE_PACKAGE_CONFIG_AND_INSTALL OFF CACHE BOOL "")
+  add_subdirectory(${VENDOR}/mbedtls ${CMAKE_BINARY_DIR}/mbedtls EXCLUDE_FROM_ALL)
+  add_library(MbedTLS::MbedTLS ALIAS mbedtls)
+  # The find module of libdatachannel, which libsrtp also uses, takes these results instead of an installed copy.
+  set(MbedTLS_INCLUDE_DIR ${VENDOR}/mbedtls/include CACHE PATH "")
+  set(MbedTLS_LIBRARY mbedtls CACHE STRING "")
+  set(MbedCrypto_LIBRARY mbedcrypto CACHE STRING "") # skips a symbol check that the module cannot run
+  set(MbedTLS_INCLUDES_X509 TRUE CACHE BOOL "")
+  set(MbedTLS_INCLUDES_CRYPTO TRUE CACHE BOOL "")
+  set(MBEDTLS_LIBRARIES mbedtls CACHE STRING "")
+
+  set(USE_MBEDTLS ON CACHE BOOL "")
+  set(NO_EXAMPLES ON CACHE BOOL "")
+  set(NO_TESTS ON CACHE BOOL "")
+  set(LIBSRTP_TEST_APPS OFF CACHE BOOL "")
+  set(ENABLE_WARNINGS_AS_ERRORS OFF CACHE BOOL "")
+  add_subdirectory(${VENDOR}/libdatachannel ${CMAKE_BINARY_DIR}/libdatachannel EXCLUDE_FROM_ALL)
 endif()
 
 # ---------------------------------------------------------------- audio input and MIDI
