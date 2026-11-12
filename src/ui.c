@@ -2932,16 +2932,11 @@ static void draw_row(size_t line, size_t row_start, size_t row_end, size_t inden
     size_t line_start = editor_line_start(&editor, line);
     size_t row_columns = columns_between(row_start, row_end);
     bool last_row = row_end == editor_line_end(&editor, line);
-    // The box covers the characters from the first to the last one that is not a space or a tab.
-    size_t text_start = row_start, text_end = row_end;
-    while (text_start < text_end && (editor.text[text_start] == ' ' || editor.text[text_start] == '\t')) text_start++;
-    while (text_end > text_start && (editor.text[text_end - 1] == ' ' || editor.text[text_end - 1] == '\t')) text_end--;
-    size_t box_start = indent + columns_between(row_start, text_start), box_end = indent +
-        columns_between(row_start, text_end);
     size_t limit = scroll_column + visible_columns();
-    size_t from = box_start > scroll_column ? box_start : scroll_column, to = box_end < limit ? box_end : limit;
+    size_t from = indent > scroll_column ? indent : scroll_column,
+        to = indent + row_columns < limit ? indent + row_columns : limit;
     overlay_set_layer(OVERLAY_CODE_BACKGROUND);
-    if (to > from) {
+    if (row_columns > 0 && to > from) {
         float x = MARGIN + (float)(from - scroll_column) * overlay_char_width();
         overlay_rect(x - TEXT_PADDING, y, (float)(to - from) * overlay_char_width() + 2 * TEXT_PADDING,
                      overlay_line_height(),

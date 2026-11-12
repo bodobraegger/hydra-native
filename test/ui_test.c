@@ -70,21 +70,11 @@ static struct drawn_text {
     uint32_t color;
 } drawn_texts[MAX_DRAWN_TEXTS];
 static size_t drawn_text_count;
-// The rectangles of the last frame, for the boxes behind the code rows.
-static struct drawn_rect {
-    float x, y, width;
-    enum overlay_layer layer;
-} drawn_rects[MAX_DRAWN_TEXTS];
-static size_t drawn_rect_count;
 void overlay_begin(void) {
     drawn[0] = '\0';
     drawn_text_count = 0;
-    drawn_rect_count = 0;
 }
-void overlay_rect(float x, float y, float width, float height, uint32_t color) {
-    if (drawn_rect_count < MAX_DRAWN_TEXTS)
-        drawn_rects[drawn_rect_count++] = (struct drawn_rect){ x, y, width, current_layer };
-}
+void overlay_rect(float x, float y, float width, float height, uint32_t color) {}
 static char bar_text[512]; // the last drawn text that starts with "find: "
 void overlay_text(float x, float y, const char *text, size_t length, size_t first_column, size_t max_columns,
                   const uint32_t *colors, uint32_t color) {
@@ -299,36 +289,6 @@ static const struct drawn_text *text_starting(const char *prefix) {
     for (size_t i = 0; i < drawn_text_count; i++)
         if (!strncmp(drawn_texts[i].text, prefix, strlen(prefix))) return &drawn_texts[i];
     return NULL;
-}
-
-// The leftmost rectangle of the code box layer at `y` (the toolbar boxes lie on the right), or NULL.
-static const struct drawn_rect *code_box_at(float y) {
-    const struct drawn_rect *found = NULL;
-    for (size_t i = 0; i < drawn_rect_count; i++)
-        if (drawn_rects[i].layer == OVERLAY_CODE_BACKGROUND && drawn_rects[i].y == y &&
-            (!found || drawn_rects[i].x < found->x))
-            found = &drawn_rects[i];
-    return found;
-}
-
-// The box behind a code row covers its characters only: no box behind the indentation and the spaces at the end,
-// and none for a row of only whitespace.
-static void test_code_boxes(void) {
-    ui_set_code("osc()\n    noise()  \n \t \nx");
-    key(SDLK_HOME, SDL_KMOD_LCTRL);
-    ui_draw(800, 600, 0);
-    const struct drawn_text *plain = text_starting("osc()"), *indented = text_starting("    noise()");
-    const struct drawn_rect *plain_box = plain ? code_box_at(plain->y) : NULL;
-    const struct drawn_rect *indented_box = indented ? code_box_at(indented->y) : NULL;
-    if (!plain_box || !indented_box) {
-        fprintf(stderr, "%s:%d: no code box for \"osc()\" or \"    noise()\"\n", __FILE__, __LINE__);
-        failures++;
-        return;
-    }
-    float padding = plain->x - plain_box->x, char_width = overlay_char_width();
-    EXPECT(indented_box->x == indented->x + 4 * char_width - padding);
-    EXPECT(indented_box->width == plain_box->width + 2 * char_width); // "noise()" has two characters more
-    EXPECT(code_box_at(2 * indented->y - plain->y) == NULL); // the third row: a space, a tab and a space
 }
 
 // The first number of the settings menu: the opacity of the autocomplete list.
@@ -1335,7 +1295,6 @@ int main(void) {
     test_files(settings_file);
     test_unsaved_question(settings_file);
     test_recovery(settings_file);
-    test_code_boxes();
     test_random_input(settings_file);
 
     unlink(settings_file);

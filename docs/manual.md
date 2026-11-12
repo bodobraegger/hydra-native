@@ -43,9 +43,8 @@ stay.
 
 ## Code overlay
 
-The overlay shows the code on a dark, partly transparent box behind each line, with syntax colors
-and bracket pair colors. The box covers the characters only: the indentation, the spaces and tabs at the end of a
-line, and a line of only whitespace have no box. Long lines wrap with a hanging indent of 2 (Alt+Z toggles the wrap).
+The overlay shows the code on a dark, partly transparent background behind each line, with syntax colors
+and bracket pair colors. Long lines wrap with a hanging indent of 2 (Alt+Z toggles the wrap).
 Evaluated lines flash for 300 ms.
 An evaluation error, a console warning during the evaluation, or a shader compile error shows in the bar at the bottom.
 New shaders compile in the background, and each output shows its old shader until the new one is ready.
