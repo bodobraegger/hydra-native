@@ -871,10 +871,11 @@ static void start_output(int stream, const char *format) {
     char dimensions[32], fps[16];
     snprintf(dimensions, sizeof dimensions, "%dx%d", width, height);
     snprintf(fps, sizeof fps, "%d", rate); // also the keyframe interval: one second
+    // With the default threads, libvpx falls behind and ffmpeg queues the frames for more than a second.
     const char *argv[] = { "ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgba", "-s",
                            dimensions, "-r", fps, "-i", "-", "-vf", "vflip", "-pix_fmt", "yuv420p", "-c:v",
                            "libvpx", "-deadline", "realtime", "-cpu-used", "8", "-lag-in-frames", "0",
-                           "-error-resilient", "1", "-g", fps, "-b:v", VIDEO_BITRATE, "-f", "ivf",
+                           "-error-resilient", "1", "-g", fps, "-b:v", VIDEO_BITRATE, "-threads", "1", "-f", "ivf",
                            "-flush_packets", "1", "-", NULL };
     if (output.frame && output.encoded)
         output.encoder = process_start(argv, &output.encoder_input, &output.encoder_output);
