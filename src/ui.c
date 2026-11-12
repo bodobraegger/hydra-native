@@ -522,8 +522,7 @@ static char *read_whole_file(const char *path, size_t *length) {
     return text;
 }
 
-// The name of a file without its folder; NULL for NULL.
-static const char *base_name(const char *path) {
+const char *ui_base_name(const char *path) {
     const char *slash = path ? strrchr(path, '/') : NULL;
 #if defined(_WIN32)
     const char *backslash = path ? strrchr(path, '\\') : NULL;
@@ -537,7 +536,7 @@ static const char *base_name(const char *path) {
 static void show_title(const char *url) {
     static char last_url[8192];
     if (url) snprintf(last_url, sizeof last_url, "%s", url);
-    const char *name = base_name(file_path);
+    const char *name = ui_base_name(file_path);
     char title[sizeof last_url + 512];
     if (name && last_url[0]) snprintf(title, sizeof title, "%s - %s", name, last_url);
     else snprintf(title, sizeof title, "%s", name ? name : last_url[0] ? last_url : "hydra-native");
@@ -635,7 +634,7 @@ static void restore_recovery(const char *path) {
         snprintf(others, sizeof others, "%zu recovery file%s kept next to settings.json", kept, kept == 1 ? "" : "s");
     if (restored_file) {
         snprintf(text, sizeof text, "restored the unsaved changes of %s%s%s",
-                 restored_file[0] ? base_name(restored_file) : "the code", kept ? "; " : "", others);
+                 restored_file[0] ? ui_base_name(restored_file) : "the code", kept ? "; " : "", others);
         show_title(NULL);
     }
     if (restored_file || kept) ui_show_message(restored_file ? text : others, true);
@@ -3040,8 +3039,8 @@ static void draw_row(size_t line, size_t row_start, size_t row_end, size_t inden
 static void draw_setup_line(void) {
     const char *path = settings.setup_file;
     char *sketch = file_path ? absolute_path(file_path) : NULL;
-    const char *slash = sketch ? strrchr(sketch, '/') : NULL;
-    if (slash && !strncmp(path, sketch, (size_t)(slash - sketch + 1))) path += slash - sketch + 1;
+    const char *name = sketch ? ui_base_name(sketch) : NULL;
+    if (name && name != sketch && !strncmp(path, sketch, (size_t)(name - sketch))) path += name - sketch;
     char text[SETTINGS_TEXT + 32];
     snprintf(text, sizeof text, "await loadScript(\"%s\")", path);
     free(sketch);
@@ -3250,7 +3249,8 @@ static void draw_prompt(int width, int height) {
         break;
     case PROMPT_GO_TO_LINE: snprintf(text, sizeof text, "go to line: %s", prompt.query); break;
     case PROMPT_UNSAVED:
-        snprintf(text, sizeof text, "unsaved changes in %s: s save, d discard, Escape cancel", base_name(file_path));
+        snprintf(text, sizeof text, "unsaved changes in %s: s save, d discard, Escape cancel",
+                 ui_base_name(file_path));
         color = theme->error;
         break;
     case PROMPT_SERVER: snprintf(text, sizeof text, "gallery and patch bay server URL: %s   (Enter: OK, empty: off)",
@@ -3374,8 +3374,8 @@ void ui_show_random_example(void) {
 void ui_set_code(const char *code) {
     if (recovery.restored[0]) { // a sketch URL at the start: the recovery file keeps the restored changes
         char text[MAX_MESSAGE + sizeof recovery.restored];
-        snprintf(text, sizeof text, "%s keeps the unsaved changes of %s", base_name(recovery.restored),
-                 file_path ? base_name(file_path) : "code without a file");
+        snprintf(text, sizeof text, "%s keeps the unsaved changes of %s", ui_base_name(recovery.restored),
+                 file_path ? ui_base_name(file_path) : "code without a file");
         ui_show_message(text, true);
         recovery.restored[0] = '\0';
         close_file();
