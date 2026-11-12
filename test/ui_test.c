@@ -236,6 +236,21 @@ static void write_file(const char *path, const char *text) {
     fclose(file);
 }
 
+// The path hydra-native-ui-test-NAME-PID.EXTENSION in the temporary folder, with "/" before the name.
+static void temporary_path(char *path, size_t size, const char *name, const char *extension) {
+#if defined(_WIN32)
+    const char *folder = getenv("TEMP");
+#else
+    const char *folder = "/tmp";
+#endif
+    snprintf(path, size, "%s/hydra-native-ui-test-%s-%d%s", folder, name, (int)getpid(), extension);
+}
+
+static void temporary_file(char *path, size_t size, const char *name) {
+    temporary_path(path, size, name, ".js");
+    write_file(path, "");
+}
+
 // Clicks the `occurrence`-th (from 0) drawn text that equals `text`; false when the last frame has none.
 static bool click_text(const char *text, int occurrence) {
     for (size_t i = 0; i < drawn_text_count; i++) {
@@ -458,9 +473,8 @@ static void test_settings_rows(const char *settings_file) {
 // The "file" row and Ctrl+S with the file dialogs of the host (stubs here): open a sketch, save to a new file when
 // none is open, the file name in the window title, and the reload row, which is dim without a file.
 static void test_files(const char *settings_file) {
-    char other[] = "/tmp/hydra-native-ui-test-other-XXXXXX.js";
-    int fd = mkstemps(other, 3);
-    close(fd);
+    char other[256];
+    temporary_file(other, sizeof other, "other");
     write_file(other, "noise(3).out()");
     snprintf(chosen_path, sizeof chosen_path, "%s", other);
     key(SDLK_COMMA, SDL_KMOD_LCTRL);
@@ -497,9 +511,8 @@ static void test_files(const char *settings_file) {
     EXPECT(!ui_settings()->watch);
     key(SDLK_ESCAPE, 0);
     ui_set_code("osc(4).out()");
-    char saved[] = "/tmp/hydra-native-ui-test-saved-XXXXXX.js";
-    fd = mkstemps(saved, 3);
-    close(fd);
+    char saved[256];
+    temporary_file(saved, sizeof saved, "saved");
     snprintf(chosen_path, sizeof chosen_path, "%s", saved);
     key(SDLK_S, SDL_KMOD_LCTRL);
     EXPECT(dialogs == 3);
@@ -531,9 +544,8 @@ static void test_files(const char *settings_file) {
     EXPECT(ui_file_path() == NULL);
     ui_draw(800, 600, 0);
     EXPECT(click_text("clear", 0) || !click_text("reset", 0));
-    char after_example[] = "/tmp/hydra-native-ui-test-example-XXXXXX.js";
-    fd = mkstemps(after_example, 3);
-    close(fd);
+    char after_example[256];
+    temporary_file(after_example, sizeof after_example, "example");
     snprintf(chosen_path, sizeof chosen_path, "%s", after_example);
     key(SDLK_S, SDL_KMOD_LCTRL);
     EXPECT(dialogs == 4); // asks for a file instead of saving to the old one
@@ -595,9 +607,8 @@ static void test_setup_file(const char *settings_file) {
 // The question before the unsaved changes of the open file are lost: Escape keeps them and the file, s saves them
 // and then resets, d discards them and resets. Quit asks too. Without changes, nothing asks.
 static void test_unsaved_question(const char *settings_file) {
-    char sketch[] = "/tmp/hydra-native-ui-test-unsaved-XXXXXX.js";
-    int fd = mkstemps(sketch, 3);
-    close(fd);
+    char sketch[256];
+    temporary_path(sketch, sizeof sketch, "unsaved", ".js");
     write_file(sketch, "osc(1).out()");
     struct settings defaults;
     settings_defaults(&defaults);
@@ -650,9 +661,17 @@ static size_t newest_recovery(char *path, size_t size) {
     return count;
 }
 
-// The recovery stores resolved paths; on macOS /tmp is a link to /private/tmp.
+// The recovery stores resolved paths; on macOS /tmp is a link to /private/tmp, and Windows writes backslashes.
+static char *resolved_path(const char *path) {
+#if defined(_WIN32)
+    return _fullpath(NULL, path, 0);
+#else
+    return realpath(path, NULL);
+#endif
+}
+
 static bool same_path(const char *first, const char *second) {
-    char *first_resolved = realpath(first, NULL), *second_resolved = realpath(second, NULL);
+    char *first_resolved = resolved_path(first), *second_resolved = resolved_path(second);
     bool same = first_resolved && second_resolved ? !strcmp(first_resolved, second_resolved) : !strcmp(first, second);
     free(first_resolved);
     free(second_resolved);
@@ -672,10 +691,10 @@ static void expect_recovery(const char *path, const char *code, const char *file
 // of all without a file, also the recovery.js of older versions; the bar counts the kept ones. Ctrl+S removes the
 // restored file and the file of the run, and leaves the others.
 static void test_recovery(const char *settings_file) {
-    char sketch[] = "/tmp/hydra-native-ui-test-recovery-XXXXXX.js", other[] = "/tmp/hydra-native-ui-test-old-XXXXXX.js";
-    const char *another = "/tmp/hydra-native-ui-test-another-file.js";
-    close(mkstemps(sketch, 3));
-    close(mkstemps(other, 3));
+    char sketch[256], other[256], another[256];
+    temporary_path(sketch, sizeof sketch, "recovery", ".js");
+    temporary_path(other, sizeof other, "old", ".js");
+    temporary_path(another, sizeof another, "another", ".js");
     write_file(sketch, "osc(1).out()");
     write_file(other, "noise(1).out()");
     char old[256], first[256], second[256], path[256];
@@ -948,13 +967,13 @@ static void test_random_input(const char *settings_file) {
                                         "\\", "=>", "//", "/*", "\n", "wobble", "1", "\xE6\x97\xA5" };
     struct signature list[8];
     size_t count = signatures_parse(SIGNATURES, list, 8);
-    unsigned seed = 1;
+    srand(1);
     for (int i = 0; i < RANDOM_INPUTS; i++) {
         char text[512] = "";
         const char *const *pieces = i % 2 ? json : code;
         unsigned piece_count = i % 2 ? sizeof json / sizeof json[0] : sizeof code / sizeof code[0];
-        for (int k = (int)((unsigned)rand_r(&seed) % 40); k > 0 && strlen(text) < sizeof text - 32; k--)
-            strcat(text, pieces[(unsigned)rand_r(&seed) % piece_count]);
+        for (int k = (int)((unsigned)rand() % 40); k > 0 && strlen(text) < sizeof text - 32; k--)
+            strcat(text, pieces[(unsigned)rand() % piece_count]);
         if (i % 2) {
             struct settings loaded;
             char error[SETTINGS_TEXT];
@@ -967,7 +986,7 @@ static void test_random_input(const char *settings_file) {
         } else {
             struct call_context call;
             const struct signature *found = NULL;
-            size_t offset = (unsigned)rand_r(&seed) % (strlen(text) + 1);
+            size_t offset = (unsigned)rand() % (strlen(text) + 1);
             if (signature_call_at(text, offset, list, count, &call, &found))
                 EXPECT(found && call.name_start <= offset);
         }
@@ -978,14 +997,14 @@ int main(void) {
     // The dummy video driver gives SDL a clipboard without a window.
     SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "dummy");
     EXPECT(SDL_Init(SDL_INIT_VIDEO));
-    char path[] = "/tmp/hydra-native-ui-test-XXXXXX";
-    int fd = mkstemp(path);
-    close(fd);
+    char path[256];
+    temporary_path(path, sizeof path, "sketch", "");
     write_file(path, "osc(10)\n  .out()\n\nnoise().out()");
     // The settings file lives in a temporary XDG_CONFIG_HOME, never in the real configuration of the user.
-    char config[] = "/tmp/hydra-native-ui-test-config-XXXXXX", settings_file[256];
-    EXPECT(mkdtemp(config) != NULL);
-    setenv("XDG_CONFIG_HOME", config, 1);
+    char config[256], settings_file[256];
+    temporary_path(config, sizeof config, "config", "");
+    EXPECT(SDL_CreateDirectory(config));
+    SDL_setenv_unsafe("XDG_CONFIG_HOME", config, 1);
     EXPECT(settings_path(settings_file, sizeof settings_file));
     EXPECT_STRING(settings_file + strlen(config), "/hydra-native/settings.json");
     char error[SETTINGS_TEXT];
