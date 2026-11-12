@@ -1,19 +1,17 @@
+#define _GNU_SOURCE
 #include "settings.h"
 
 #include <dirent.h>
 #include <errno.h>
-#include <fcntl.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
-#include <unistd.h>
+
+#include <SDL3/SDL.h>
 
 #include "quickjs.h"
-#if !defined(__linux__)
-#include <SDL3/SDL.h>
-#endif
 
 #define SETTINGS_DIRECTORY "hydra-native"
 #define SETTINGS_FILE "settings.json"
@@ -279,29 +277,27 @@ bool settings_load(struct settings *settings, const char *path, char *error, siz
     return ok;
 }
 
-// Creates the directories of `path` (like mkdir -p of its parent).
+// Creates the directories of `path` (like mkdir -p of its parent). SDL_GetPrefPath already made the folder of a
+// path with the separators of Windows.
 static bool make_parent_directories(const char *path) {
+    const char *slash = strrchr(path, '/');
+    if (!slash || slash == path) return true;
     char directory[SETTINGS_TEXT * 2];
-    snprintf(directory, sizeof directory, "%s", path);
-    for (char *slash = strchr(directory + 1, '/'); slash; slash = strchr(slash + 1, '/')) {
-        *slash = '\0';
-        if (mkdir(directory, 0755) != 0 && errno != EEXIST) return false;
-        *slash = '/';
-    }
-    return true;
+    snprintf(directory, sizeof directory, "%.*s", (int)(slash - path), path);
+    return SDL_CreateDirectory(directory);
 }
 
 // Writes `text`, then `end`, into a temporary file and renames it to `path`: a reader never sees half a file.
 static bool write_atomically(const char *path, const char *text, const char *end) {
     char temporary[SETTINGS_TEXT * 2 + 8];
     snprintf(temporary, sizeof temporary, "%s.tmp", path);
-    FILE *file = make_parent_directories(path) ? fopen(temporary, "w") : NULL;
+    FILE *file = make_parent_directories(path) ? fopen(temporary, "wb") : NULL;
     bool ok = file && fputs(text, file) >= 0 && fputs(end, file) >= 0;
     if (file && fclose(file) != 0) ok = false;
-    if (ok && rename(temporary, path) != 0) ok = false;
+    if (ok && !SDL_RenamePath(temporary, path)) ok = false; // rename() of Windows fails on an existing file
     if (!ok && file) {
         int error = errno; // for the message of the caller
-        unlink(temporary);
+        remove(temporary);
         errno = error;
     }
     return ok;
@@ -368,8 +364,8 @@ bool recovery_create(char *path, size_t size, time_t time) {
     for (int number = 1; number <= MAX_RECOVERY_NUMBER; number++) {
         if (number == 1) snprintf(path, size, "%s" RECOVERY_EXTENSION, base);
         else snprintf(path, size, "%s-%d" RECOVERY_EXTENSION, base, number);
-        int file = open(path, O_WRONLY | O_CREAT | O_EXCL, 0644); // fails when another run has the name
-        if (file >= 0) return close(file) == 0;
+        FILE *file = fopen(path, "wx"); // fails when another run has the name
+        if (file) return fclose(file) == 0;
         if (errno != EEXIST) return false;
     }
     return false;
