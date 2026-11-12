@@ -32,9 +32,11 @@
 //
 // All work runs on the main thread in a poll loop. The callbacks of libdatachannel come from its threads: they only
 // put events into a queue for the main thread.
+//
+// On Windows every stream is a pipe: SOCKET is a named pipe, and poll_streams (below) takes the place of poll.
+#define _CRT_RAND_S // rand_s of Windows
 #include <errno.h>
 #include <fcntl.h>
-#include <poll.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdarg.h>
@@ -43,10 +45,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/socket.h>
-#include <sys/un.h>
 #include <time.h>
 #include <unistd.h>
+#if defined(_WIN32)
+#include <winsock2.h> // struct pollfd
+#include <io.h>
+#include <windows.h>
+#else
+#include <poll.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#endif
 
 #include <cJSON.h>
 #include <rtc/rtc.h>
@@ -58,6 +67,9 @@
 #define MAX_PING_MS 3600000
 #define CLOSE_WAIT_MS 1000 // for the close handshake of the signalling WebSocket
 #define POLL_MS 100 // the resolution of the timers
+#define WAIT_STEP_MS 1 // Windows: between two checks of the pipes in poll_streams
+#define PIPE_BUFFER_SIZE (1 << 16) // Windows: of each local connection
+#define WAKE_PIPE_SIZE 4096 // Windows
 #define ID_LENGTH 8 // pb.id, the start of a random UUID as in rtc-patch-bay.js
 #define MAX_FRAME_SIDE 16384
 #define MAX_PEERS 256 // the newest peers of the room in the tables: the signalling server tells no peer that leaves
@@ -266,7 +278,42 @@ static void write_little(unsigned char *bytes, uint64_t value, int count) {
     for (int index = 0; index < count; index++) bytes[index] = (unsigned char)(value >> (8 * index));
 }
 
+#if defined(_WIN32)
+static bool moved; // whether the last turn read or wrote bytes, so that the next turn does not wait
+
+// read and write of the C runtime wait on a pipe of Windows. These return at once as on POSIX with O_NONBLOCK: the
+// count of bytes, 0 at the end of the stream, or -1 with errno EAGAIN when they would wait.
+static ssize_t read_stream(int stream, void *buffer, size_t size) {
+    long count = stream_read_ready(stream, buffer, size);
+    if (count == 0) errno = EAGAIN;
+    if (count > 0) moved = true;
+    return count < 0 ? 0 : count == 0 ? -1 : count;
+}
+
+static ssize_t write_stream(int stream, const void *buffer, size_t size) {
+    long count = stream_write_ready(stream, buffer, size);
+    if (count <= 0) errno = count == 0 ? EAGAIN : EPIPE;
+    if (count > 0) moved = true;
+    return count == 0 ? -1 : count;
+}
+
+static void set_nonblocking(int stream) {} // read_stream and write_stream do not wait
+#else
+#define read_stream read
+#define write_stream write
+
 static void set_nonblocking(int stream) { fcntl(stream, F_SETFL, fcntl(stream, F_GETFL) | O_NONBLOCK); }
+#endif
+
+static uint32_t random_number(void) {
+#if defined(_WIN32)
+    unsigned int number = 0;
+    rand_s(&number);
+    return number;
+#else
+    return arc4random();
+#endif
+}
 
 static void close_stream(int *stream) {
     if (*stream >= 0) close(*stream);
@@ -302,7 +349,7 @@ static bool buffer_append(struct buffer *buffer, const void *data, size_t size, 
 // Writes as much as the non-blocking stream takes; false when the reader is gone.
 static bool buffer_flush(struct buffer *buffer, int stream) {
     while (!buffer_empty(buffer)) {
-        ssize_t count = write(stream, buffer->data + buffer->start, buffer->size - buffer->start);
+        ssize_t count = write_stream(stream, buffer->data + buffer->start, buffer->size - buffer->start);
         if (count < 0) return errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR;
         buffer->start += (size_t)count;
     }
@@ -404,7 +451,7 @@ static void push_event(enum event_type type, int id, int value, const char *text
     }
     pthread_mutex_unlock(&events.lock);
     if (dropped) return free(event);
-    ssize_t written = write(events.wake[1], "", 1); // a full pipe already wakes the main thread
+    ssize_t written = write_stream(events.wake[1], "", 1); // a full pipe already wakes the main thread
     (void)written;
 }
 
@@ -616,7 +663,7 @@ static void negotiate(struct peer *peer) {
 
 // The video track of the connection, with the payload type of VP8 that the offer gives; `mid` NULL for a new one.
 static bool add_track(struct peer *peer, const char *mid, rtcDirection direction, int payload_type) {
-    peer->ssrc = arc4random();
+    peer->ssrc = random_number();
     rtcTrackInit init = { .direction = direction, .codec = RTC_CODEC_VP8, .payloadType = payload_type,
                           .ssrc = peer->ssrc, .mid = mid, .name = TRACK_NAME, .msid = TRACK_NAME,
                           .trackId = TRACK_ID };
@@ -837,7 +884,8 @@ static void stop_output(void) {
 static void read_encoder(void *context) {
     if (output.encoder_output < 0) return;
     size_t capacity = IVF_FILE_HEADER + IVF_FRAME_HEADER + MAX_ENCODED_FRAME;
-    ssize_t count = read(output.encoder_output, output.encoded + output.encoded_used, capacity - output.encoded_used);
+    ssize_t count =
+        read_stream(output.encoder_output, output.encoded + output.encoded_used, capacity - output.encoded_used);
     if (count == 0 || (count < 0 && errno != EAGAIN && errno != EINTR)) {
         log_text(true, "the video encoder (ffmpeg) ended");
         return stop_output();
@@ -876,7 +924,7 @@ static void write_encoder(void *context) {
 // Frames of the output; a frame that comes while the encoder still reads the one before is dropped.
 static void read_output(void *context) {
     if (output.stream < 0) return;
-    ssize_t count = read(output.stream, output.frame + output.used, output.frame_size - output.used);
+    ssize_t count = read_stream(output.stream, output.frame + output.used, output.frame_size - output.used);
     if (count == 0 || (count < 0 && errno != EAGAIN && errno != EINTR)) return stop_output();
     if (count < 0) return;
     output.used += (size_t)count;
@@ -1102,8 +1150,8 @@ static void read_decoder(void *context) {
     struct receiver *receiver = &peer->receiver;
     if (receiver->decoder_output < 0) return;
     size_t frame_size = (size_t)receiver->width * (size_t)receiver->height * RGBA_BYTES;
-    ssize_t count = read(receiver->decoder_output, receiver->frame + receiver->frame_used,
-                         frame_size - receiver->frame_used);
+    ssize_t count = read_stream(receiver->decoder_output, receiver->frame + receiver->frame_used,
+                                frame_size - receiver->frame_used);
     if (count == 0 || (count < 0 && errno != EAGAIN && errno != EINTR)) {
         log_text(true, "the video decoder (ffmpeg) ended");
         stop_decoder(receiver);
@@ -1284,7 +1332,7 @@ static void handle_event(const struct event *event) {
 
 static void handle_events(void *context) {
     char drain[256];
-    while (read(events.wake[0], drain, sizeof drain) > 0) {}
+    while (read_stream(events.wake[0], drain, sizeof drain) > 0) {}
     struct event *event;
     while ((event = pop_event())) {
         if (!quitting) handle_event(event);
@@ -1315,7 +1363,7 @@ static void read_channel_line(void *context) {
     int slot = (int)(intptr_t)context;
     int stream = waiting[slot].stream;
     if (stream < 0) return;
-    ssize_t count = read(stream, waiting[slot].line + waiting[slot].used, 1); // the frames follow the line
+    ssize_t count = read_stream(stream, waiting[slot].line + waiting[slot].used, 1); // the frames follow the line
     if (count < 0 && (errno == EAGAIN || errno == EINTR)) return;
     if (count <= 0) return close_stream(&waiting[slot].stream);
     if (waiting[slot].line[waiting[slot].used] != '\n') {
@@ -1338,10 +1386,73 @@ static void read_channel_line(void *context) {
     }
 }
 
-static void accept_connection(void *context) {
+#if defined(_WIN32)
+// A new instance of the named pipe, which waits for the next connection. PIPE_NOWAIT makes ConnectNamedPipe return
+// at once, so that poll_streams can ask whether a client connected.
+static int pipe_instance(void) {
+    HANDLE pipe = CreateNamedPipeA(socket_path, PIPE_ACCESS_DUPLEX, PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_NOWAIT,
+                                   PIPE_UNLIMITED_INSTANCES, PIPE_BUFFER_SIZE, PIPE_BUFFER_SIZE, 0, NULL);
+    if (pipe == INVALID_HANDLE_VALUE) return -1;
+    int stream = _open_osfhandle((intptr_t)pipe, _O_BINARY);
+    if (stream < 0) CloseHandle(pipe);
+    return stream;
+}
+
+// ERROR_NO_DATA: the client connected and closed its end already.
+static bool pipe_connected(int stream) {
+    return !ConnectNamedPipe((HANDLE)_get_osfhandle(stream), NULL) &&
+           (GetLastError() == ERROR_PIPE_CONNECTED || GetLastError() == ERROR_NO_DATA);
+}
+
+static int accept_stream(void) {
+    int stream = listener;
+    listener = pipe_instance();
+    if (listener < 0) fprintf(stderr, "hydra-native-patch-bay: cannot listen on %s\n", socket_path);
+    return stream;
+}
+
+static bool listen_local(void) {
+    listener = pipe_instance();
+    if (listener < 0) {
+        fprintf(stderr, "hydra-native-patch-bay: cannot listen on %s\n", socket_path);
+        return false;
+    }
+    for (int slot = 0; slot < MAX_WAITING; slot++) waiting[slot].stream = -1;
+    return true;
+}
+
+// Each pipe that has data or has ended, and the listener with a connected client, is ready to read; each stream
+// is ready to write, as write_stream does not wait. Without a ready stream, the check repeats after WAIT_STEP_MS
+// until `timeout`, unless the turn before moved bytes.
+static int poll_streams(struct pollfd *streams, int count, int timeout) {
+    int64_t deadline = now_ms() + (moved ? 0 : timeout);
+    moved = false;
+    for (;;) {
+        int ready = 0;
+        for (int index = 0; index < count; index++) {
+            struct pollfd *stream = &streams[index];
+            DWORD available = 0;
+            bool readable = (int)stream->fd == listener ? pipe_connected(stream->fd)
+                            : !PeekNamedPipe((HANDLE)_get_osfhandle(stream->fd), NULL, 0, NULL, &available, NULL) ||
+                                  available > 0;
+            stream->revents = (short)(stream->events & (readable ? POLLIN | POLLOUT : POLLOUT));
+            if (stream->revents & POLLIN) ready++;
+        }
+        if (ready || now_ms() >= deadline) return count;
+        Sleep(WAIT_STEP_MS);
+    }
+}
+#else
+static int accept_stream(void) {
     int stream = accept(listener, NULL, NULL);
+    if (stream >= 0) fcntl(stream, F_SETFD, FD_CLOEXEC);
+    return stream;
+}
+#endif
+
+static void accept_connection(void *context) {
+    int stream = accept_stream();
     if (stream < 0) return;
-    fcntl(stream, F_SETFD, FD_CLOEXEC);
     set_nonblocking(stream);
     for (int slot = 0; slot < MAX_WAITING; slot++) {
         if (waiting[slot].stream >= 0) continue;
@@ -1352,6 +1463,7 @@ static void accept_connection(void *context) {
     close(stream);
 }
 
+#if !defined(_WIN32)
 static bool listen_local(void) {
     struct sockaddr_un address = { .sun_family = AF_UNIX };
     if (strlen(socket_path) >= sizeof address.sun_path) {
@@ -1370,6 +1482,11 @@ static bool listen_local(void) {
     for (int slot = 0; slot < MAX_WAITING; slot++) waiting[slot].stream = -1;
     return true;
 }
+
+static int poll_streams(struct pollfd *streams, int count, int timeout) {
+    return poll(streams, (nfds_t)count, timeout);
+}
+#endif
 
 // ---------------------------------------------------------------- stdin and the end
 
@@ -1419,7 +1536,7 @@ static void call(const char *method, const cJSON *arguments) {
 }
 
 static void read_input(void *context) {
-    ssize_t count = read(STDIN_FILENO, input_line + input_used, MAX_LINE - 1 - input_used);
+    ssize_t count = read_stream(STDIN_FILENO, input_line + input_used, MAX_LINE - 1 - input_used);
     if (count < 0 && (errno == EAGAIN || errno == EINTR)) return;
     if (count <= 0) return shut_down();
     input_used += (size_t)count;
@@ -1455,7 +1572,7 @@ static void check_publish(void) {
 
 static void on_quit_signal(int number) {
     quit_signal = 1;
-    ssize_t written = write(events.wake[1], "", 1);
+    ssize_t written = write_stream(events.wake[1], "", 1);
     (void)written;
 }
 
@@ -1485,7 +1602,7 @@ static void run_once(void) {
     }
     if (!stopping) watch(STDIN_FILENO, POLLIN, read_input, NULL);
     watch(events.wake[0], POLLIN, handle_events, NULL);
-    if (poll(watches.fds, (nfds_t)watches.count, POLL_MS) > 0) {
+    if (poll_streams(watches.fds, watches.count, POLL_MS) > 0) {
         for (int index = 0; index < watches.count; index++)
             if (watches.fds[index].revents) watches.actions[index](watches.contexts[index]);
     }
@@ -1507,16 +1624,19 @@ int main(int argc, char **argv) {
     server = argv[1];
     room = argv[2];
     socket_path = argv[3];
+#if defined(_WIN32)
+    if (_pipe(events.wake, WAKE_PIPE_SIZE, _O_BINARY) || !listen_local()) return 1;
+#else
     signal(SIGPIPE, SIG_IGN); // hydra-native may close our stdout or a frame channel first
     if (pipe(events.wake) || !listen_local()) return 1;
     for (int index = 0; index < 2; index++) {
         fcntl(events.wake[index], F_SETFD, FD_CLOEXEC);
         set_nonblocking(events.wake[index]);
     }
-    struct sigaction quit_action = { .sa_handler = on_quit_signal };
-    sigaction(SIGTERM, &quit_action, NULL);
-    sigaction(SIGINT, &quit_action, NULL);
-    snprintf(own_id, sizeof own_id, "%08x", arc4random());
+#endif
+    signal(SIGTERM, on_quit_signal);
+    signal(SIGINT, on_quit_signal);
+    snprintf(own_id, sizeof own_id, "%08x", random_number());
     nick_from_id = cJSON_CreateObject();
     id_from_nick = cJSON_CreateObject();
     peer_list = cJSON_CreateObject();
@@ -1534,7 +1654,7 @@ int main(int argc, char **argv) {
     for (int slot = 0; slot < MAX_WAITING; slot++) close_stream(&waiting[slot].stream);
     for (int index = 0; index < unsent_count; index++) free(unsent[index]);
     handle_events(NULL);
-    close(listener);
+    close_stream(&listener);
     unlink(socket_path);
     cJSON_Delete(nick_from_id);
     cJSON_Delete(id_from_nick);
