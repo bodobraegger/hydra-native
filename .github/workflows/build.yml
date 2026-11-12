@@ -17,30 +17,49 @@ jobs:
         include:
           - os: ubuntu-26.04
             package: true
-          # macOS builds and packs the app, which the release attaches. A failure here does not stop the release
-          # of Linux.
+          # macOS and Windows build and pack the app, which the release attaches. A failure here does not stop
+          # the release of Linux.
           - os: macos-15
+            port: true
+          - os: windows-2025
             port: true
     runs-on: ${{ matrix.os }}
     continue-on-error: ${{ matrix.port == true }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # The JS bundle of the macOS program.
+      # The JS bundle of the ports.
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
-        if: matrix.port && runner.os == 'macOS'
+        if: matrix.port
 
       # The program, the capture tool and the patch bay helper. The patch bay test does not run here, so the
       # runner needs no ffmpeg.
       - name: Build the port
-        if: matrix.port
-        shell: bash
+        if: matrix.port && runner.os == 'macOS'
         run: |
           brew install sdl3 ninja
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
           cmake --build build
 
-      # Opens a hidden window with ANGLE on Metal and reads a drawn pixel back.
+      # The same on Windows, with the toolchain llvm-mingw (README.md), pinned by its hash.
+      - name: Build the port on Windows
+        if: matrix.port && runner.os == 'Windows'
+        shell: bash
+        env:
+          LLVM_MINGW: llvm-mingw-20261104-ucrt-x86_64
+          LLVM_MINGW_SHA256: 552191b5754c49a5a20723276a6fc56541ea1922c4c50b7b669022333fc1b40f
+        run: |
+          curl -fsSLo "$RUNNER_TEMP/$LLVM_MINGW.zip" \
+            "https://github.com/mstorsjo/llvm-mingw/releases/download/20261104/$LLVM_MINGW.zip"
+          echo "$LLVM_MINGW_SHA256  $RUNNER_TEMP/$LLVM_MINGW.zip" | sha256sum -c
+          unzip -q "$RUNNER_TEMP/$LLVM_MINGW.zip" -d "$RUNNER_TEMP"
+          export PATH="$RUNNER_TEMP/$LLVM_MINGW/bin:$PATH"
+          echo "$RUNNER_TEMP/$LLVM_MINGW/bin" >> "$GITHUB_PATH"
+          ninja --version || choco install ninja --no-progress -y
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+          cmake --build build
+
+      # Opens a hidden window with ANGLE (Metal on macOS, Direct3D 11 on Windows) and reads a drawn pixel back.
       - name: Run the window test
         if: matrix.port
         continue-on-error: true # a failed test marks the run, but the archive is still built
@@ -48,8 +67,9 @@ jobs:
 
       # The program on ANGLE: two outputs and a text source, read back (test/check.js), and the unit tests.
       - name: Run the program check and the unit tests
-        if: matrix.port && runner.os == 'macOS'
+        if: matrix.port
         continue-on-error: true # a failed test marks the run, but the archive is still built
+        shell: bash
         run: |
           ctest --test-dir build -R "^check$" --verbose
           cmake --build build --target unit-tests
@@ -61,10 +81,20 @@ jobs:
         id: package_port
         run: echo "archive=$(HYDRA_NATIVE_BUILD=$PWD/build tools/package.sh)" >> "$GITHUB_OUTPUT"
 
+      # The zip of the program folder, which the release attaches next to the Linux archive.
+      - name: Package the Windows program
+        if: matrix.port && runner.os == 'Windows'
+        id: package_windows
+        shell: bash
+        run: |
+          version=
+          if [ "$GITHUB_REF_TYPE" = tag ]; then version=$GITHUB_REF_NAME; fi
+          echo "archive=$(HYDRA_NATIVE_BUILD=$PWD/build tools/package.sh $version)" >> "$GITHUB_OUTPUT"
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: matrix.port && runner.os == 'macOS'
+        if: matrix.port
         with:
-          path: ${{ steps.package_port.outputs.archive }}
+          path: ${{ steps.package_port.outputs.archive || steps.package_windows.outputs.archive }}
           archive: false
           if-no-files-found: error
 

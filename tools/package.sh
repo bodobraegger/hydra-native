@@ -5,8 +5,7 @@
 #   Windows x64:   dist/hydra-native-VERSION-windows-x64.zip (run in Git Bash)
 # usage: tools/package.sh [VERSION]   (default: git describe; run `make` first)
 # HYDRA_NATIVE_BUILD selects a build directory other than build/.
-# CI runs the Linux and the macOS branch. The Windows branch is not tested: the program does not build there yet
-# (PORTING.md).
+# CI runs all three branches. The Windows branch needs the llvm-mingw of the build in PATH for its licenses.
 #
 # The program finds its files relative to its own path: the bundle and the helpers next to it, and assets/ one
 # directory up (src/main.c). bin/ keeps that layout, so the unpacked folder runs from any place. In the macOS
@@ -73,7 +72,11 @@ macos-arm64)
 PLIST
 	;;
 windows-x64)
-	cp "$build/hydra-native.exe" "$build/hydra-native-capture.exe" "$build"/*.dll "$bin/"
+	# ANGLE with its d3dcompiler_47.dll, and SDL3; the programs link the C++ runtime and winpthreads statically.
+	cp "$build/hydra-native.exe" "$build/hydra-native-capture.exe" "$build/hydra-native-patch-bay.exe" \
+		"$build"/*.dll "$bin/"
+	strip "$bin"/*.exe
+	cp -r "$root/assets/icon" "$contents/assets/" # the window icon (src/main.c)
 	;;
 esac
 cp "$build/hydra-bundle.js" "$bin/"
@@ -89,15 +92,21 @@ if [ "$system" != linux-x86_64 ]; then # libremidi in the program, ANGLE and SDL
 	echo "SDL3 (zlib license): https://github.com/libsdl-org/SDL/blob/main/LICENSE.txt" > "$licenses/sdl3.txt"
 fi
 sed -n '/^This software is available under 2 licenses/,$p' "$root/vendor/stb/stb_truetype.h" > "$licenses/stb.txt"
-if [ "$system" != windows-x64 ]; then # the libraries of hydra-native-patch-bay
-	deps=$root/vendor/libdatachannel/deps
-	cp "$root/vendor/libdatachannel/LICENSE" "$licenses/libdatachannel.txt"
-	cp "$deps/libjuice/LICENSE" "$licenses/libjuice.txt"
-	cp "$deps/usrsctp/LICENSE.md" "$licenses/usrsctp.txt"
-	cp "$deps/libsrtp/LICENSE" "$licenses/libsrtp.txt"
-	cp "$deps/plog/LICENSE" "$licenses/plog.txt"
-	cp "$root/vendor/mbedtls/LICENSE" "$licenses/mbedtls.txt"
-	sed -n '1,/^\*\//p' "$root/vendor/cjson/cJSON.h" > "$licenses/cjson.txt"
+# The libraries of hydra-native-patch-bay.
+deps=$root/vendor/libdatachannel/deps
+cp "$root/vendor/libdatachannel/LICENSE" "$licenses/libdatachannel.txt"
+cp "$deps/libjuice/LICENSE" "$licenses/libjuice.txt"
+cp "$deps/usrsctp/LICENSE.md" "$licenses/usrsctp.txt"
+cp "$deps/libsrtp/LICENSE" "$licenses/libsrtp.txt"
+cp "$deps/plog/LICENSE" "$licenses/plog.txt"
+cp "$root/vendor/mbedtls/LICENSE" "$licenses/mbedtls.txt"
+sed -n '1,/^\*\//p' "$root/vendor/cjson/cJSON.h" > "$licenses/cjson.txt"
+if [ "$system" = windows-x64 ]; then # C++/WinRT in the capture tool, and the runtime of llvm-mingw in all programs
+	cp "$root/vendor/cppwinrt/LICENSE" "$licenses/cppwinrt.txt"
+	toolchain=$(dirname "$(dirname "$(command -v clang)")")
+	cp "$toolchain/LICENSE.TXT" "$licenses/llvm.txt"
+	cp "$toolchain/x86_64-w64-mingw32/share/mingw32/COPYING.MinGW-w64-runtime.txt" "$licenses/mingw-w64-runtime.txt"
+	cp "$toolchain/x86_64-w64-mingw32/share/mingw32/COPYING.winpthreads.txt" "$licenses/winpthreads.txt"
 fi
 # The npm packages in the archive: those that esbuild bundled (its metafile).
 node -e '
