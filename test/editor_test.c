@@ -605,12 +605,12 @@ static void test_random_edits(void) {
     _Static_assert(COMMAND_COUNT < 100, "the command share of the choices");
     struct editor editor;
     editor_init(&editor);
-    unsigned seed = 1;
+    srand(1);
     for (int step = 0; step < RANDOM_STEPS && !failures; step++) {
         if (step % RANDOM_RESTART == 0) editor_set_text(&editor, "", 0);
-        unsigned choice = (unsigned)rand_r(&seed) % 200; // most steps add text, so that the text grows
-        const char *piece = pieces[(unsigned)rand_r(&seed) % PIECE_COUNT];
-        size_t line = (size_t)rand_r(&seed) % editor.line_count, column = (size_t)rand_r(&seed) % 30;
+        unsigned choice = (unsigned)rand() % 200; // most steps add text, so that the text grows
+        const char *piece = pieces[(unsigned)rand() % PIECE_COUNT];
+        size_t line = (size_t)rand() % editor.line_count, column = (size_t)rand() % 30;
         if (choice < COMMAND_COUNT) commands[choice](&editor);
         else if (choice < 100) editor_type(&editor, piece, strlen(piece));
         else if (choice < 130) editor_insert(&editor, piece, strlen(piece), EDIT_OTHER);
