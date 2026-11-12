@@ -12,27 +12,24 @@ a porter needs. docs/manual.md describes what a user sees on each system.
   (tools/package.sh). Not tested on a Mac: the
   microphone, camera and screen recording permissions, the audio of the system output, CoreMIDI, the Dock icon,
   the code socket and the patch bay.
-- Windows (x64): CMake builds only the window test and the capture tool. The window test passes on ANGLE
-  (Direct3D 11) in CI.
+- Windows (x64): a preview. CMake builds the program, the capture tool, the patch bay helper, the JS bundle and
+  the unit tests with llvm-mingw (README.md). CI runs the window test, the program check and the unit tests,
+  and packs a zip with tools/package.sh. Not tested on a Windows desktop: the window with a GPU, the camera,
+  the screen capture, the microphone, WinMM, the code socket, the file dialogs and the patch bay.
 
 ## Open work for Windows
 
-- QuickJS does not build with MSVC. quickjs-ng does.
-- src/code_socket.c and src/bindings.c use Unix sockets and POSIX calls. The code socket (`--send`) must become a
-  named pipe; stream_local_address (src/process.h) already gives one on Windows.
-- The patch bay helper (src/patch_bay_main.c) is not built on Windows: it listens on a Unix socket, and it polls
-  pipes and sockets as file descriptors. libdatachannel and ffmpeg exist for Windows.
-- src/fetch.c puts the body of a request into a temporary file in /tmp outside of Linux.
-- SIGINT and SIGTERM end the program; Windows needs SDL_EVENT_QUIT and a console control handler.
 - The system output as audio input is not available.
-- The Windows branch of tools/package.sh is not tested.
+- The patch bay helper finds no CA certificates on Windows, so it does not check the certificate of a wss://
+  signalling server. mbedTLS does not read the certificate store of Windows.
+- hydra-native.exe is a console program, so a start from the Explorer also opens a console window.
 
 ## What differs from Linux
 
 | Part            | Linux                                | macOS                        | Windows                   |
 | --------------- | ------------------------------------ | ---------------------------- | ------------------------- |
 | GLES 3 context  | EGL with Mesa                        | ANGLE on Metal               | ANGLE on Direct3D 11      |
-| SDL3            | system package                       | Homebrew                     | pinned Visual C++ package |
+| SDL3            | system package                       | Homebrew                     | pinned MinGW package      |
 | settings folder | XDG_CONFIG_HOME/hydra-native         | SDL_GetPrefPath              | SDL_GetPrefPath           |
 | default font    | DejaVu Sans Mono                     | Menlo                        | Consolas                  |
 | font list       | fontconfig                           | none ("font" path works)     | none ("font" path works)  |
@@ -41,7 +38,7 @@ a porter needs. docs/manual.md describes what a user sees on each system.
 | MIDI            | ALSA sequencer (src/midi.c)          | libremidi with CoreMIDI      | libremidi with WinMM      |
 | camera          | gst-launch-1.0 process               | SDL3 camera                  | SDL3 camera               |
 | screen capture  | portal and Mutter                    | ScreenCaptureKit             | Windows.Graphics.Capture  |
-| patch bay       | libdatachannel and ffmpeg            | libdatachannel and ffmpeg    | not available             |
+| patch bay       | libdatachannel and ffmpeg            | libdatachannel and ffmpeg    | libdatachannel and ffmpeg |
 | child processes | posix_spawn, process group           | posix_spawn, process group   | CreateProcess, job object |
 | shell           | /bin/sh -c                           | /bin/sh -c                   | cmd.exe /d /s /c          |
 
@@ -63,6 +60,15 @@ Direct3D 11 does not, so a shader reads a copy of the window below each differen
 
 ## Windows
 
+- The toolchain is llvm-mingw: clang, libc++ and the UCRT C runtime of MinGW-w64. Upstream QuickJS does not
+  build with Visual C++, and MinGW-w64 has most of the POSIX headers of the program. The programs link the C++
+  runtime and winpthreads statically. C++/WinRT for the capture tool comes from cppwinrt.exe, which writes its
+  headers from the metadata of the Windows that runs the build.
+- The code socket is a Unix socket of Winsock (Windows 10 1803 or newer), at `%TEMP%\hydra-native.sock` by
+  default. A named pipe has no half-close, which ends the code of `--send`.
+- The local socket of the patch bay helper is a named pipe. Windows cannot poll pipes, so the helper checks them
+  with PeekNamedPipe and waits 1 ms between two checks (src/patch_bay_main.c).
+- The C runtime raises SIGINT for Ctrl+C in the console. Windows sends no SIGTERM.
 - A command of `initCommand` uses the syntax of cmd.exe: double quotes, no single quotes, and `%NAME%` expands a
   variable.
 - Windows.Graphics.Capture needs Windows 10 1903 or newer and no permission. Windows draws a yellow border

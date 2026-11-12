@@ -90,10 +90,10 @@ Escape cancels. Up, Down and the wheel change it by 1, or by 10 with Shift.
 ### Settings file
 
 All settings live in one JSON file: ~/.config/hydra-native/settings.json on Linux,
-~/Library/Application Support/hydra-native/settings.json on macOS, or $XDG_CONFIG_HOME/hydra-native/settings.json
-when that variable is set. settings.example.json shows every key. hydra-native reads the file at
-the start. Keys that hydra-native does not know stay in the file. When the
-file is no valid JSON, the defaults apply, the error bar shows the error with its line, and nothing overwrites
+~/Library/Application Support/hydra-native/settings.json on macOS, %APPDATA%\hydra-native\settings.json on
+Windows, or $XDG_CONFIG_HOME/hydra-native/settings.json when that variable is set. settings.example.json shows
+every key. hydra-native reads the file at the start. Keys that hydra-native does not know stay in the file.
+When the file is no valid JSON, the defaults apply, the error bar shows the error with its line, and nothing overwrites
 the file.
 
 | Key                   | Default          | Settings menu        | Meaning                    |
@@ -172,7 +172,8 @@ the find bar of a browser: it ignores case and accents, highlights all matches a
 
 ## Send code from an editor
 
-hydra-native listens on the Unix socket `$XDG_RUNTIME_DIR/hydra-native.sock`.
+hydra-native listens on the Unix socket `$XDG_RUNTIME_DIR/hydra-native.sock`, or `%TEMP%\hydra-native.sock` on
+Windows.
 A client sends JavaScript, closes its write side and gets `ok` or the error with its stack.
 Code from the socket does not enter the overlay text, because the overlay shows the sketch file.
 Errors of socket code show in the error bar with the prefix `socket:`.
@@ -272,6 +273,10 @@ On macOS, the first use of the microphone, the camera and the screen capture ask
 Settings, Privacy and Security). `initMonitor`, `initArea`, `initWindow` and the system output as audio input
 need the Screen Recording permission; start the capture again after you allow it. `initScreen` uses the picker
 of the system (macOS 14 or newer). A program that a terminal starts uses the permissions of the terminal.
+
+On Windows, `initCommand` runs its command with cmd.exe, so the command uses double quotes and `%NAME%`
+variables. The microphone needs "Let desktop apps access your microphone" in the privacy settings. Windows draws
+a yellow border around a captured window or monitor. The system output is not available as audio input.
 
 ## Text
 
