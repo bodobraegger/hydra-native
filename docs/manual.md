@@ -25,6 +25,10 @@ If the file does not exist yet, the overlay starts empty and Ctrl+S creates the 
 Click the "file" row of the settings menu to open another .js file; without an open file, the row shows a dim
 "choose a file...". The file replaces the code and runs; Ctrl+Z brings the old code back. Without an open file,
 Ctrl+S asks for a file in a save dialog. The window title shows the name of the open file.
+With an open file and unsaved changes, the bar asks before an action loses them: reset, clear, an example, another
+file, a URL from the clipboard and quit (Ctrl+Q or the close button of the window). Press s to save the changes and
+continue, d to discard them and continue, or Escape to cancel the action. Without an open file, nothing asks, as in
+the web editor.
 With the setting "reload on change" (watch), a change on disk replaces the overlay text and evaluates it,
 but only when the overlay has no unsaved edits. Otherwise the error bar says that the file changed, and the edits
 stay.

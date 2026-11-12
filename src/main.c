@@ -165,7 +165,7 @@ static void handle_events(void) {
     while (SDL_PollEvent(&event)) {
         float scale = pixel_scale();
         switch (event.type) {
-        case SDL_EVENT_QUIT: quit_requested = true; break;
+        case SDL_EVENT_QUIT: ui_quit(); break;
         case SDL_EVENT_KEY_DOWN:
             ui_key(&event.key);
             dispatch_key(&event.key);

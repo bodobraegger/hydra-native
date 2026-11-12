@@ -61,7 +61,10 @@ void ui_show_message(const char *text, bool error);
 void ui_console_message(const char *text); // console.warn and console.error output
 const char *ui_code(void); // the text of the overlay
 void ui_file_changed(void); // the file changed on disk, with "reload on file change"
+// The open dialog of the "file" row answers here. This call, the commands that replace the code and ui_quit()
+// first ask whether to save or discard the unsaved changes of the open file.
 void ui_open_file(const char *path);
+void ui_quit(void); // Ctrl+Q and the close button of the window
 void ui_save_as(const char *path);
 const char *ui_file_path(void); // the open file, or NULL
 // Code from the socket: it does not enter the editor buffer; errors show in the error bar.

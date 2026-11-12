@@ -178,6 +178,11 @@ static int audio_devices(struct audio_device *devices, int capacity) {
     return 2;
 }
 static void set_audio(const char *device) { snprintf(audio_now, sizeof audio_now, "%s", device); }
+static int quits; // the calls of the quit function of the host
+static void quit(void) { quits++; }
+static const struct ui_host test_host = { evaluate, toggle_fullscreen, is_fullscreen, quit, call, nothing, share,
+                                          set_title, set_vsync, audio_devices, set_audio, set_audio_gain, choose_file,
+                                          set_server };
 
 // ---------------------------------------------------------------- input helpers
 
@@ -430,6 +435,7 @@ static void test_files(const char *settings_file) {
     key(SDLK_COMMA, SDL_KMOD_LCTRL);
     ui_draw(800, 900, 0);
     EXPECT(click_text(ui_file_path(), 0));
+    type("d"); // the open file has unsaved edits of the tests before
     EXPECT(dialogs == 1);
     EXPECT_STRING(ui_file_path(), other);
     EXPECT_STRING(evaluated, "noise(3).out()"); // the opened sketch runs
@@ -443,10 +449,7 @@ static void test_files(const char *settings_file) {
     // Without a file (a start without a file argument): no reload, and Ctrl+S asks where to save.
     struct settings defaults;
     settings_defaults(&defaults);
-    static const struct ui_host host = { evaluate, toggle_fullscreen, is_fullscreen, nothing, call, nothing, share,
-                                         set_title, set_vsync, audio_devices, set_audio, set_audio_gain, choose_file,
-                                         set_server };
-    ui_init(&defaults, settings_file, NULL, &host);
+    ui_init(&defaults, settings_file, NULL, &test_host);
     EXPECT(ui_file_path() == NULL);
     key(SDLK_COMMA, SDL_KMOD_LCTRL);
     ui_draw(800, 900, 0);
@@ -483,6 +486,7 @@ static void test_files(const char *settings_file) {
     EXPECT_STRING(evaluated, "osc(4).out()");
     type("x");
     key(SDLK_DELETE, SDL_KMOD_LCTRL | SDL_KMOD_LSHIFT);
+    type("d");
     EXPECT_STRING(ui_file_path(), saved);
     EXPECT_STRING(evaluated, "osc(4).out()");
     ui_draw(800, 600, 0);
@@ -505,6 +509,54 @@ static void test_files(const char *settings_file) {
     EXPECT_STRING(read_file(saved), "osc(4).out()");
     unlink(saved);
     unlink(after_example);
+}
+
+// The question before the unsaved changes of the open file are lost: Escape keeps them and the file, s saves them
+// and then resets, d discards them and resets. Quit asks too. Without changes, nothing asks.
+static void test_unsaved_question(const char *settings_file) {
+    char sketch[] = "/tmp/hydra-native-ui-test-unsaved-XXXXXX.js";
+    int fd = mkstemps(sketch, 3);
+    close(fd);
+    write_file(sketch, "osc(1).out()");
+    struct settings defaults;
+    settings_defaults(&defaults);
+    ui_init(&defaults, settings_file, sketch, &test_host);
+    type("x");
+    key(SDLK_DELETE, SDL_KMOD_LCTRL | SDL_KMOD_LSHIFT); // reset
+    ui_draw(800, 600, 0);
+    EXPECT_CONTAINS(drawn, "unsaved changes in hydra-native-ui-test-unsaved-");
+    EXPECT_CONTAINS(drawn, ".js: s save, d discard, Escape cancel");
+    key(SDLK_ESCAPE, 0);
+    ui_draw(800, 600, 0);
+    EXPECT(strstr(drawn, "unsaved changes") == NULL);
+    EXPECT_STRING(ui_code(), "xosc(1).out()");
+    EXPECT_STRING(ui_file_path(), sketch);
+    EXPECT_STRING(read_file(sketch), "osc(1).out()");
+
+    key(SDLK_DELETE, SDL_KMOD_LCTRL | SDL_KMOD_LSHIFT);
+    type("s");
+    EXPECT_STRING(read_file(sketch), "xosc(1).out()");
+    EXPECT_STRING(evaluated, "xosc(1).out()"); // the reset runs the saved file
+
+    type("y");
+    key(SDLK_DELETE, SDL_KMOD_LCTRL | SDL_KMOD_LSHIFT);
+    type("d");
+    EXPECT_STRING(ui_code(), "xosc(1).out()");
+    EXPECT_STRING(read_file(sketch), "xosc(1).out()");
+
+    int quits_before = quits;
+    type("z");
+    key(SDLK_Q, SDL_KMOD_LCTRL);
+    EXPECT(quits == quits_before);
+    ui_draw(800, 600, 0);
+    EXPECT_CONTAINS(drawn, "unsaved changes in");
+    type("d");
+    EXPECT(quits == quits_before + 1);
+
+    key(SDLK_S, SDL_KMOD_LCTRL); // saved: nothing asks
+    ui_quit(); // the close button of the window
+    EXPECT(quits == quits_before + 2);
+    unlink(sketch);
 }
 
 // The call around the cursor: nested calls, commas in arrays, arrow functions and strings.
@@ -759,10 +811,7 @@ int main(void) {
     EXPECT_STRING(loaded.gallery_server, "http://127.0.0.1:9");
     EXPECT(loaded.theme_count == 1 && !strcmp(loaded.themes[0].base, "solarized") && loaded.keybinding_count == 1);
     snprintf(loaded.theme, sizeof loaded.theme, "contrast");
-    static const struct ui_host host = { evaluate, toggle_fullscreen, is_fullscreen, nothing, call, nothing, share,
-                                         set_title, set_vsync, audio_devices, set_audio, set_audio_gain, choose_file,
-                                         set_server };
-    ui_init(&loaded, settings_file, path, &host);
+    ui_init(&loaded, settings_file, path, &test_host);
     ui_draw(800, 600, 0);
 
     key(SDLK_RETURN, SDL_KMOD_LALT); // the block around the cursor (line 0)
@@ -813,8 +862,10 @@ int main(void) {
     key(SDLK_RETURN, SDL_KMOD_LCTRL | SDL_KMOD_LALT);
     EXPECT_STRING(evaluated, "solid().out()");
 
-    // The toolbar actions. With an open file, clear all resets to the saved file and runs it again.
+    // The toolbar actions. With an open file, clear all resets to the saved file and runs it again; first it asks,
+    // because the formatted code is not saved, and d discards it.
     key(SDLK_DELETE, SDL_KMOD_LCTRL | SDL_KMOD_LSHIFT);
+    type("d");
     EXPECT_STRING(ui_file_path(), path);
     EXPECT_STRING(evaluated, read_file(path)); // the saved state, which an earlier Ctrl+S wrote
     // An example replaces the code, runs it and closes the file, whose content it is not.
@@ -1106,6 +1157,7 @@ int main(void) {
     test_number_fields(settings_file);
     test_settings_rows(settings_file);
     test_files(settings_file);
+    test_unsaved_question(settings_file);
     test_random_input(settings_file);
 
     unlink(settings_file);

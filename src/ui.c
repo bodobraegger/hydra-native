@@ -166,6 +166,7 @@ enum prompt_kind {
     PROMPT_SERVER,
     PROMPT_FONT_PATH,
     PROMPT_L10N_URL,
+    PROMPT_UNSAVED, // the question before an action loses the unsaved changes of the open file
 };
 
 // The server of the deployed web editor (VITE_SERVER_URL of hydra.ojack.xyz) for gallery and patch bay.
@@ -509,13 +510,18 @@ static char *read_whole_file(const char *path, size_t *length) {
     return text;
 }
 
+// The name of the open file without its folder, or NULL.
+static const char *file_name(void) {
+    const char *slash = file_path ? strrchr(file_path, '/') : NULL;
+    return slash ? slash + 1 : file_path;
+}
+
 // The window title: the name of the open file and the hydra.ojack.xyz URL of the code, as the tab and the address
 // bar of the browser show them. `url` NULL keeps the last URL.
 static void show_title(const char *url) {
     static char last_url[8192];
     if (url) snprintf(last_url, sizeof last_url, "%s", url);
-    const char *name = file_path ? strrchr(file_path, '/') : NULL;
-    name = name ? name + 1 : file_path;
+    const char *name = file_name();
     char title[sizeof last_url + 512];
     if (name && last_url[0]) snprintf(title, sizeof title, "%s - %s", name, last_url);
     else snprintf(title, sizeof title, "%s", name ? name : last_url[0] ? last_url : "hydra-native");
@@ -545,9 +551,8 @@ static void save(void) {
     free(temporary);
 }
 
-// The answer of the open dialog of the "file" row: the file replaces the code (Ctrl+Z brings the old code back),
-// runs, and becomes the open file.
-void ui_open_file(const char *path) {
+// The file replaces the code (Ctrl+Z brings the old code back), runs, and becomes the open file.
+static void open_file(const char *path) {
     size_t length;
     char *text = read_whole_file(path, &length);
     if (!text) {
@@ -1049,6 +1054,7 @@ static void accept_prompt(int direction) {
             ui_show_message("no gallery server: choose one in the settings (Ctrl+,)", true);
         else ui_show_message("sharing with the gallery...", false);
         break;
+    case PROMPT_UNSAVED: break; // it takes s, d and Escape only
     case PROMPT_PALETTE: {
         enum command command = palette_command(prompt.palette_index);
         prompt.kind = PROMPT_NONE;
@@ -1302,8 +1308,8 @@ static void close_file(void) {
 static void clear_all(void) {
     free(evaluate_code("hush(); speed = 1", strlen("hush(); speed = 1"), "<clear>"));
     if (file_path) {
-        char *path = strdup(file_path); // ui_open_file replaces file_path
-        ui_open_file(path);
+        char *path = strdup(file_path); // open_file replaces file_path
+        open_file(path);
         free(path);
         return;
     }
@@ -1339,6 +1345,71 @@ static void open_url_from_clipboard(void) {
     free(code);
     SDL_free(url);
 }
+
+// An action that replaces the code or closes the file. With unsaved changes of the open file, it waits for the
+// answer to the question: s saves, then it runs; d discards the changes, then it runs; Escape cancels it.
+enum pending_action {
+    PENDING_NONE,
+    PENDING_RESET,
+    PENDING_CLEAR,
+    PENDING_EXAMPLE,
+    PENDING_OPEN_FILE, // the path is in pending.path
+    PENDING_OPEN_URL,
+    PENDING_QUIT,
+};
+static struct {
+    enum pending_action action;
+    char *path;
+} pending;
+
+static void run_pending(void) {
+    enum pending_action action = pending.action;
+    pending.action = PENDING_NONE;
+    switch (action) {
+    case PENDING_NONE: break;
+    case PENDING_RESET: clear_all(); break;
+    case PENDING_CLEAR:
+        close_file();
+        clear_all();
+        break;
+    case PENDING_EXAMPLE:
+        close_file();
+        clear_all();
+        if (replace_with("__randomExample", "no example")) {
+            evaluate_range(0, editor.length);
+            update_url();
+        }
+        break;
+    case PENDING_OPEN_FILE: open_file(pending.path); break;
+    case PENDING_OPEN_URL: open_url_from_clipboard(); break;
+    case PENDING_QUIT: host.quit(); break;
+    }
+}
+
+static void confirm_then(enum pending_action action, const char *path) {
+    free(pending.path);
+    pending.path = path ? strdup(path) : NULL;
+    pending.action = action;
+    if (!file_path || !editor.modified) return run_pending();
+    visible = true; // also for Ctrl+Q while the code is hidden
+    help_visible = false;
+    number_field.open = false;
+    open_prompt(PROMPT_UNSAVED);
+}
+
+static void answer_unsaved(char answer) {
+    answer = (char)tolower((unsigned char)answer);
+    if (answer != 's' && answer != 'd') return;
+    prompt.kind = PROMPT_NONE;
+    if (answer == 's') save();
+    if (answer == 's' && editor.modified) return; // the bar shows why the save failed, and the action waits
+    run_pending();
+}
+
+// The answer of the open dialog of the "file" row.
+void ui_open_file(const char *path) { confirm_then(PENDING_OPEN_FILE, path); }
+
+void ui_quit(void) { confirm_then(PENDING_QUIT, NULL); }
 
 const struct settings *ui_settings(void) { return &settings; }
 
@@ -1425,7 +1496,7 @@ static void run_command_body(enum command command, bool extend) {
     case COMMAND_EVAL_ALL: evaluate_all(); break;
     case COMMAND_SAVE: save(); break;
     case COMMAND_FULLSCREEN: host.toggle_fullscreen(); break;
-    case COMMAND_QUIT: host.quit(); break;
+    case COMMAND_QUIT: ui_quit(); break;
     case COMMAND_ESCAPE: escape(); break;
     case COMMAND_UNDO: editor_undo(&editor); break;
     case COMMAND_REDO: editor_redo(&editor); break;
@@ -1440,7 +1511,7 @@ static void run_command_body(enum command command, bool extend) {
     case COMMAND_FORMAT: editor_format(&editor); break;
     case COMMAND_SCREENCAP: host.screencap(); break;
     case COMMAND_SAVE_TO_URL: save_to_url(); break;
-    case COMMAND_OPEN_URL: open_url_from_clipboard(); break;
+    case COMMAND_OPEN_URL: confirm_then(PENDING_OPEN_URL, NULL); break;
     case COMMAND_GALLERY_SHARE: {
         // Like 'gallery:shareSketch': evaluate first, and ask only when the code runs.
         char *error = evaluate_code(editor.text, editor.length, "<editor>");
@@ -1449,19 +1520,9 @@ static void run_command_body(enum command command, bool extend) {
         free(error);
         return;
     }
-    case COMMAND_CLEAR_ALL: clear_all(); break;
-    case COMMAND_CLEAR_AND_CLOSE:
-        close_file();
-        clear_all();
-        break;
-    case COMMAND_SHOW_EXAMPLE:
-        close_file();
-        clear_all();
-        if (replace_with("__randomExample", "no example")) {
-            evaluate_range(0, editor.length);
-            update_url();
-        }
-        break;
+    case COMMAND_CLEAR_ALL: confirm_then(PENDING_RESET, NULL); break;
+    case COMMAND_CLEAR_AND_CLOSE: confirm_then(PENDING_CLEAR, NULL); break;
+    case COMMAND_SHOW_EXAMPLE: confirm_then(PENDING_EXAMPLE, NULL); break;
     // The mutator evaluates the code itself and retries on errors, like in the web editor.
     case COMMAND_MUTATE:
         if (mutate("__mutate")) update_url();
@@ -1688,6 +1749,7 @@ void ui_text_input(const char *text) {
     composition[0] = '\0';
     if (suppress_text || !visible || (SDL_GetModState() & (SDL_KMOD_CTRL | SDL_KMOD_LALT))) return;
     reset_menu_open = false;
+    if (prompt.kind == PROMPT_UNSAVED) return answer_unsaved(text[0]);
     if (help_visible) return;
     if (number_field.open && settings_visible) {
         type_number(text);
@@ -2993,6 +3055,10 @@ static void draw_prompt(int width, int height) {
                  prompt.field == 0 ? "_" : "", count, prompt.replacement, prompt.field == 1 ? "_" : "");
         break;
     case PROMPT_GO_TO_LINE: snprintf(text, sizeof text, "go to line: %s", prompt.query); break;
+    case PROMPT_UNSAVED:
+        snprintf(text, sizeof text, "unsaved changes in %s: s save, d discard, Escape cancel", file_name());
+        color = theme->error;
+        break;
     case PROMPT_SERVER: snprintf(text, sizeof text, "gallery and patch bay server URL: %s   (Enter: OK, empty: off)",
                                  prompt.query); break;
     case PROMPT_FONT_PATH: snprintf(text, sizeof text, "font file (.ttf, .otf, .ttc): %s   (Enter: OK)",
