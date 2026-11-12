@@ -35,6 +35,12 @@ The app has no Apple signature. At the first start, macOS blocks it: open System
 Security, and click "Open Anyway". For `initVideo`, `initImage` and the patch bay, install ffmpeg
 (`brew install ffmpeg`).
 
+### Windows (x64, Windows 10 1903 or newer, preview)
+
+Unzip `hydra-native-*-windows-x64.zip` and run `hydra-native.exe` in its `bin` folder.
+The program has no signature, so SmartScreen can ask before the first start: click "More info" and "Run anyway".
+For `initVideo`, `initImage` and the patch bay, install ffmpeg (`winget install ffmpeg`).
+
 ## Run
 
 ```sh
@@ -69,6 +75,18 @@ make            # build/hydra-native, with ANGLE for OpenGL ES on Metal
 build/hydra-native sketch.js
 ```
 
+### Windows
+
+The build needs [llvm-mingw](https://github.com/mstorsjo/llvm-mingw) (the UCRT release for x86_64), CMake 3.25
+or newer, Ninja, Node.js and pnpm. QuickJS does not build with Visual C++.
+Run these commands in Git Bash, with the `bin` folder of llvm-mingw in PATH:
+
+```sh
+cmake -S . -B build -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+cmake --build build   # build/hydra-native.exe, with ANGLE for OpenGL ES on Direct3D 11
+build/hydra-native.exe sketch.js
+```
+
 At the first build, CMake downloads the C libraries of [THIRD_PARTY.md](THIRD_PARTY.md) into vendor/ and checks
 their SHA-256 hashes.
 
@@ -93,8 +111,8 @@ when an installed font has its outline; a color emoji font has pictures only.
 ## Release
 
 1. Run `make check` on a machine with a GPU, and `tools/release-tests.sh` in a desktop session.
-2. Push a tag such as `v0.1.0` on a commit of main. The workflow `build` attaches the Linux archive and the
-   macOS app to a draft release.
+2. Push a tag such as `v0.1.0` on a commit of main. The workflow `build` attaches the Linux archive, the
+   macOS app and the Windows zip to a draft release.
 3. Write the notes into the draft and publish it.
 
 ## License
