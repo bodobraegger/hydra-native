@@ -2208,20 +2208,19 @@ static float flow_place(struct panel_flow *flow, const char *text, size_t *colum
     return x;
 }
 
-static void flow_button(struct panel_flow *flow, const char *text, bool selected, enum panel_action action,
-                        int argument,
-                        int second) {
+static void flow_button(struct panel_flow *flow, const char *text, uint32_t color, bool selected,
+                        enum panel_action action, int argument, int second) {
     size_t columns;
     float x = flow_place(flow, text, &columns), width = (float)columns * overlay_char_width();
     if (!flow_visible(flow)) return;
     overlay_rect(x, flow->y, width, flow->height, selected ? theme->popup_selected : theme->toolbar);
-    flow_text_in(flow, x + overlay_char_width() / 2, text, columns - 1, theme->text);
+    flow_text_in(flow, x + overlay_char_width() / 2, text, columns - 1, color);
     add_panel_button(x, flow->y, width, flow->height, action, argument, second);
 }
 
 static void flow_label(struct panel_flow *flow, const char *text, bool selected, enum panel_action action,
                        int argument) {
-    flow_button(flow, text, selected, action, argument, 0);
+    flow_button(flow, text, theme->text, selected, action, argument, 0);
 }
 
 // The two choices of a switch.
@@ -2234,7 +2233,7 @@ static void flow_switch(struct panel_flow *flow, const char *on, const char *off
 // A number of the settings menu between its - and + buttons: a button that opens its text field, or the open field
 // with the typed text.
 static void flow_number(struct panel_flow *flow, enum number_kind kind) {
-    flow_button(flow, "-", false, ACTION_STEP_NUMBER, (int)kind, -number_specs[kind].button_step);
+    flow_button(flow, "-", theme->text, false, ACTION_STEP_NUMBER, (int)kind, -number_specs[kind].button_step);
     char text[MAX_NUMBER_TEXT + 2];
     bool editing = number_field.open && number_field.kind == kind;
     if (editing) snprintf(text, sizeof text, "%s%s", number_field.text, number_field.selected ? "" : "|");
@@ -2250,7 +2249,7 @@ static void flow_number(struct panel_flow *flow, enum number_kind kind) {
                      editing && number_field.invalid ? theme->error : theme->text);
         add_panel_button(x, flow->y, width, flow->height, ACTION_EDIT_NUMBER, (int)kind, 0);
     }
-    flow_button(flow, "+", false, ACTION_STEP_NUMBER, (int)kind, number_specs[kind].button_step);
+    flow_button(flow, "+", theme->text, false, ACTION_STEP_NUMBER, (int)kind, number_specs[kind].button_step);
 }
 
 static void flow_text(struct panel_flow *flow, const char *text, uint32_t color) {
@@ -2277,6 +2276,8 @@ static void flow_label_disabled(struct panel_flow *flow, const char *text, bool 
     flow_text_in(flow, x + overlay_char_width() / 2, text, columns - 1, theme->ghost);
 }
 
+#define NO_FILE_PLACEHOLDER "choose a file...              " // as wide as a short path, so the row is easy to hit
+
 static size_t settings_scroll_limit = (size_t)-1; // the rows below the panel in the last frame
 
 // The settings menu; each choice applies at once and goes into the settings file.
@@ -2291,9 +2292,11 @@ static void draw_settings(void) {
     float first_y = top + line_height / 2 - (float)info_scroll * line_height;
     struct panel_flow flow = { 0, first_y, left + (LABEL_COLUMNS + 1) * char_width, left + width - char_width, 0, top,
                                top + height };
-    // The open sketch file; a click chooses another one. Its reload is dim while no file is open.
+    // The open sketch file, or a dim placeholder; a click chooses another one. Its reload is dim while no file is
+    // open.
     flow_row(&flow, label_x, "file");
-    flow_label(&flow, file_path ? file_path : "                              ", false, ACTION_OPEN_FILE, 0);
+    if (file_path) flow_label(&flow, file_path, false, ACTION_OPEN_FILE, 0);
+    else flow_button(&flow, NO_FILE_PLACEHOLDER, theme->ghost, false, ACTION_OPEN_FILE, 0, 0);
     flow_row(&flow, label_x, " \xE2\x94\x94 reload on change");
     if (file_path) {
         flow_switch(&flow, "on", "off", settings.watch, ACTION_WATCH);

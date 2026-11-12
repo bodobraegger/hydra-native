@@ -61,10 +61,11 @@ float overlay_line_height(void) { return 20; }
 static enum overlay_layer current_layer = OVERLAY_TOP; // of overlay_set_layer()
 // The texts of the last frame with their positions, for clicks on panel buttons.
 #define MAX_DRAWN_TEXTS 512
-static struct {
+static struct drawn_text {
     char text[64];
     float x, y;
     enum overlay_layer layer;
+    uint32_t color;
 } drawn_texts[MAX_DRAWN_TEXTS];
 static size_t drawn_text_count;
 void overlay_begin(void) {
@@ -79,6 +80,7 @@ void overlay_text(float x, float y, const char *text, size_t length, size_t firs
     if (drawn_text_count < MAX_DRAWN_TEXTS) {
         snprintf(drawn_texts[drawn_text_count].text, sizeof drawn_texts[0].text, "%.*s", (int)length, text);
         drawn_texts[drawn_text_count].layer = current_layer;
+        drawn_texts[drawn_text_count].color = color;
         drawn_texts[drawn_text_count].x = x;
         drawn_texts[drawn_text_count++].y = y;
     }
@@ -270,6 +272,13 @@ static const char *text_ending(const char *suffix) {
     return "";
 }
 
+// The first drawn text of the last frame that starts with `prefix`, or NULL.
+static const struct drawn_text *text_starting(const char *prefix) {
+    for (size_t i = 0; i < drawn_text_count; i++)
+        if (!strncmp(drawn_texts[i].text, prefix, strlen(prefix))) return &drawn_texts[i];
+    return NULL;
+}
+
 // The first number of the settings menu: the opacity of the autocomplete list.
 static int saved_opacity(const char *settings_file) {
     struct settings loaded;
@@ -441,6 +450,15 @@ static void test_files(const char *settings_file) {
     EXPECT(ui_file_path() == NULL);
     key(SDLK_COMMA, SDL_KMOD_LCTRL);
     ui_draw(800, 900, 0);
+    // The file row shows a dim placeholder in the color of the dim "on", and a click on it opens the dialog.
+    const struct drawn_text *placeholder = text_starting("choose a file...");
+    const struct drawn_text *dim = text_starting("on");
+    EXPECT(placeholder && dim && placeholder->color == dim->color);
+    EXPECT(placeholder && click_text(placeholder->text, 0));
+    EXPECT(dialogs == 2); // its answer is the deleted file of above, which does not open
+    EXPECT(ui_file_path() == NULL);
+    key(SDLK_COMMA, SDL_KMOD_LCTRL);
+    ui_draw(800, 900, 0);
     EXPECT(click_text("on", 0)); // the dim "on" of the reload has no button
     EXPECT(!ui_settings()->watch);
     key(SDLK_ESCAPE, 0);
@@ -450,7 +468,7 @@ static void test_files(const char *settings_file) {
     close(fd);
     snprintf(chosen_path, sizeof chosen_path, "%s", saved);
     key(SDLK_S, SDL_KMOD_LCTRL);
-    EXPECT(dialogs == 2);
+    EXPECT(dialogs == 3);
     EXPECT_STRING(ui_file_path(), saved);
     EXPECT_STRING(read_file(saved), "osc(4).out()");
     EXPECT_CONTAINS(title, strrchr(saved, '/') + 1);
@@ -483,7 +501,7 @@ static void test_files(const char *settings_file) {
     close(fd);
     snprintf(chosen_path, sizeof chosen_path, "%s", after_example);
     key(SDLK_S, SDL_KMOD_LCTRL);
-    EXPECT(dialogs == 3); // asks for a file instead of saving to the old one
+    EXPECT(dialogs == 4); // asks for a file instead of saving to the old one
     EXPECT_STRING(read_file(saved), "osc(4).out()");
     unlink(saved);
     unlink(after_example);

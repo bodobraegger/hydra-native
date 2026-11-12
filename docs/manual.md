@@ -22,9 +22,9 @@ a `class` declaration.
 Without a file, it starts like the web editor: with a random example and the info panel.
 The last file opens in the code overlay, and Ctrl+S saves the overlay text to it.
 If the file does not exist yet, the overlay starts empty and Ctrl+S creates the file.
-Click the "file" row of the settings menu to open another .js file. It replaces the code and runs; Ctrl+Z
-brings the old code back. Without an open file, Ctrl+S asks for a file in a save dialog. The window title shows
-the name of the open file.
+Click the "file" row of the settings menu to open another .js file; without an open file, the row shows a dim
+"choose a file...". The file replaces the code and runs; Ctrl+Z brings the old code back. Without an open file,
+Ctrl+S asks for a file in a save dialog. The window title shows the name of the open file.
 With the setting "reload on change" (watch), a change on disk replaces the overlay text and evaluates it,
 but only when the overlay has no unsaved edits. Otherwise the error bar says that the file changed, and the edits
 stay.
