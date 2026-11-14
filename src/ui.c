@@ -1778,11 +1778,6 @@ static void run_command_body(enum command command, bool extend) {
         scroll_row = row > visible_rows() / 2 ? row - visible_rows() / 2 : 0;
         return;
     }
-    case COMMAND_SET_MARK: editor_set_mark(&editor); break;
-    case COMMAND_SELECT_TO_MARK: editor_select_to_mark(&editor); break;
-    case COMMAND_DELETE_TO_MARK: editor_delete_to_mark(&editor); break;
-    case COMMAND_SWAP_WITH_MARK: editor_swap_with_mark(&editor); break;
-    case COMMAND_YANK: editor_yank(&editor); break;
     case COMMAND_SKIP_AND_SELECT_NEXT: editor_skip_and_select_next(&editor); break;
     case COMMAND_GO_TO_BRACKET: editor_go_to_bracket(&editor); break;
     case COMMAND_SELECT_BETWEEN_BRACKETS: editor_select_between_brackets(&editor); break;

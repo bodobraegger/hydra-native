@@ -90,9 +90,6 @@ struct editor {
     size_t *bookmarks; // sorted lines
     size_t bookmark_count;
     size_t bookmark_capacity;
-    size_t mark; // the "sublime mark" of Ctrl+K Ctrl+Space
-    bool has_mark;
-    char *killed; // the text of the last "delete to mark", for "yank"
     struct snapshot_stack undo;
     struct snapshot_stack redo;
     enum edit_kind last_edit;
@@ -169,11 +166,6 @@ void editor_clear_bookmarks(struct editor *editor);
 void editor_select_bookmarks(struct editor *editor);
 void editor_change_case(struct editor *editor, bool upper);
 void editor_delete_line_part(struct editor *editor, int direction); // to the line start (-1) or end (+1)
-void editor_set_mark(struct editor *editor);
-void editor_select_to_mark(struct editor *editor);
-void editor_delete_to_mark(struct editor *editor);
-void editor_swap_with_mark(struct editor *editor);
-void editor_yank(struct editor *editor);
 void editor_skip_and_select_next(struct editor *editor);
 
 // Ranges for evaluation, as byte offsets [start, end).

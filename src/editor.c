@@ -167,7 +167,6 @@ void editor_free(struct editor *editor) {
     free(editor->line_starts);
     free(editor->extra);
     free(editor->bookmarks);
-    free(editor->killed);
     memset(editor, 0, sizeof *editor);
 }
 
@@ -1813,41 +1812,6 @@ static void delete_line_part_one(struct editor *editor, void *data) {
 void editor_delete_line_part(struct editor *editor, int direction) {
     begin_edit(editor, EDIT_OTHER);
     for_each_selection(editor, delete_line_part_one, &direction);
-}
-
-void editor_set_mark(struct editor *editor) {
-    editor->mark = editor->cursor;
-    editor->has_mark = true;
-}
-
-void editor_select_to_mark(struct editor *editor) {
-    if (!editor->has_mark) return;
-    editor_collapse(editor);
-    editor->anchor = editor->mark < editor->length ? editor->mark : editor->length;
-}
-
-void editor_delete_to_mark(struct editor *editor) {
-    if (!editor->has_mark) return;
-    size_t mark = editor->mark < editor->length ? editor->mark : editor->length;
-    size_t start = mark < editor->cursor ? mark : editor->cursor, end = mark < editor->cursor ? editor->cursor : mark;
-    free(editor->killed);
-    editor->killed = strndup(editor->text + start, end - start);
-    editor_collapse(editor);
-    begin_edit(editor, EDIT_OTHER);
-    replace(editor, start, end, "", 0);
-    editor->cursor = editor->anchor = start;
-}
-
-void editor_swap_with_mark(struct editor *editor) {
-    if (!editor->has_mark) return;
-    size_t mark = editor->mark < editor->length ? editor->mark : editor->length;
-    editor->mark = editor->cursor;
-    editor_collapse(editor);
-    editor_set_cursor(editor, mark, false);
-}
-
-void editor_yank(struct editor *editor) {
-    if (editor->killed) editor_insert(editor, editor->killed, strlen(editor->killed), EDIT_OTHER);
 }
 
 // skipAndSelectNextOccurrence (Ctrl+K Ctrl+D): the next occurrence replaces the primary selection.

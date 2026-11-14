@@ -118,11 +118,6 @@
     X(DELETE_LINE_RIGHT, "delete to the line end") \
     X(DELETE_LINE_LEFT, "delete to the line start") \
     X(SHOW_IN_CENTER, "scroll the cursor to the center") \
-    X(SET_MARK, "set the mark") \
-    X(SELECT_TO_MARK, "select to the mark") \
-    X(DELETE_TO_MARK, "delete to the mark") \
-    X(SWAP_WITH_MARK, "swap the cursor and the mark") \
-    X(YANK, "insert the text deleted to the mark") \
     X(SKIP_AND_SELECT_NEXT, "skip this occurrence, select the next") \
     X(SORT_LINES_INSENSITIVE, "sort the lines, ignore case") \
     X(SORT_LINES_REVERSE, "sort the lines backwards") \
