@@ -29,8 +29,6 @@ The AGPL-3.0 requires the complete source for each person who gets the program. 
 - The release archive contains the source of hydra-native (`source/`), but not the source of the C libraries,
   which CMake downloads. A public repository with the pinned URLs and hashes covers this; else attach a source
   archive with vendor/ to each release.
-- licenses/ has no text of the Unicode License v3 (src/unicode_tables.h) and of the MIT license of CodeMirror 5
-  (code ported in src/editor.c). THIRD_PARTY.md names both.
 
 ## Patch bay on libdatachannel
 

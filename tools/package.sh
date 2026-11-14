@@ -86,10 +86,11 @@ cp "$root/node_modules/hydra-synth/LICENSE" "$target/LICENSE"
 cp "$root/THIRD_PARTY.md" "$target/"
 licenses=$target/licenses
 cp "$root/vendor/quickjs/LICENSE" "$licenses/quickjs.txt"
+# The texts of code that is ported or generated into src/ (THIRD_PARTY.md), kept in the repository.
+cp "$root/licenses/unicode.txt" "$root/licenses/codemirror.txt" "$licenses/"
 if [ "$system" != linux-x86_64 ]; then # libremidi in the program, ANGLE and SDL3 in the program folder (their archives hold no license file)
 	cp "$root/vendor/libremidi/LICENSE.md" "$licenses/libremidi.txt"
-	echo "ANGLE (BSD-3-Clause): https://chromium.googlesource.com/angle/angle/+/refs/heads/main/LICENSE" > "$licenses/angle.txt"
-	echo "SDL3 (zlib license): https://github.com/libsdl-org/SDL/blob/main/LICENSE.txt" > "$licenses/sdl3.txt"
+	cp "$root/licenses/angle.txt" "$root/licenses/sdl3.txt" "$licenses/"
 fi
 sed -n '/^This software is available under 2 licenses/,$p' "$root/vendor/stb/stb_truetype.h" > "$licenses/stb.txt"
 # The libraries of hydra-native-patch-bay.

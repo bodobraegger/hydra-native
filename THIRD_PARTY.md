@@ -101,3 +101,6 @@ The code overlay and the text sources use the fonts of the system. hydra-native 
 - src/unicode_tables.h comes from the Unicode Character Database 16.0.0 (GraphemeBreakProperty.txt,
   emoji-data.txt, EastAsianWidth.txt; Unicode License v3) and the extendingChars class of CodeMirror 5.65.9 (MIT),
   through tools/unicode_tables.py. src/unicode.h follows the grapheme cluster rules of UAX #29.
+
+The texts of these two licenses are in licenses/ (unicode.txt, codemirror.txt), next to the texts of ANGLE and
+SDL3, which the macOS and Windows archives contain as libraries. tools/package.sh copies them into each archive.
