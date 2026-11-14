@@ -113,8 +113,6 @@
     X(PREVIOUS_BOOKMARK, "previous bookmark") \
     X(CLEAR_BOOKMARKS, "clear the bookmarks") \
     X(SELECT_BOOKMARKS, "select the bookmarked lines") \
-    X(UPPER_CASE, "upper case") \
-    X(LOWER_CASE, "lower case") \
     X(DELETE_LINE_RIGHT, "delete to the line end") \
     X(DELETE_LINE_LEFT, "delete to the line start") \
     X(SHOW_IN_CENTER, "scroll the cursor to the center") \

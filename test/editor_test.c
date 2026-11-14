@@ -263,7 +263,6 @@ static void cursor_below(struct editor *e) { editor_add_cursor_vertical(e, 1); }
 static void word_back(struct editor *e) { editor_delete_word(e, -1); }
 static void line_end(struct editor *e) { editor_delete_line_part(e, 1); }
 static void sort(struct editor *e) { editor_sort_lines(e, false, true); }
-static void upper(struct editor *e) { editor_change_case(e, true); }
 static void outdent(struct editor *e) { editor_indent(e, true); }
 static void undo(struct editor *e) { editor_undo(e); }
 static void redo(struct editor *e) { editor_redo(e); }
@@ -275,7 +274,7 @@ static void test_random_edits(void) {
         editor_select_lines, editor_split_selection_by_line, editor_go_to_bracket, editor_select_between_brackets,
         editor_select_next_occurrence, editor_collapse,
         editor_collapse_to_first, editor_select_all, editor_skip_and_select_next, editor_toggle_bookmark,
-        editor_select_bookmarks, up, down, cursor_below, word_back, line_end, sort, upper, outdent,
+        editor_select_bookmarks, up, down, cursor_below, word_back, line_end, sort, outdent,
         undo, redo,
     };
     static const char *const pieces[] = { "osc(", ")", "\n", "\t", "  ", "'", "\"", "{", "}", "[", "a", "B_c", ".",

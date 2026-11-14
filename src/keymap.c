@@ -119,8 +119,6 @@ static const struct key_binding default_keymap[] = {
 
     // two-key commands of the sublime keymap: Ctrl+K, then the second key
     { SDLK_K, KEY_CTRL, COMMAND_CHORD },
-    { SDLK_U, KEY_CTRL, COMMAND_UPPER_CASE, .prefix = SDLK_K },
-    { SDLK_L, KEY_CTRL, COMMAND_LOWER_CASE, .prefix = SDLK_K },
     { SDLK_K, KEY_CTRL, COMMAND_DELETE_LINE_RIGHT, .prefix = SDLK_K },
     { SDLK_BACKSPACE, KEY_CTRL, COMMAND_DELETE_LINE_LEFT, .prefix = SDLK_K },
     { SDLK_C, KEY_CTRL, COMMAND_SHOW_IN_CENTER, .prefix = SDLK_K },

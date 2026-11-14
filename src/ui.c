@@ -1768,8 +1768,6 @@ static void run_command_body(enum command command, bool extend) {
     case COMMAND_PREVIOUS_BOOKMARK: editor_next_bookmark(&editor, -1); break;
     case COMMAND_CLEAR_BOOKMARKS: editor_clear_bookmarks(&editor); break;
     case COMMAND_SELECT_BOOKMARKS: editor_select_bookmarks(&editor); break;
-    case COMMAND_UPPER_CASE: editor_change_case(&editor, true); break;
-    case COMMAND_LOWER_CASE: editor_change_case(&editor, false); break;
     case COMMAND_DELETE_LINE_RIGHT: editor_delete_line_part(&editor, 1); break;
     case COMMAND_DELETE_LINE_LEFT: editor_delete_line_part(&editor, -1); break;
     case COMMAND_SHOW_IN_CENTER: {

@@ -220,7 +220,7 @@ Keys marked "always" also work while the overlay is hidden.
 | Alt+click; Shift+Alt+drag; Shift+Alt+I         | add a cursor; column selection; a cursor per line        |
 | Alt+Left, Alt+Right                            | move by subword (camelCase)                              |
 | Ctrl+F2, F2, Shift+F2                          | bookmarks                                                |
-| Ctrl+K, then Ctrl+U, L, K, Backspace, D        | the two-key commands of the sublime keymap               |
+| Ctrl+K, then Ctrl+K, Backspace, C, G, D        | the two-key commands of the sublime keymap               |
 | Ctrl+F, F3, Shift+F3; Ctrl+G                   | find; go to line                                         |
 | Ctrl+Space; Tab, Escape; Alt+], Alt+[          | autocomplete; accept, dismiss; other ghost candidates    |
 | Ctrl+Shift+Space                               | signature help of the hydra function around the cursor   |

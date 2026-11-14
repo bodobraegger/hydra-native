@@ -1780,26 +1780,6 @@ void editor_select_bookmarks(struct editor *editor) {
     free(list);
 }
 
-static void case_one(struct editor *editor, void *data) {
-    bool upper = *(const bool *)data;
-    size_t start, end;
-    bool selected = editor_has_selection(editor);
-    if (selected) editor_selection(editor, &start, &end);
-    else word_range(editor, editor->cursor, &start, &end);
-    char *text = strndup(editor->text + start, end - start);
-    for (char *c = text; *c; c++) *c = (char)(upper ? toupper((unsigned char)*c) : tolower((unsigned char)*c));
-    size_t cursor = editor->cursor, anchor = editor->anchor;
-    replace(editor, start, end, text, end - start);
-    editor->cursor = cursor;
-    editor->anchor = anchor;
-    free(text);
-}
-
-void editor_change_case(struct editor *editor, bool upper) {
-    begin_edit(editor, EDIT_OTHER);
-    for_each_selection(editor, case_one, &upper);
-}
-
 static void delete_line_part_one(struct editor *editor, void *data) {
     int direction = *(const int *)data;
     size_t line = editor_line_of(editor, editor->cursor);
