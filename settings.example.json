@@ -23,6 +23,12 @@
   "streamMaxRate": 60,
   "l10nUrl": "",
   "setupFile": "",
+  "renderFile": "",
+  "renderLength": 30,
+  "renderFps": 60,
+  "renderSize": "1920x1080",
+  "renderAudio": "sources",
+  "renderAudioFile": "",
   "socket": "",
   "themes": {
     "night": {

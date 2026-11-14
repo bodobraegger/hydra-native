@@ -14,6 +14,7 @@
 #include "native.h"
 #include "process.h"
 #include "quickjs-libc.h"
+#include "render.h"
 #include "sandbox.h"
 #include "snapshot.h"
 #include "ui.h"
@@ -142,8 +143,10 @@ static JSValue js_create_framebuffer(JSContext *ctx, JSValueConst this, int argc
     return JS_NewInt32(ctx, (int32_t)framebuffer);
 }
 
+// Framebuffer 0 is the window, or the framebuffer of a render to file.
 static JSValue js_bind_framebuffer(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
-    glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)to_int(ctx, argv[0]));
+    GLuint framebuffer = (GLuint)to_int(ctx, argv[0]);
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer ? framebuffer : render_framebuffer());
     glViewport(0, 0, to_int(ctx, argv[1]), to_int(ctx, argv[2]));
     return JS_UNDEFINED;
 }
@@ -635,13 +638,24 @@ static JSValue js_script_folder(JSContext *ctx, JSValueConst this, int argc, JSV
     return JS_NewStringLen(ctx, path ? path : "", path ? (size_t)(ui_base_name(path) - path) : 0);
 }
 
+// The size of the window, or of the video during a render to file.
 static JSValue js_drawable_size(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
     int width, height;
-    SDL_GetWindowSizeInPixels(window, &width, &height);
+    if (!render_size(&width, &height)) SDL_GetWindowSizeInPixels(window, &width, &height);
     JSValue array = JS_NewArray(ctx);
     JS_SetPropertyUint32(ctx, array, 0, JS_NewInt32(ctx, width));
     JS_SetPropertyUint32(ctx, array, 1, JS_NewInt32(ctx, height));
     return array;
+}
+
+// "render to file" for test/render_test.py, as the command palette starts it.
+static JSValue js_render_to_file(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    app_render_to_file();
+    return JS_UNDEFINED;
+}
+
+static JSValue js_rendering(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    return JS_NewBool(ctx, render_active());
 }
 
 // console.warn and console.error (js/dom-shim.js) also report here, so that the overlay can show shader errors.
@@ -779,6 +793,8 @@ static const JSCFunctionListEntry native_functions[] = {
     JS_CFUNC_DEF("readFile", 2, js_read_file),
     JS_CFUNC_DEF("scriptFolder", 0, js_script_folder),
     JS_CFUNC_DEF("drawableSize", 0, js_drawable_size),
+    JS_CFUNC_DEF("renderToFile", 0, js_render_to_file),
+    JS_CFUNC_DEF("rendering", 0, js_rendering),
     JS_CFUNC_DEF("consoleMessage", 1, js_console_message),
     JS_CFUNC_DEF("showError", 1, js_show_error),
     JS_CFUNC_DEF("exit", 1, js_exit),

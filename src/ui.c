@@ -41,7 +41,8 @@
 #define MAX_SNIPPET 512
 #define OPACITY_STEP 10 // percent, for the - and + of the opacities in the settings menu
 #define GAIN_STEP 10 // percent, for the - and + of "input gain"
-#define RATE_STEP 5 // frames per second, for the - and + of the stream rates
+#define RATE_STEP 5 // frames per second, for the - and + of the stream rates and of the render
+#define RENDER_SECONDS_STEP 5
 #define MIN_COMPLETION_PREFIX 2
 #define MAX_PALETTE_ROWS 12
 #define MAX_ROWS_PER_LINE 1024
@@ -172,6 +173,7 @@ enum prompt_kind {
     PROMPT_SERVER,
     PROMPT_FONT_PATH,
     PROMPT_L10N_URL,
+    PROMPT_RENDER_SIZE,
     PROMPT_UNSAVED, // the question before an action loses the unsaved changes of the open file
 };
 
@@ -263,6 +265,13 @@ enum panel_action {
     ACTION_L10N_URL,
     ACTION_FONT_FILE,
     ACTION_FONT, // the index of the font
+    ACTION_RENDER,
+    ACTION_RENDER_FILE,
+    ACTION_RENDER_FILE_CLEAR,
+    ACTION_RENDER_SIZE,
+    ACTION_RENDER_AUDIO, // the value of the enum of the setting
+    ACTION_RENDER_AUDIO_FILE,
+    ACTION_RENDER_AUDIO_FILE_CLEAR,
 };
 
 // Clickable areas of the extensions and settings panels.
@@ -1171,6 +1180,16 @@ static void accept_prompt(int direction) {
         save_settings();
         ui_show_message("translation URL: applies at the next start", false);
         break;
+    case PROMPT_RENDER_SIZE:
+        prompt.kind = PROMPT_NONE;
+        if (!settings_parse_size(prompt.query, &settings.render_width, &settings.render_height)) {
+            char text[96];
+            snprintf(text, sizeof text, "render size: even numbers up to %d, such as %dx%d", SETTINGS_MAX_RENDER_SIZE,
+                     SETTINGS_DEFAULT_RENDER_WIDTH, SETTINGS_DEFAULT_RENDER_HEIGHT);
+            return ui_show_message(text, true);
+        }
+        save_settings();
+        break;
     case PROMPT_SHARE:
         prompt.kind = PROMPT_NONE;
         if (!host.share(editor.text, prompt.query))
@@ -1230,6 +1249,16 @@ static void save_settings(void) {
         ui_show_message(error, true); // a file that does not parse stays as it is
 }
 
+void ui_set_render_file(const char *path) {
+    snprintf(settings.render_file, sizeof settings.render_file, "%s", path);
+    save_settings();
+}
+
+void ui_set_render_audio_file(const char *path) {
+    snprintf(settings.render_audio_file, sizeof settings.render_audio_file, "%s", path);
+    save_settings();
+}
+
 void ui_set_setup_file(const char *path) {
     snprintf(settings.setup_file, sizeof settings.setup_file, "%s", path);
     save_settings();
@@ -1275,6 +1304,8 @@ enum number_kind {
     NUMBER_COMPLETION_OPACITY,
     NUMBER_STREAM_RATE,
     NUMBER_STREAM_MAX_RATE,
+    NUMBER_RENDER_SECONDS,
+    NUMBER_RENDER_FPS,
 };
 static const struct {
     const char *unit; // accepted after the number, and shown after it
@@ -1287,6 +1318,8 @@ static const struct {
     [NUMBER_COMPLETION_OPACITY] = { "%", 0, 100, OPACITY_STEP },
     [NUMBER_STREAM_RATE] = { "fps", 1, SETTINGS_MAX_STREAM_RATE, RATE_STEP },
     [NUMBER_STREAM_MAX_RATE] = { "fps", 1, SETTINGS_MAX_STREAM_RATE, RATE_STEP },
+    [NUMBER_RENDER_SECONDS] = { "s", 1, SETTINGS_MAX_RENDER_SECONDS, RENDER_SECONDS_STEP },
+    [NUMBER_RENDER_FPS] = { "fps", 1, SETTINGS_MAX_RENDER_FPS, RATE_STEP },
 };
 #define MAX_NUMBER_TEXT 16
 #define LARGE_STEPS 10
@@ -1307,6 +1340,8 @@ static double number_value(enum number_kind kind) {
     case NUMBER_COMPLETION_OPACITY: return settings.completion_opacity;
     case NUMBER_STREAM_RATE: return settings.stream_rate;
     case NUMBER_STREAM_MAX_RATE: return settings.stream_max_rate;
+    case NUMBER_RENDER_SECONDS: return settings.render_seconds;
+    case NUMBER_RENDER_FPS: return settings.render_fps;
     }
     return 0;
 }
@@ -1334,6 +1369,8 @@ static void set_number(enum number_kind kind, double value) {
         else settings.stream_max_rate = (int)lround(value);
         host.set_stream_rates(settings.stream_rate, settings.stream_max_rate);
         break;
+    case NUMBER_RENDER_SECONDS: settings.render_seconds = (int)lround(value); break;
+    case NUMBER_RENDER_FPS: settings.render_fps = (int)lround(value); break;
     }
     save_settings();
 }
@@ -1661,6 +1698,7 @@ static void run_command_body(enum command command, bool extend) {
     case COMMAND_DUPLICATE_LINE: editor_duplicate_lines(&editor); break;
     case COMMAND_FORMAT: editor_format(&editor); break;
     case COMMAND_SCREENCAP: host.screencap(); break;
+    case COMMAND_RENDER_TO_FILE: host.render_to_file(); break;
     case COMMAND_SAVE_TO_URL: save_to_url(); break;
     case COMMAND_OPEN_URL: confirm_then(PENDING_OPEN_URL, NULL); break;
     case COMMAND_GALLERY_SHARE: {
@@ -2491,6 +2529,8 @@ static void flow_label_disabled(struct panel_flow *flow, const char *text, bool 
 
 #define NO_FILE_PLACEHOLDER "choose a file...              " // as wide as a short path, so the row is easy to hit
 #define NO_SETUP_PLACEHOLDER "choose a setup file...        "
+#define DEFAULT_RENDER_FILE_PLACEHOLDER "~/Videos/hydra-native-<date>-<time>.mp4"
+#define NO_AUDIO_PLACEHOLDER "choose an audio file...       "
 
 static size_t settings_scroll_limit = (size_t)-1; // the rows below the panel in the last frame
 
@@ -2596,6 +2636,34 @@ static void draw_settings(void) {
     flow_label(&flow, "none", !strcmp(audio, AUDIO_NONE), ACTION_AUDIO_NONE, 0);
     flow_row(&flow, label_x, " \xE2\x94\x94 input gain");
     flow_number(&flow, NUMBER_AUDIO_GAIN);
+    flow_row(&flow, label_x, "render");
+    flow_label(&flow, "start", false, ACTION_RENDER, 0);
+    flow_row(&flow, label_x, " \xE2\x94\x9C file");
+    if (settings.render_file[0]) {
+        flow_label(&flow, settings.render_file, false, ACTION_RENDER_FILE, 0);
+        flow_label(&flow, "clear", false, ACTION_RENDER_FILE_CLEAR, 0);
+    } else {
+        flow_button(&flow, DEFAULT_RENDER_FILE_PLACEHOLDER, theme->ghost, false, ACTION_RENDER_FILE, 0, 0);
+    }
+    flow_row(&flow, label_x, " \xE2\x94\x9C length");
+    flow_number(&flow, NUMBER_RENDER_SECONDS);
+    flow_row(&flow, label_x, " \xE2\x94\x9C fps");
+    flow_number(&flow, NUMBER_RENDER_FPS);
+    flow_row(&flow, label_x, " \xE2\x94\x9C size");
+    char render_size[SETTINGS_NAME];
+    snprintf(render_size, sizeof render_size, "%dx%d", settings.render_width, settings.render_height);
+    flow_label(&flow, render_size, false, ACTION_RENDER_SIZE, 0);
+    flow_row(&flow, label_x, " \xE2\x94\x9C audio");
+    for (int i = RENDER_AUDIO_SOURCES; i <= RENDER_AUDIO_MUTED; i++)
+        flow_label(&flow, settings_render_audio_name((enum render_audio)i),
+                   settings.render_audio == (enum render_audio)i, ACTION_RENDER_AUDIO, i);
+    flow_row(&flow, label_x, " \xE2\x94\x94 audio file");
+    if (settings.render_audio_file[0]) {
+        flow_label(&flow, settings.render_audio_file, false, ACTION_RENDER_AUDIO_FILE, 0);
+        flow_label(&flow, "clear", false, ACTION_RENDER_AUDIO_FILE_CLEAR, 0);
+    } else {
+        flow_button(&flow, NO_AUDIO_PLACEHOLDER, theme->ghost, false, ACTION_RENDER_AUDIO_FILE, 0, 0);
+    }
     flow_row(&flow, label_x, "language");
     for (size_t i = 0; i < language_choice_count; i++)
         flow_label(&flow, language_choices[i].name, !strcmp(selected_language, language_choices[i].code),
@@ -2675,6 +2743,27 @@ static void run_settings_action(const struct panel_button *button) {
     case ACTION_L10N_URL: open_prompt_with(PROMPT_L10N_URL, settings.l10n_url); return;
     case ACTION_FONT_FILE: open_prompt_with(PROMPT_FONT_PATH, settings.font); return;
     case ACTION_FONT: set_font(font_choices[index].file); return;
+    case ACTION_RENDER:
+        settings_visible = false;
+        run_command(COMMAND_RENDER_TO_FILE, false);
+        return;
+    case ACTION_RENDER_FILE:
+        settings_visible = false;
+        host.choose_file(FILE_DIALOG_RENDER_FILE);
+        return;
+    case ACTION_RENDER_AUDIO_FILE:
+        settings_visible = false;
+        host.choose_file(FILE_DIALOG_RENDER_AUDIO);
+        return;
+    case ACTION_RENDER_SIZE: {
+        char size[SETTINGS_NAME];
+        snprintf(size, sizeof size, "%dx%d", settings.render_width, settings.render_height);
+        open_prompt_with(PROMPT_RENDER_SIZE, size);
+        return;
+    }
+    case ACTION_RENDER_FILE_CLEAR: settings.render_file[0] = '\0'; break;
+    case ACTION_RENDER_AUDIO: settings.render_audio = (enum render_audio)argument; break;
+    case ACTION_RENDER_AUDIO_FILE_CLEAR: settings.render_audio_file[0] = '\0'; break;
     // The other actions change one setting, which is saved below.
     case ACTION_WATCH: settings.watch = argument; break;
     case ACTION_BACKGROUND_BLEND: settings.code_background_blend = (enum code_blend)argument; break;
@@ -3258,6 +3347,8 @@ static void draw_prompt(int width, int height) {
                                  prompt.query); break;
     case PROMPT_FONT_PATH: snprintf(text, sizeof text, "font file (.ttf, .otf, .ttc): %s   (Enter: OK)",
                                     prompt.query); break;
+    case PROMPT_RENDER_SIZE: snprintf(text, sizeof text, "render size (WxH, even numbers): %s   (Enter: OK)",
+                                      prompt.query); break;
     case PROMPT_L10N_URL:
         snprintf(text, sizeof text, "editor.json URL of the language: %s   (Enter: OK, empty: the l10n project)",
                  prompt.query);
@@ -3323,6 +3414,12 @@ void ui_draw(int width, int height, double now_ms) {
     if (prompt.kind != PROMPT_NONE) draw_prompt(width, height);
     else if (message[0] && (message_is_error || now < message_until))
         draw_bar(width, height, message, message_is_error ? theme->error : theme->info, 0, 0);
+    overlay_end(width, height);
+}
+
+void ui_draw_status(int width, int height, const char *text) {
+    overlay_begin();
+    draw_bar(width, height, text, theme->info, 0, 0);
     overlay_end(width, height);
 }
 

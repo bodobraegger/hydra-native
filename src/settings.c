@@ -28,8 +28,11 @@ static const char *const trigger_names[] = { "manual", "typing" };
 static const char *const signature_help_names[] = { "manual", "paren" };
 static const char *const blend_names[] = { "normal", "difference" };
 static const char *const whitespace_names[] = { "none", "boundary", "selection", "trailing", "all" };
+static const char *const render_audio_names[] = { "sources", "file", "muted" };
 
 const char *settings_whitespace_name(enum render_whitespace value) { return whitespace_names[value]; }
+
+const char *settings_render_audio_name(enum render_audio value) { return render_audio_names[value]; }
 
 void settings_defaults(struct settings *settings) {
     memset(settings, 0, sizeof *settings);
@@ -45,6 +48,22 @@ void settings_defaults(struct settings *settings) {
     settings->audio_gain = SETTINGS_DEFAULT_AUDIO_GAIN;
     settings->stream_rate = settings->stream_max_rate = SETTINGS_MAX_STREAM_RATE;
     settings->code_visible = true;
+    settings->render_seconds = SETTINGS_DEFAULT_RENDER_SECONDS;
+    settings->render_fps = SETTINGS_DEFAULT_RENDER_FPS;
+    settings->render_width = SETTINGS_DEFAULT_RENDER_WIDTH;
+    settings->render_height = SETTINGS_DEFAULT_RENDER_HEIGHT;
+}
+
+bool settings_parse_size(const char *text, int *width, int *height) {
+    int parsed_width, parsed_height;
+    char end;
+    if (sscanf(text, " %d x %d %c", &parsed_width, &parsed_height, &end) != 2) return false;
+    if (parsed_width <= 0 || parsed_height <= 0 || parsed_width % 2 || parsed_height % 2 ||
+        parsed_width > SETTINGS_MAX_RENDER_SIZE || parsed_height > SETTINGS_MAX_RENDER_SIZE)
+        return false;
+    *width = parsed_width;
+    *height = parsed_height;
+    return true;
 }
 
 // XDG_CONFIG_HOME/hydra-native when XDG_CONFIG_HOME is set, on every system (the tests set it). Else Linux:
@@ -253,6 +272,7 @@ bool settings_load(struct settings *settings, const char *path, char *error, siz
         read_integer(ctx, root, "streamMaxRate", 1, SETTINGS_MAX_STREAM_RATE, &settings->stream_max_rate);
         READ_CHOICE("codeBackgroundBlend", blend_names, code_background_blend);
         READ_CHOICE("codeTextBlend", blend_names, code_text_blend);
+        READ_CHOICE("renderAudio", render_audio_names, render_audio);
 #undef READ_CHOICE
         read_bool(ctx, root, "wordWrap", &settings->word_wrap);
         read_bool(ctx, root, "codeVisible", &settings->code_visible);
@@ -265,6 +285,14 @@ bool settings_load(struct settings *settings, const char *path, char *error, siz
         read_string(ctx, root, "l10nUrl", settings->l10n_url, sizeof settings->l10n_url);
         read_string(ctx, root, "socket", settings->socket, sizeof settings->socket);
         read_string(ctx, root, "setupFile", settings->setup_file, sizeof settings->setup_file);
+        read_string(ctx, root, "renderFile", settings->render_file, sizeof settings->render_file);
+        read_integer(ctx, root, "renderLength", 1, SETTINGS_MAX_RENDER_SECONDS, &settings->render_seconds);
+        read_integer(ctx, root, "renderFps", 1, SETTINGS_MAX_RENDER_FPS, &settings->render_fps);
+        char render_size[SETTINGS_NAME] = "";
+        read_string(ctx, root, "renderSize", render_size, sizeof render_size);
+        settings_parse_size(render_size, &settings->render_width, &settings->render_height);
+        read_string(ctx, root, "renderAudioFile", settings->render_audio_file,
+                    sizeof settings->render_audio_file);
         read_themes(ctx, root, settings);
         JSValue keybindings = JS_GetPropertyStr(ctx, root, "keybindings");
         read_pairs(ctx, keybindings, add_keybinding, settings);
@@ -344,6 +372,14 @@ bool settings_save(const struct settings *settings, const char *path, char *erro
         set_string(ctx, root, "galleryServer", settings->gallery_server);
         set_string(ctx, root, "l10nUrl", settings->l10n_url);
         set_string(ctx, root, "setupFile", settings->setup_file);
+        set_string(ctx, root, "renderFile", settings->render_file);
+        JS_SetPropertyStr(ctx, root, "renderLength", JS_NewInt32(ctx, settings->render_seconds));
+        JS_SetPropertyStr(ctx, root, "renderFps", JS_NewInt32(ctx, settings->render_fps));
+        char render_size[SETTINGS_NAME];
+        snprintf(render_size, sizeof render_size, "%dx%d", settings->render_width, settings->render_height);
+        set_string(ctx, root, "renderSize", render_size);
+        set_string(ctx, root, "renderAudio", render_audio_names[settings->render_audio]);
+        set_string(ctx, root, "renderAudioFile", settings->render_audio_file);
         JSValue json = JS_JSONStringify(ctx, root, JS_UNDEFINED, JS_NewInt32(ctx, JSON_INDENT));
         const char *output = JS_ToCString(ctx, json);
         ok = output && write_atomically(path, output, "\n");

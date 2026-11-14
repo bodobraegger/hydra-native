@@ -8,3 +8,4 @@
 extern SDL_Window *window;
 extern char executable_path_directory[PATH_MAX]; // the folder of the program, the bundle and the capture tool
 void app_quit(int code); // ends the main loop; `code` is the exit status
+void app_render_to_file(void); // starts "render to file" (src/render.h) before the next frame

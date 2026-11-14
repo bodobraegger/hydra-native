@@ -184,6 +184,8 @@ static void choose_file(enum file_dialog dialog) {
     case FILE_DIALOG_OPEN: ui_open_file(chosen_path); break;
     case FILE_DIALOG_SAVE: ui_save_as(chosen_path); break;
     case FILE_DIALOG_SETUP: ui_set_setup_file(chosen_path); break;
+    case FILE_DIALOG_RENDER_FILE: ui_set_render_file(chosen_path); break;
+    case FILE_DIALOG_RENDER_AUDIO: ui_set_render_audio_file(chosen_path); break;
     }
 }
 static int audio_devices(struct audio_device *devices, int capacity) {
@@ -198,7 +200,7 @@ static int quits; // the calls of the quit function of the host
 static void quit(void) { quits++; }
 static const struct ui_host test_host = { evaluate, evaluate_file, toggle_fullscreen, is_fullscreen, quit, call,
                                           nothing, share, set_title, set_vsync, audio_devices, set_audio,
-                                          set_audio_gain, choose_file, set_server, set_stream_rates };
+                                          set_audio_gain, choose_file, set_server, set_stream_rates, nothing };
 
 // ---------------------------------------------------------------- input helpers
 

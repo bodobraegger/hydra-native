@@ -9,8 +9,10 @@
 #include "audio_input.h"
 #include "settings.h"
 
-// The file dialogs: the sketch of the "file" row, the save dialog of Ctrl+S without a file, the setup file.
-enum file_dialog { FILE_DIALOG_OPEN, FILE_DIALOG_SAVE, FILE_DIALOG_SETUP };
+// The file dialogs: the sketch of the "file" row, the save dialog of Ctrl+S without a file, the setup file, and the
+// video file and the audio file of "render to file".
+enum file_dialog { FILE_DIALOG_OPEN, FILE_DIALOG_SAVE, FILE_DIALOG_SETUP, FILE_DIALOG_RENDER_FILE,
+                   FILE_DIALOG_RENDER_AUDIO };
 
 struct ui_host {
     // Evaluates code in the global scope; returns NULL or a malloc'd error message.
@@ -39,6 +41,7 @@ struct ui_host {
     void (*set_server)(const char *url);
     // The frames per second of the patch bay: of the output, and the most of each received stream.
     void (*set_stream_rates)(int rate, int max_rate);
+    void (*render_to_file)(void); // with the "render" settings of ui_settings(), before the next frame
 };
 
 // The settings of this run, with the changes of the settings menu (main.c reads "watch" from it).
@@ -57,6 +60,7 @@ void ui_mouse_button(float x, float y, bool down, int clicks, SDL_Keymod modifie
 void ui_mouse_motion(float x, float y);
 void ui_wheel(int lines);
 void ui_draw(int width, int height, double now_ms);
+void ui_draw_status(int width, int height, const char *text); // only the bar, also while the code is hidden
 void ui_set_visible(bool visible);
 void ui_set_code(const char *code); // shows code that has no file (a sketch URL)
 void ui_show_info(void);
@@ -77,6 +81,8 @@ const char *ui_file_path(void); // the open file, or NULL
 // The name of a file without its folder (also after a backslash on Windows); NULL for NULL.
 const char *ui_base_name(const char *path);
 void ui_set_setup_file(const char *path); // the answer of the setup dialog, or "" for none; the file runs at once
+void ui_set_render_file(const char *path); // the answers of the dialogs of the "render" settings
+void ui_set_render_audio_file(const char *path);
 void ui_run_setup(void); // evaluates the setup file of the settings, with its errors in the error bar
 bool ui_is_setup_file(const char *path); // the same file as the setup file of the settings
 // Code from the socket: it does not enter the editor buffer; errors show in the error bar.

@@ -27,11 +27,20 @@ enum autocomplete_style { AUTOCOMPLETE_LIST, AUTOCOMPLETE_GHOST };
 enum autocomplete_trigger { AUTOCOMPLETE_MANUAL, AUTOCOMPLETE_TYPING };
 enum signature_help { SIGNATURE_HELP_MANUAL, SIGNATURE_HELP_PAREN }; // on its key, or also after typing "("
 enum code_blend { CODE_BLEND_NORMAL, CODE_BLEND_DIFFERENCE };
+// The sound of a render to file: of the video sources of the sketch, of the audio file, or none.
+enum render_audio { RENDER_AUDIO_SOURCES, RENDER_AUDIO_FILE, RENDER_AUDIO_MUTED };
 #define SETTINGS_THEME_OPACITY (-1) // codeBackgroundOpacity: the alpha of the theme
 #define SETTINGS_DEFAULT_AUDIO_GAIN 100 // percent
 #define SETTINGS_DEFAULT_COMPLETION_OPACITY 60 // percent
 #define SETTINGS_MAX_AUDIO_GAIN 400
 #define SETTINGS_MAX_STREAM_RATE 60 // frames per second of the patch bay, also the default of both rates
+#define SETTINGS_DEFAULT_RENDER_SECONDS 30
+#define SETTINGS_MAX_RENDER_SECONDS 3600
+#define SETTINGS_DEFAULT_RENDER_FPS 60
+#define SETTINGS_MAX_RENDER_FPS 240
+#define SETTINGS_DEFAULT_RENDER_WIDTH 1920
+#define SETTINGS_DEFAULT_RENDER_HEIGHT 1080
+#define SETTINGS_MAX_RENDER_SIZE 8192 // pixels of each side
 // editor.renderWhitespace of VS Code
 enum render_whitespace {
     WHITESPACE_NONE,
@@ -79,6 +88,10 @@ struct settings {
     char l10n_url[SETTINGS_TEXT];
     char socket[SETTINGS_TEXT];
     char setup_file[SETTINGS_TEXT]; // runs at the start before the sketch, "" for none
+    char render_file[SETTINGS_TEXT]; // the video of "render to file", "" for a new name in the videos folder
+    int render_seconds, render_fps, render_width, render_height;
+    enum render_audio render_audio;
+    char render_audio_file[SETTINGS_TEXT]; // drives `a` during the render, "" for none
     struct custom_theme themes[MAX_CUSTOM_THEMES];
     size_t theme_count;
     struct settings_pair keybindings[MAX_KEYBINDINGS]; // command name, key
@@ -94,6 +107,9 @@ bool settings_load(struct settings *settings, const char *path, char *error, siz
 // file that does not parse.
 bool settings_save(const struct settings *settings, const char *path, char *error, size_t size);
 const char *settings_whitespace_name(enum render_whitespace value);
+const char *settings_render_audio_name(enum render_audio value);
+// A render size such as "1920x1080": even numbers up to SETTINGS_MAX_RENDER_SIZE, as the video codecs need them.
+bool settings_parse_size(const char *text, int *width, int *height);
 
 // The recovery files in the folder of settings.json: the unsaved code of the editor after a first line with the path
 // of its file ("" for code without a file). Each run writes its own file, recovery-YYMMDD-HHMM.js with the local

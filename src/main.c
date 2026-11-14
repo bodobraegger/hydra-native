@@ -21,6 +21,7 @@
 #include "engine.h"
 #include "native.h"
 #include "overlay.h"
+#include "render.h"
 #include "settings.h"
 #include "snapshot.h"
 #include "thumbnails.h"
@@ -57,11 +58,15 @@ SDL_Window *window;
 char executable_path_directory[PATH_MAX];
 static volatile sig_atomic_t quit_requested; // also set by SIGINT and SIGTERM
 static int exit_code;
+static bool render_requested;
 
 void app_quit(int code) {
     exit_code = code;
     quit_requested = true;
 }
+
+// A command or a sketch asks during a frame; the render starts after it, so that it knows the clock of that frame.
+void app_render_to_file(void) { render_requested = true; }
 
 static void patch_bay_line(const char *text) {
     JSValue arguments[1] = { JS_NewString(js, text) };
@@ -159,10 +164,24 @@ static float pixel_scale(void) {
     return window_width > 0 ? (float)drawable_width / (float)window_width : 1.0f;
 }
 
+// During a render to file, the keys and the mouse do not reach the overlay and the sketch: Escape cancels the render.
+static void handle_render_event(const SDL_Event *event) {
+    if (event->type == SDL_EVENT_QUIT) {
+        render_cancel();
+        ui_quit();
+    } else if (event->type == SDL_EVENT_KEY_DOWN && event->key.key == SDLK_ESCAPE) {
+        render_cancel();
+    }
+}
+
 // The overlay gets keys and mouse first; sketches get them too, as window listeners do in the browser.
 static void handle_events(void) {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
+        if (render_active()) {
+            handle_render_event(&event);
+            continue;
+        }
         float scale = pixel_scale();
         switch (event.type) {
         case SDL_EVENT_QUIT: ui_quit(); break;
@@ -344,11 +363,21 @@ static void SDLCALL file_chosen(void *data, const char *const *files, int filter
 }
 
 static void choose_file(enum file_dialog dialog) {
-    static const SDL_DialogFileFilter filters[] = { { "JavaScript (hydra sketch)", "js" } };
+    static const SDL_DialogFileFilter sketch_filters[] = { { "JavaScript (hydra sketch)", "js" } };
+    static const SDL_DialogFileFilter video_filters[] = { { "Video (H.264, ProRes, VP9)", "mp4;mov;webm" } };
+    static const SDL_DialogFileFilter audio_filters[] = { { "Audio", "wav;mp3;flac;ogg;opus;m4a;aac;aif;aiff" },
+                                                          { "All files", "*" } };
     if (!chosen_file.lock) chosen_file.lock = SDL_CreateMutex();
     void *data = (void *)(intptr_t)dialog;
-    if (dialog == FILE_DIALOG_SAVE) SDL_ShowSaveFileDialog(file_chosen, data, window, filters, 1, NULL);
-    else SDL_ShowOpenFileDialog(file_chosen, data, window, filters, 1, NULL, false);
+    switch (dialog) {
+    case FILE_DIALOG_SAVE: SDL_ShowSaveFileDialog(file_chosen, data, window, sketch_filters, 1, NULL); break;
+    case FILE_DIALOG_RENDER_FILE: SDL_ShowSaveFileDialog(file_chosen, data, window, video_filters, 1, NULL); break;
+    case FILE_DIALOG_RENDER_AUDIO:
+        SDL_ShowOpenFileDialog(file_chosen, data, window, audio_filters, SDL_arraysize(audio_filters), NULL, false);
+        break;
+    case FILE_DIALOG_OPEN:
+    case FILE_DIALOG_SETUP: SDL_ShowOpenFileDialog(file_chosen, data, window, sketch_filters, 1, NULL, false); break;
+    }
 }
 
 static void take_chosen_file(void) {
@@ -365,12 +394,27 @@ static void take_chosen_file(void) {
     case FILE_DIALOG_OPEN: ui_open_file(path); break;
     case FILE_DIALOG_SAVE: ui_save_as(path); break;
     case FILE_DIALOG_SETUP: ui_set_setup_file(path); break;
+    case FILE_DIALOG_RENDER_FILE: ui_set_render_file(path); break;
+    case FILE_DIALOG_RENDER_AUDIO: ui_set_render_audio_file(path); break;
     }
 }
 
 static void toggle_fullscreen(void) { SDL_SetWindowFullscreen(window, !is_fullscreen()); }
 
 static void request_quit(void) { quit_requested = true; }
+
+// A frame of a render to file: no socket code, no patch bay and no overlay, so that only the sketch makes the video.
+static void render_frame(void) {
+    handle_events();
+    double clock_ms;
+    if (!render_active() || !render_frame_begin(&clock_ms)) return;
+    JSValue arguments[1] = { JS_NewFloat64(js, clock_ms) };
+    engine_call("__frame", 1, arguments);
+    fetch_poll(fetch_done);
+    engine_run_pending_jobs();
+    engine_check_pending_evaluations();
+    render_frame_end();
+}
 
 // The first SIGINT or SIGTERM ends the loop, so that the child processes stop; a second one ends the process at
 // once. On Windows the C runtime raises SIGINT for Ctrl+C in the console.
@@ -441,6 +485,7 @@ int main(int argc, char **argv) {
         .choose_file = choose_file,
         .set_server = share_set_server,
         .set_stream_rates = patch_bay_set_rates,
+        .render_to_file = app_render_to_file,
     };
     const char *sketch_file = sketch && !is_sketch_url(sketch) ? sketch : NULL;
     if (!ui_init(&settings, settings_file[0] ? settings_file : NULL, sketch_file, &host)) return 1;
@@ -490,9 +535,17 @@ int main(int argc, char **argv) {
     if (listener >= 0)
         fprintf(stderr, "hydra-native: send code with `hydra-native --send < file.js` (%s)\n", socket_path);
 
-    double start = now_ms(), bench_start = 0, frame_js_ms = 0, frame_overlay_ms = 0;
+    double start = now_ms(), bench_start = 0, frame_js_ms = 0, frame_overlay_ms = 0, frame_clock = start;
     long bench_frames = 0;
     while (!quit_requested) {
+        if (render_requested) {
+            render_requested = false;
+            render_start(ui_settings(), frame_clock);
+        }
+        if (render_active()) {
+            render_frame();
+            continue;
+        }
         handle_events();
         code_socket_poll(listener);
 
@@ -511,6 +564,7 @@ int main(int argc, char **argv) {
             }
         }
 
+        frame_clock = now;
         JSValue arguments[1] = { JS_NewFloat64(js, now) };
         engine_call("__frame", 1, arguments);
         fetch_poll(fetch_done);
@@ -568,6 +622,7 @@ int main(int argc, char **argv) {
         }
     }
 
+    render_cancel();
     if (recorder_active()) recorder_stop();
     patch_bay_stop();
     fetch_stop_all();
