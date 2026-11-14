@@ -1909,59 +1909,6 @@ void editor_yank(struct editor *editor) {
     if (editor->killed) editor_insert(editor, editor->killed, strlen(editor->killed), EDIT_OTHER);
 }
 
-// Re-wraps the paragraphs of the touched lines at `width` columns; a common "// " prefix and the indentation stay.
-void editor_hard_wrap(struct editor *editor, size_t width) {
-    size_t first, last;
-    free(touched_lines(editor, &first, &last));
-    if (editor_selection_count(editor) == 1 && !editor_has_selection(editor)) {
-        while (first > 0 && !line_is_blank(editor, first - 1)) first--;
-        while (last + 1 < editor->line_count && !line_is_blank(editor, last + 1)) last++;
-    }
-    if (line_is_blank(editor, first)) return;
-    size_t length;
-    const char *text = line_text(editor, first, &length);
-    size_t prefix_length = leading_whitespace(text, length);
-    if (length >= prefix_length + 3 && !strncmp(text + prefix_length, "// ", 3)) prefix_length += 3;
-    char *prefix = strndup(text, prefix_length);
-    size_t start = editor_line_start(editor, first), end = editor_line_end(editor, last);
-    size_t capacity = (end - start) * 2 + prefix_length * (last - first + 2) + 16, used = 0, column = 0;
-    char *wrapped = malloc(capacity);
-    memcpy(wrapped, prefix, prefix_length);
-    used = column = prefix_length;
-    bool line_has_words = false;
-    for (size_t line = first; line <= last; line++) {
-        const char *content = line_text(editor, line, &length);
-        size_t skip = length >= prefix_length &&
-            !strncmp(content, prefix, prefix_length) ? prefix_length : leading_whitespace(content, length);
-        for (size_t i = skip; i < length;) {
-            while (i < length && content[i] == ' ') i++;
-            size_t word = i;
-            while (i < length && content[i] != ' ') i++;
-            if (i == word) break;
-            if (line_has_words && column + 1 + (i - word) > width) {
-                wrapped[used++] = '\n';
-                memcpy(wrapped + used, prefix, prefix_length);
-                used += prefix_length;
-                column = prefix_length;
-                line_has_words = false;
-            }
-            if (line_has_words) wrapped[used++] = ' ', column++;
-            if (used + (i - word) + prefix_length + 2 > capacity)
-                wrapped = realloc(wrapped, capacity = (capacity + i - word) * 2);
-            memcpy(wrapped + used, content + word, i - word);
-            used += i - word;
-            column += i - word;
-            line_has_words = true;
-        }
-    }
-    begin_edit(editor, EDIT_OTHER);
-    replace(editor, start, end, wrapped, used);
-    editor_collapse(editor);
-    editor->cursor = editor->anchor = start + used;
-    free(wrapped);
-    free(prefix);
-}
-
 // skipAndSelectNextOccurrence (Ctrl+K Ctrl+D): the next occurrence replaces the primary selection.
 void editor_skip_and_select_next(struct editor *editor) {
     if (!editor_has_selection(editor)) return editor_select_word_at(editor, editor->cursor);

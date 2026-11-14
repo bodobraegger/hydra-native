@@ -9,7 +9,6 @@
 
 #define EDITOR_HANGING_INDENT 2 // extra columns of wrapped rows, like softWrapHangingIndent in Pulsar
 #define EDITOR_TAB_WIDTH 4 // the tabSize default of CodeMirror 5 in the web editor
-#define EDITOR_HARD_WRAP_COLUMNS 80
 
 enum motion {
     MOTION_LEFT,
@@ -163,7 +162,6 @@ void editor_duplicate_lines(struct editor *editor);
 void editor_delete_lines(struct editor *editor);
 void editor_join_lines(struct editor *editor);
 void editor_sort_lines(struct editor *editor, bool reverse, bool insensitive);
-void editor_hard_wrap(struct editor *editor, size_t width); // Alt+Q
 
 // Commands of the CodeMirror 5 sublime keymap.
 void editor_toggle_bookmark(struct editor *editor);

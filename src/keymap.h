@@ -135,7 +135,6 @@
     X(SORT_LINES_INSENSITIVE, "sort the lines, ignore case") \
     X(SORT_LINES_REVERSE, "sort the lines backwards") \
     X(SORT_LINES_REVERSE_INSENSITIVE, "sort the lines backwards, ignore case") \
-    X(HARD_WRAP, "wrap the paragraph at 80 columns") \
 
 enum command {
 #define COMMAND_ENUM(name, description) COMMAND_##name,
