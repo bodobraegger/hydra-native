@@ -1,5 +1,5 @@
 // Entry of build/hydra-bundle.js: runs the unchanged hydra-synth renderer on the native shims.
-import { endCanvasRecording, onAfterFrame } from './dom-shim.js'
+import { endCanvasRecording, onAfterFrame, setRenderClock } from './dom-shim.js'
 import { pendingFetches } from './network.js'
 import { apiSignatureLines } from './api-signatures.js'
 import { rewriteDeclarations } from './declarations.js'
@@ -52,11 +52,19 @@ outputPrototype.render = function (passes) {
   this.pendingDraw = this.draw
   this.draw = current
 }
+// src/render.c calls it before each frame of a render to file with the frame time, and with null after the render.
+// The time of the sketch starts at 0, and a new pass waits for its shader, so that each frame shows the newest pass.
+let rendering = false
+window.__setRenderClock = (time) => {
+  if (time !== null && !rendering) hydra.synth.time = 0
+  rendering = time !== null
+  setRenderClock(time)
+}
 const tickOutput = outputPrototype.tick
 outputPrototype.tick = function (props) {
   if (this.pendingDraw) {
     try {
-      if (this.pendingDraw.ready()) {
+      if (this.pendingDraw.ready(rendering)) {
         if (this.draw && this.draw.destroy) this.draw.destroy()
         ;[this.draw, this.pendingDraw] = [this.pendingDraw, null]
       }

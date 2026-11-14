@@ -103,8 +103,9 @@ export default function createRegl () {
   }
 
   // A command draws with its program as soon as it is called; command.ready() lets a caller keep an older
-  // command until the driver is done (js/main.js does so for the outputs). When nothing compiles in the
-  // background, the command waits at creation, so that GlslSource.out() catches the shader error.
+  // command until the driver is done, and command.ready(true) waits for it (js/main.js does so for the outputs).
+  // When nothing compiles in the background, the command waits at creation, so that GlslSource.out() catches the
+  // shader error.
   function regl ({ vert, frag, uniforms = {}, framebuffer }) {
     const entry = program(vert, frag)
     if (native.shaderCompile === 'blocking') linked(entry, true)
@@ -135,7 +136,7 @@ export default function createRegl () {
       }
       native.drawTriangle()
     }
-    command.ready = () => linked(entry, false)
+    command.ready = (wait = false) => linked(entry, wait)
     // regl has no such call: js/main.js ends the pass that an eval replaced, and the program goes with its last
     // command. A failed program is deleted already (src/programs.c).
     let destroyed = false

@@ -12,7 +12,16 @@ console.info = console.debug = (...parts) => console.log(...parts)
 // Warnings and errors go to stderr and, during an evaluation, to the error bar of the code overlay.
 console.warn = console.error = (...parts) => native.consoleMessage(parts.map(String).join(' '))
 
-window.performance = { now: () => native.now() }
+// ---------------------------------------------------------------- clock
+// The clock of performance.now(), Date.now() and the timers: the real one, or the frame time of a render to file.
+
+let renderClock = null // ms of native.now(), during a render to file (src/render.c)
+let dateOffset = 0 // Date.now() minus native.now()
+const now = () => renderClock ?? native.now()
+const realDateNow = Date.now
+
+window.performance = { now }
+Date.now = () => renderClock === null ? realDateNow() : Math.floor(renderClock + dateOffset)
 window.location = {
   href: 'hydra-native://local/',
   protocol: 'hydra-native:',
@@ -62,7 +71,7 @@ const afterFrameCallbacks = []
 function addTimer (callback, delay, args, repeat) {
   const id = nextId++
   const interval = Math.max(Number(delay) || 0, 0)
-  timers.push({ id, at: native.now() + interval, interval, callback, args, repeat })
+  timers.push({ id, at: now() + interval, interval, callback, args, repeat })
   return id
 }
 
@@ -77,6 +86,16 @@ window.requestAnimationFrame = (callback) => {
 window.cancelAnimationFrame = (id) => { frameCallbacks = frameCallbacks.filter((item) => item.id !== id) }
 window.queueMicrotask = (callback) => { Promise.resolve().then(callback) }
 
+// The frame time of a render to file, or null for the real clock again. A switch between the clocks moves the
+// timers by the difference, so that each waits for the rest of its delay on the new clock.
+export function setRenderClock (time) {
+  const before = now()
+  if (renderClock === null) dateOffset = realDateNow() - native.now()
+  const switching = (renderClock === null) !== (time === null)
+  renderClock = time
+  if (switching) for (const timer of timers) timer.at += now() - before
+}
+
 export function onAfterFrame (callback) {
   afterFrameCallbacks.push(callback)
 }
@@ -90,15 +109,15 @@ function run (label, callback, ...args) {
 }
 
 // Runs the due timers, the earliest first; returns the time of the next timer, or -1.
-window.__runTimers = (now) => {
+window.__runTimers = (time) => {
   for (let runs = 0; runs < MAX_TIMER_RUNS; runs++) {
     let due = null
-    for (const timer of timers) if (timer.at <= now && (!due || timer.at < due.at)) due = timer
+    for (const timer of timers) if (timer.at <= time && (!due || timer.at < due.at)) due = timer
     if (!due) break
-    if (due.repeat) due.at = Math.max(due.at + Math.max(due.interval, MINIMUM_REPEAT_MS), now)
+    if (due.repeat) due.at = Math.max(due.at + Math.max(due.interval, MINIMUM_REPEAT_MS), time)
     else timers = timers.filter((item) => item !== due)
     run('timer', due.callback, ...due.args)
-    now = native.now()
+    time = now()
   }
   return timers.reduce((next, timer) => (next < 0 || timer.at < next ? timer.at : next), -1)
 }
