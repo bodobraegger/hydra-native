@@ -13,6 +13,7 @@ const YOUTUBE_PATTERN = /^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\//
 const ABSOLUTE_PATTERN = /^([a-z]+:\/\/|[/\\]|[A-Za-z]:)/ // URLs and absolute paths, also of Windows
 const MIN_PLAYBACK_RATE = 0.25
 const MAX_PLAYBACK_RATE = 4
+const FRAME_TOLERANCE = 1e-6 // of a frame: a frame time in floating point can come out just below its frame
 
 // A missing program gives a warning in the error bar.
 function requireProgram (program, call) {
@@ -38,7 +39,8 @@ export const scriptRelative = (url) => ABSOLUTE_PATTERN.test(url) ? url : native
 
 // s0.src of initVideo, like the <video> element of the web editor. A seek, play() and a new playbackRate or loop
 // start a new ffmpeg at the position, and pause() stops ffmpeg; the texture keeps the last frame meanwhile.
-// currentTime counts the frames from the start position with the frame rate of ffprobe.
+// currentTime counts the frames from the start position with the frame rate of ffprobe. During a render to file, a
+// video with a duration (no live stream) plays on the render clock: its ffmpeg decodes on demand (see upload).
 class VideoElement extends EventTarget {
   constructor (handle, url, width, height, loop) {
     super()
@@ -52,6 +54,7 @@ class VideoElement extends EventTarget {
     this.paused = false
     this.duration = NaN
     this.frameRate = NaN
+    this.opened = null // the render clock in ms at the start of an ffmpeg on demand
     const probe = native.mediaProbe(url)
     if (probe >= 0) {
       pendingFetches.set(probe, (ok, text) => {
@@ -60,13 +63,20 @@ class VideoElement extends EventTarget {
           if (denominator) this.frameRate = numerator / denominator
           else this.duration = parseFloat(line)
         }
+        if (native.rendering() && this.handle >= 0) this.currentTime = this.currentTime // on demand from now on
       })
     }
   }
 
+  // Seconds of the video since the start position: on the render clock for an ffmpeg on demand, else the frames
+  // that ffmpeg delivered in real time.
+  played () {
+    if (this.opened !== null) return (performance.now() - this.opened) / 1000 * this.rate
+    return this.handle < 0 || !(this.frameRate > 0) ? 0 : native.videoFrames(this.handle) / this.frameRate
+  }
+
   get currentTime () {
-    const time = this.handle < 0 || !(this.frameRate > 0) ? this.start
-      : this.start + native.videoFrames(this.handle) / this.frameRate
+    const time = this.start + this.played()
     if (!(this.duration > 0)) return time
     return this.looping ? time % this.duration : Math.min(time, this.duration)
   }
@@ -77,7 +87,10 @@ class VideoElement extends EventTarget {
     if (this.looping && this.duration > 0) this.start %= this.duration
     if (this.paused) return
     const previous = this.handle
-    this.handle = native.mediaOpen(this.url, this.width, this.height, 'video', this.start, this.rate, this.looping)
+    const onDemand = native.rendering() && this.duration > 0 && this.frameRate > 0
+    this.opened = onDemand ? performance.now() : null
+    this.handle = native.mediaOpen(this.url, this.width, this.height, 'video', this.start, this.rate, this.looping,
+      onDemand)
     native.videoClose(previous)
   }
 
@@ -116,7 +129,9 @@ class VideoElement extends EventTarget {
   upload (texture) {
     // Read before the upload: when ffmpeg has ended, the reader has delivered its last frame already.
     const running = native.videoRunning(this.handle)
-    native.videoUpload(this.handle, texture.id)
+    // An ffmpeg on demand decodes up to the frame at the position of the render clock.
+    const frames = this.opened === null ? 0 : Math.floor(this.played() * this.frameRate + FRAME_TOLERANCE) + 1
+    native.videoUpload(this.handle, texture.id, frames)
     if (this.paused || running) return
     this.pause()
     if (!this.looping) this.dispatchEvent({ type: 'ended', target: this, currentTarget: this })
@@ -125,11 +140,12 @@ class VideoElement extends EventTarget {
   close () {
     native.videoClose(this.handle)
     this.handle = -1
+    this.opened = null
   }
 }
 
 // A render to file starts each playing video again at its position, so that its sound in the render (src/render.c)
-// starts there.
+// starts there and its frames come on demand; at the end of the render, each starts again in real time.
 export function restartVideos (sources) {
   for (const { src } of sources) if (src instanceof VideoElement) src.currentTime = src.currentTime
 }

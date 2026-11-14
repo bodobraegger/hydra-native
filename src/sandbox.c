@@ -75,7 +75,8 @@ enum command_status sandbox_media_command(char *command, size_t size, const char
     // A video decodes at full speed and the realtime filter paces its frames, so that the frames from the keyframe
     // before the position of -ss to the position come at once.
     char pace[48] = "";
-    if (!strcmp(kind, "video")) snprintf(pace, sizeof pace, "realtime=speed=%.3f,", playback->rate);
+    if (!strcmp(kind, "video") && !playback->on_demand)
+        snprintf(pace, sizeof pace, "realtime=speed=%.3f,", playback->rate);
     char output[144];
     snprintf(output, sizeof output, "-vf %sscale=%d:%d -pix_fmt rgba -f rawvideo -", pace, width, height);
     const char *protocols = sandboxed ? "-protocol_whitelist " SANDBOX_PROTOCOLS " " : "";

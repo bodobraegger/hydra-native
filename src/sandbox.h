@@ -27,11 +27,13 @@ enum command_status {
 #define SANDBOX_PROTOCOLS "http,https,tcp,tls,crypto"
 
 // The position in seconds, the speed (a factor of the realtime filter) and the loop of a "video" of
-// sandbox_media_command.
+// sandbox_media_command. A video `on_demand` (a render to file) has no realtime filter and decodes as fast as its
+// reader takes the frames.
 struct media_playback {
     double start;
     double rate;
     bool loop;
+    bool on_demand;
 };
 
 // The input of ffmpeg and ffprobe for `url`: the path of a file:// URL, or the URL itself; NULL for a local file in

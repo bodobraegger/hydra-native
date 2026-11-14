@@ -16,6 +16,7 @@
 struct video_source {
     struct process *process; // NULL for a stream of the patch bay and for a camera
     bool kill_at_once;       // a media command, see video_open_media
+    bool on_demand;          // no reader thread: video_upload reads the frames, see video_open_media
     int stream;              // -1 for a camera
     SDL_Camera *camera;
     int width;
@@ -33,18 +34,25 @@ struct video_source {
 
 static struct video_source *sources[MAX_VIDEO_SOURCES];
 
+// The next frame of the stream into `front`; at the end of the stream, the source stops running.
+static bool read_frame(struct video_source *source) {
+    if (!stream_read_all(source->stream, source->back, source->frame_size)) {
+        SDL_SetAtomicInt(&source->running, 0);
+        return false;
+    }
+    SDL_LockMutex(source->lock);
+    uint8_t *swap = source->front;
+    source->front = source->back;
+    source->back = swap;
+    source->fresh = true;
+    SDL_UnlockMutex(source->lock);
+    SDL_AddAtomicInt(&source->frames, 1);
+    return true;
+}
+
 static int read_frames(void *argument) {
     struct video_source *source = argument;
-    while (SDL_GetAtomicInt(&source->running) && stream_read_all(source->stream, source->back, source->frame_size)) {
-        SDL_LockMutex(source->lock);
-        uint8_t *swap = source->front;
-        source->front = source->back;
-        source->back = swap;
-        source->fresh = true;
-        SDL_UnlockMutex(source->lock);
-        SDL_AddAtomicInt(&source->frames, 1);
-    }
-    SDL_SetAtomicInt(&source->running, 0);
+    while (SDL_GetAtomicInt(&source->running) && read_frame(source)) {}
     return 0;
 }
 
@@ -70,7 +78,8 @@ static void free_source(struct video_source *source) {
 
 // A source for frames of width x height from `stream` or `camera`; the source owns the stream, the process and
 // the camera, also when it cannot start (-1). The frame is black until the first one arrives.
-static int add_source(int handle, struct process *process, int stream, SDL_Camera *camera, int width, int height) {
+static int add_source(int handle, struct process *process, int stream, SDL_Camera *camera, int width, int height,
+                      bool on_demand) {
     struct video_source *source = calloc(1, sizeof *source);
     if (!source) {
         if (camera) SDL_CloseCamera(camera);
@@ -81,6 +90,7 @@ static int add_source(int handle, struct process *process, int stream, SDL_Camer
     source->process = process;
     source->stream = stream;
     source->camera = camera;
+    source->on_demand = on_demand;
     source->width = width;
     source->height = height;
     source->frame_size = (size_t)width * (size_t)height * 4;
@@ -89,7 +99,8 @@ static int add_source(int handle, struct process *process, int stream, SDL_Camer
     source->lock = SDL_CreateMutex();
     SDL_SetAtomicInt(&source->running, 1);
     bool ready = source->front && source->back && source->lock;
-    if (ready && !camera) ready = (source->thread = SDL_CreateThread(read_frames, "video", source)) != NULL;
+    bool threaded = !camera && !on_demand;
+    if (ready && threaded) ready = (source->thread = SDL_CreateThread(read_frames, "video", source)) != NULL;
     if (!ready) {
         free_source(source);
         return -1;
@@ -98,20 +109,23 @@ static int add_source(int handle, struct process *process, int stream, SDL_Camer
     return handle;
 }
 
-int video_open(const char *command, int width, int height) {
+static int open_command(const char *command, int width, int height, bool on_demand) {
     int handle = free_handle();
     if (handle < 0 || !valid_size(width, height)) return -1;
     // The shell runs in a group of its own, so video_close stops the whole pipeline (helper plus gst or ffmpeg).
     int output;
     struct process *process = process_start_shell(command, NULL, &output);
     if (!process) return -1;
-    return add_source(handle, process, output, NULL, width, height);
+    return add_source(handle, process, output, NULL, width, height, on_demand);
 }
 
+int video_open(const char *command, int width, int height) { return open_command(command, width, height, false); }
+
 // On SIGTERM, ffmpeg still writes the frames that it decoded already, at the pace of its input or filter, so
-// video_close kills it at once; its output has nothing to finish.
-int video_open_media(const char *command, int width, int height) {
-    int handle = video_open(command, width, height);
+// video_close kills it at once; its output has nothing to finish. A source `on_demand` has no reader thread:
+// video_upload reads the frames on the calling thread, and ffmpeg waits at the full pipe meanwhile.
+int video_open_media(const char *command, int width, int height, bool on_demand) {
+    int handle = open_command(command, width, height, on_demand);
     if (handle >= 0) sources[handle]->kill_at_once = true;
     return handle;
 }
@@ -122,7 +136,7 @@ int video_open_stream(int stream, int width, int height) {
         stream_close(stream);
         return -1;
     }
-    return add_source(handle, NULL, stream, NULL, width, height);
+    return add_source(handle, NULL, stream, NULL, width, height, false);
 }
 
 #if defined(__linux__)
@@ -202,7 +216,7 @@ int video_open_camera(int index, int width, int height) {
         fprintf(stderr, "camera %d: %s\n", index, SDL_GetError());
         return -1;
     }
-    return add_source(handle, NULL, -1, camera, width, height);
+    return add_source(handle, NULL, -1, camera, width, height, false);
 }
 #endif
 
@@ -236,9 +250,11 @@ static struct video_source *find_source(int handle) {
     return sources[handle];
 }
 
-bool video_upload(int handle, GLuint texture) {
+// A source on demand first reads and drops frames until `frames` came; it blocks while ffmpeg decodes them.
+bool video_upload(int handle, GLuint texture, int frames) {
     struct video_source *source = find_source(handle);
     if (!source) return false;
+    while (source->on_demand && SDL_GetAtomicInt(&source->frames) < frames && read_frame(source)) {}
     SDL_LockMutex(source->lock);
     if (source->camera) take_camera_frame(source);
     bool fresh = source->fresh;

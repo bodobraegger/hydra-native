@@ -346,9 +346,14 @@ writes the video without sound and the mix next to the file (`<file>-video<exten
 at the end ffmpeg puts them together into the file. The keys, the mouse and the code socket
 do not reach the sketch until the end of the render.
 
-The render does not replay MIDI. Camera, screen, video and stream sources deliver their frames in real time, not
-in the time of the render. So the picture of a video drifts from its sound when the render is faster or slower
-than real time.
+The picture of `initVideo` with a file or an HTTP(S) URL follows the render clock as its sound does: for each
+frame, ffmpeg decodes the video up to its position at the time of that frame, so the picture stays with the sound
+and the render can be faster or slower than real time. `currentTime` and the 'ended' event follow the render
+clock too. A video starts on the render clock when ffprobe has given its duration and frame rate, normally within
+a fraction of a second after `initVideo`. At the end of the render, each playing video continues in real time from
+its position. YouTube links, live streams (without a duration), cameras, screen captures, `initCommand` and the
+streams of the patch bay deliver their frames in real time, not in the time of the render. The render does not
+replay MIDI.
 
 ## Text
 

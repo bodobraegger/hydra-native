@@ -56,12 +56,13 @@ outputPrototype.render = function (passes) {
 // The time of the sketch starts at 0, and a new pass waits for its shader, so that each frame shows the newest pass.
 let rendering = false
 window.__setRenderClock = (time) => {
-  if (time !== null && !rendering) {
-    hydra.synth.time = 0
-    restartVideos(hydra.s)
-  }
+  const switching = rendering !== (time !== null)
+  if (switching && time !== null) hydra.synth.time = 0
   rendering = time !== null
-  setRenderClock(time)
+  // The videos start again with the render clock set, which their position follows during the render.
+  if (rendering) setRenderClock(time)
+  if (switching) restartVideos(hydra.s)
+  if (!rendering) setRenderClock(time)
 }
 const tickOutput = outputPrototype.tick
 outputPrototype.tick = function (props) {

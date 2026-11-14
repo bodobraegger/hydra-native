@@ -12,12 +12,13 @@
 #define MAX_VIDEO_SOURCES 16 // the handles are 0 to MAX_VIDEO_SOURCES - 1
 int video_open(const char *command, int width, int height);
 int video_open_stream(int stream, int width, int height);
-int video_open_media(const char *command, int width, int height); // a command of sandbox_media_command
+// A command of sandbox_media_command. With `on_demand`, video_upload reads the frames instead of a thread.
+int video_open_media(const char *command, int width, int height, bool on_demand);
 // Camera `index` of the names that video_camera_names lists, in RGBA frames of width x height: GStreamer with the
 // /dev/video* capture nodes on Linux, the SDL camera elsewhere (AVFoundation on macOS, Media Foundation on Windows).
 int video_open_camera(int index, int width, int height);
 int video_camera_names(const char **names, int capacity);
-bool video_upload(int handle, GLuint texture);
+bool video_upload(int handle, GLuint texture, int frames); // frames: see video_open_media
 bool video_is_running(int handle);
 int video_frames(int handle); // the count of frames that the stream delivered
 bool video_size(int handle, int *width, int *height);

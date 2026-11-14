@@ -3,7 +3,9 @@
 that size, each frame has the color of `time` at that frame, and the window size returns after the render. An audio
 file drives `a`; its sound goes into the video with "renderAudio": "file", and not with "muted" or "sources" without
 a video source with sound. With "sources", the sound of test videos with tones goes into the video: one video for the
-whole render, two videos in equal shares, and a seek during the render that changes the tone at that frame.
+whole render, two videos in equal shares, and a seek during the render that changes the tone at that frame. The
+picture of a video follows the render clock: a video of four colors shows each color at its time, also at
+playbackRate 2, in a render faster than real time, and a change of color and tone comes at the same frame.
 Run with `make check` (it needs build/hydra-native and ffmpeg)."""
 import array
 import json
@@ -24,16 +26,29 @@ LOW, HIGH = 440, 880  # Hz of the test tones
 DURATION_TOLERANCE = 0.1  # seconds, for the padding of the audio codec
 TONE_RATIO = 10  # the tone of a span is this much louder than the other one
 SHARE_RATIO = 3  # in a mix of two tones, neither is this much louder than the other
+COLORS = {"black": (0, 0, 0), "red": (255, 0, 0), "lime": (0, 255, 0), "blue": (0, 0, 255),
+          "white": (255, 255, 255)}
+FRAME_TOLERANCE = 1  # frames between the change of color and of tone
 # The gray level follows `time`, which starts at 0 and advances 1/fps per frame. The sketch starts the render as
-# the command palette does, and logs the loudest `a.vol` of the render and the size after it.
+# the command palette does, once ffprobe has given the duration of a video in s0, and logs the loudest `a.vol` of the
+# render, the size after it and the seconds that it took.
 SKETCH = """
 solid(() => time, () => time, () => time).out()
-let loudest = 0
+let loudest = 0, begin = 0
 update = () => { if (native.rendering()) { loudest = Math.max(loudest, a.vol); RENDER_UPDATE } }
-const report = () => console.log('RESULT ' + JSON.stringify({ loudest, width, height }))
+const report = () => console.log('RESULT ' + JSON.stringify({ loudest, width, height,
+  seconds: (native.now() - begin) / 1000 }))
 const wait = () => native.rendering() ? setTimeout(wait, 50) : (report(), native.exit(0))
-setTimeout(() => { RENDER_SETUP; native.renderToFile(); setTimeout(wait, 50) }, 500)
+const start = () => {
+  if (s0.src && Number.isNaN(s0.src.duration)) return setTimeout(start, 10)
+  begin = native.now()
+  native.renderToFile()
+  setTimeout(wait, 50)
+}
+setTimeout(() => { RENDER_SETUP; start() }, 500)
 """
+# Starts the video at 0 in the first frame of the render, without the frames that it played in real time before.
+REWIND = "if (!window.rewound) { window.rewound = true; s0.src.currentTime = 0 }"
 
 
 def render(directory, name, audio_file="", audio="sources", setup="", update="", seconds=SECONDS):
@@ -62,18 +77,29 @@ def streams(video):
     return json.loads(output)["streams"]
 
 
-def center_grays(video):
-    pixels = subprocess.run(["ffmpeg", "-v", "error", "-i", str(video), "-f", "rawvideo", "-pix_fmt", "gray", "-"],
-                            capture_output=True, check=True).stdout
-    size = WIDTH * HEIGHT
-    return [pixels[start + HEIGHT // 2 * WIDTH + WIDTH // 2] for start in range(0, len(pixels), size)]
+def center_pixels(video, pixel_format="gray", channels=1):
+    pixels = subprocess.run(["ffmpeg", "-v", "error", "-i", str(video), "-f", "rawvideo", "-pix_fmt", pixel_format,
+                             "-"], capture_output=True, check=True).stdout
+    size, center = WIDTH * HEIGHT * channels, (HEIGHT // 2 * WIDTH + WIDTH // 2) * channels
+    return [tuple(pixels[start + center:start + center + channels]) for start in range(0, len(pixels), size)]
 
 
-def tone_video(path, expression):
-    """A video of VIDEO_SECONDS with the sound sin(2 PI f t), where `expression` gives f at the time t."""
-    picture = f"color=size=64x64:rate={FPS}:duration={VIDEO_SECONDS}"
+def center_colors(video):
+    """The name of the color of COLORS that is nearest to the center of each frame."""
+    def nearest(pixel):
+        return min(COLORS, key=lambda name: sum((a - b) ** 2 for a, b in zip(COLORS[name], pixel)))
+    return [nearest(pixel) for pixel in center_pixels(video, "rgb24", 3)]
+
+
+def tone_video(path, expression, colors=("black",)):
+    """A video of VIDEO_SECONDS with the sound sin(2 PI f t), where `expression` gives f at the time t, and the
+    `colors` one after the other in equal spans."""
+    span = VIDEO_SECONDS / len(colors)
+    pictures = [argument for color in colors
+                for argument in ("-f", "lavfi", "-i", f"color={color}:size=64x64:rate={FPS}:duration={span}")]
     tone = f"aevalsrc='sin(2*PI*({expression})*t)':s={SAMPLE_RATE}:d={VIDEO_SECONDS}"
-    subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", picture, "-f", "lavfi", "-i", tone, "-shortest",
+    subprocess.run(["ffmpeg", "-v", "error", *pictures, "-f", "lavfi", "-i", tone, "-filter_complex",
+                    f"concat=n={len(colors)}[picture]", "-map", "[picture]", "-map", f"{len(colors)}:a", "-shortest",
                     str(path)], check=True)
     return path
 
@@ -107,7 +133,7 @@ with tempfile.TemporaryDirectory() as directory:
     wanted = {"codec_type": "video", "width": WIDTH, "height": HEIGHT, "nb_read_frames": str(FPS * SECONDS)}
     if found != [wanted]:
         errors.append(f"got the streams {found}, expected {[wanted]}")
-    grays, expected = center_grays(video), [round(frame / FPS * 255) for frame in range(FPS * SECONDS)]
+    grays, expected = [pixel[0] for pixel in center_pixels(video)], [round(frame / FPS * 255) for frame in range(FPS * SECONDS)]
     print(f"render_test: grays {grays}, expected {expected}")
     if len(grays) != len(expected) or any(abs(a - b) > COLOR_TOLERANCE for a, b in zip(grays, expected)):
         errors.append("the grays of the frames do not follow time")
@@ -148,7 +174,7 @@ with tempfile.TemporaryDirectory() as directory:
         errors.append(f"mix: the powers of {LOW} and {HIGH} Hz are {shares}, expected equal shares")
 
     # The tone changes from LOW to HIGH at 1 s of the video; the render seeks to 1.5 s at its time 0.5 s.
-    steps = tone_video(pathlib.Path(directory, "steps.mp4"), f"if(lt(t,1),{LOW},{HIGH})")
+    steps = tone_video(pathlib.Path(directory, "steps.mp4"), f"if(lt(t,1),{LOW},{HIGH})", ("red", "blue"))
     seek = "if (time >= 0.5 && !window.seeked) { window.seeked = true; s0.src.currentTime = 1.5 }"
     video, result = render(directory, "seek.mp4", setup=f"s0.initVideo({json.dumps(str(steps))}); src(s0).out()",
                            update=seek)
@@ -159,6 +185,37 @@ with tempfile.TemporaryDirectory() as directory:
         print(f"render_test: seek: {name} the seek, power of {loud} and {quiet} Hz {powers}")
         if powers[0] < TONE_RATIO * powers[1]:
             errors.append(f"seek: {name} the seek, {loud} Hz is not the tone ({powers})")
+
+    # Each color lasts 0.5 s; the frames in the middle of each span show it.
+    colors = tone_video(pathlib.Path(directory, "colors.mp4"), LOW, ("red", "lime", "blue", "white"))
+    setup = f"s0.initVideo({json.dumps(str(colors))}); src(s0).out()"
+    video, result = render(directory, "colors.mp4", audio="muted", setup=setup, update=REWIND, seconds=VIDEO_SECONDS)
+    found, speed = center_colors(video), VIDEO_SECONDS / result["seconds"]
+    print(f"render_test: colors: {found}, {result['seconds']:.2f} s for {VIDEO_SECONDS} s ({speed:.1f}x real time)")
+    for time, color in [(0.25, "red"), (0.75, "lime"), (1.25, "blue"), (1.75, "white")]:
+        if found[int(time * FPS)] != color:
+            errors.append(f"colors: the frame at {time} s is {found[int(time * FPS)]}, expected {color}")
+    if result["seconds"] >= VIDEO_SECONDS:
+        errors.append(f"colors: the render took {result['seconds']} s, not faster than real time")
+
+    setup = f"s0.initVideo({json.dumps(str(colors))}); s0.src.playbackRate = 2; src(s0).out()"
+    video, result = render(directory, "rate.mp4", audio="muted", setup=setup, update=REWIND)
+    found = center_colors(video)
+    print(f"render_test: playbackRate 2: {found}")
+    if found[int(0.5 * FPS)] != "blue":
+        errors.append(f"playbackRate 2: the frame at 0.5 s is {found[int(0.5 * FPS)]}, expected blue (1 s)")
+
+    # The color and the tone of `steps` change at 1 s of the video.
+    setup = f"s0.initVideo({json.dumps(str(steps))}); src(s0).out()"
+    video, result = render(directory, "sync.mp4", setup=setup, update=REWIND, seconds=VIDEO_SECONDS)
+    picture = center_colors(video).index("blue")
+    samples, span = sound(video), 1 / FPS
+    tone = next(frame for frame in range(FPS * VIDEO_SECONDS)
+                if power(samples, frame * span, (frame + 1) * span, HIGH) > power(samples, frame * span,
+                                                                                    (frame + 1) * span, LOW))
+    print(f"render_test: sync: the color changes at frame {picture}, the tone at frame {tone}")
+    if abs(picture - tone) > FRAME_TOLERANCE:
+        errors.append(f"sync: the color changes at frame {picture}, the tone at frame {tone}")
 if errors:
     sys.exit("render_test: " + "\n".join(errors))
 print("render_test: ok")
