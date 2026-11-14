@@ -41,12 +41,11 @@ static const struct key_binding default_keymap[] = {
     { SDLK_TAB, KEY_SHIFT, COMMAND_SNIPPET_PREVIOUS, .context = CONTEXT_SNIPPET },
     { SDLK_ESCAPE, 0, COMMAND_SNIPPET_END, .context = CONTEXT_SNIPPET },
 
-    // while find, replace, go to line or the command palette is open
-    { SDLK_RETURN, KEY_CTRL | KEY_ALT, COMMAND_REPLACE_ALL, .context = CONTEXT_PROMPT },
+    // while find, go to line or the command palette is open
     { SDLK_RETURN, 0, COMMAND_PROMPT_ACCEPT, .context = CONTEXT_PROMPT },
     { SDLK_KP_ENTER, 0, COMMAND_PROMPT_ACCEPT, .context = CONTEXT_PROMPT },
     { SDLK_RETURN, KEY_SHIFT, COMMAND_PROMPT_ACCEPT_BACKWARD, .context = CONTEXT_PROMPT },
-    { SDLK_TAB, 0, COMMAND_PROMPT_NEXT_FIELD, .context = CONTEXT_PROMPT },
+    { SDLK_TAB, 0, COMMAND_NONE, .context = CONTEXT_PROMPT }, // does not indent the code behind the prompt
     { SDLK_UP, 0, COMMAND_PROMPT_UP, .context = CONTEXT_PROMPT },
     { SDLK_DOWN, 0, COMMAND_PROMPT_DOWN, .context = CONTEXT_PROMPT },
     { SDLK_BACKSPACE, 0, COMMAND_PROMPT_BACKSPACE, .context = CONTEXT_PROMPT },
@@ -97,7 +96,6 @@ static const struct key_binding default_keymap[] = {
     { SDLK_F, KEY_CTRL, COMMAND_FIND },
     { SDLK_F3, 0, COMMAND_FIND_NEXT },
     { SDLK_F3, KEY_SHIFT, COMMAND_FIND_PREVIOUS },
-    { SDLK_H, KEY_CTRL, COMMAND_REPLACE },
     { SDLK_G, KEY_CTRL, COMMAND_GO_TO_LINE },
     { SDLK_P, KEY_CTRL | KEY_SHIFT, COMMAND_COMMAND_PALETTE, .global = true },
     { SDLK_Z, KEY_ALT, COMMAND_TOGGLE_WRAP },

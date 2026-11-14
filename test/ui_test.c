@@ -828,20 +828,13 @@ int main(void) {
     EXPECT_STRING(evaluated, "hush(); speed = 1");
 
     ui_open_file(path); // the example closed the file; the steps below need one open
-    // Replace, find, go to line, command palette and autocomplete, all through the key table.
+    // Find, command palette and autocomplete, all through the key table.
     key(SDLK_A, SDL_KMOD_LCTRL);
-    type("osc(1).out()\nosc(2).out()\nnoise().out()");
-    key(SDLK_H, SDL_KMOD_LCTRL);
-    type("osc");
-    key(SDLK_TAB, 0);
+    type("shape(1).out()\nshape(2).out()\nnoise().out()");
+    // In the find prompt, Tab does not indent the code and Ctrl+Alt+Enter evaluates all.
+    key(SDLK_F, SDL_KMOD_LCTRL);
     type("shape");
-    key(SDLK_RETURN, SDL_KMOD_LCTRL | SDL_KMOD_LALT); // in the prompt: replace all
-    key(SDLK_ESCAPE, 0);
-    key(SDLK_RETURN, SDL_KMOD_LCTRL | SDL_KMOD_LALT);
-    EXPECT_STRING(evaluated, "shape(1).out()\nshape(2).out()\nnoise().out()");
-    // Ctrl+Alt+Enter replaces all only in the replace prompt; in another prompt it evaluates all, and the code stays.
-    key(SDLK_G, SDL_KMOD_LCTRL);
-    type("2");
+    key(SDLK_TAB, 0);
     key(SDLK_RETURN, SDL_KMOD_LCTRL | SDL_KMOD_LALT);
     key(SDLK_ESCAPE, 0);
     EXPECT_STRING(ui_code(), "shape(1).out()\nshape(2).out()\nnoise().out()");

@@ -1506,7 +1506,7 @@ void editor_block_range(const struct editor *editor, size_t *start, size_t *end)
     *end = editor_line_end(editor, last);
 }
 
-// ---------------------------------------------------------------- brackets, search and replace
+// ---------------------------------------------------------------- brackets and search
 
 long editor_matching_bracket(const struct editor *editor, size_t offset) {
     for (int attempt = 0; attempt < 2; attempt++) {
@@ -1715,45 +1715,6 @@ void editor_select_next_occurrence(struct editor *editor) {
         if (match >= 0 && (size_t)match == start) break; // every match is selected
     }
     free(needle);
-}
-
-size_t editor_replace_all(struct editor *editor, const char *needle, size_t needle_length, const char *replacement,
-                          size_t replacement_length, bool ignore_case) {
-    if (needle_length == 0) return 0;
-    size_t count = 0, capacity = editor->length + 1, used = 0;
-    char *text = malloc(capacity);
-    for (size_t i = 0; i < editor->length;) {
-        size_t match_length = match_at(editor, i, needle, needle_length, ignore_case);
-        size_t piece = match_length ? replacement_length : 1;
-        if (used + piece + 1 > capacity) text = realloc(text, capacity = (used + piece + 1) * 2);
-        if (match_length) {
-            memcpy(text + used, replacement, replacement_length);
-            i += match_length;
-            count++;
-        } else {
-            text[used] = editor->text[i++];
-        }
-        used += piece;
-    }
-    if (count) editor_replace_text(editor, text, used);
-    free(text);
-    return count;
-}
-
-bool editor_replace_next(struct editor *editor, const char *needle, size_t needle_length, const char *replacement,
-                         size_t replacement_length, bool ignore_case) {
-    size_t start, end;
-    editor_selection(editor, &start, &end);
-    bool replaced = needle_length && end > start &&
-        match_at(editor, start, needle, needle_length, ignore_case) == end - start;
-    if (replaced) {
-        editor_collapse(editor);
-        begin_edit(editor, EDIT_OTHER);
-        replace(editor, start, end, replacement, replacement_length);
-        editor->cursor = editor->anchor = start + replacement_length;
-    }
-    editor_find(editor, needle, needle_length, ignore_case, 1);
-    return replaced;
 }
 
 // ---------------------------------------------------------------- words for autocomplete

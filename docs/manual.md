@@ -148,8 +148,9 @@ The built-in themes stay available by name.
 default keys of that command and win over other commands with the same key. F1 shows each command with its
 name in brackets and its keys after these changes.
 
-The editor has multiple cursors, find and replace, go to line, a command palette and autocomplete of hydra
-names and of the words of the file. Autocomplete opens with Ctrl+Space, or while typing with the trigger "while
+The editor has multiple cursors, find, go to line, a command palette and autocomplete of hydra
+names and of the words of the file. To replace text, press Ctrl+D until all occurrences are selected, then type
+over them. Autocomplete opens with Ctrl+Space, or while typing with the trigger "while
 typing" of the settings menu. The style "list" shows the candidates below the word, or above its line when
 there is no room below. "autocompleteOpacity" sets how much its box covers the code below it. The style "ghost
 text" shows the rest of the best candidate after the cursor, like the inline suggestions of VS Code: Tab accepts
@@ -220,7 +221,7 @@ Keys marked "always" also work while the overlay is hidden.
 | Alt+Left, Alt+Right                            | move by subword (camelCase)                              |
 | Ctrl+F2, F2, Shift+F2; Ctrl+F3, Alt+F3         | bookmarks; find or select the word under the cursor      |
 | Ctrl+K, then Ctrl+U, L, K, Backspace, D        | the two-key commands of the sublime keymap               |
-| Ctrl+F, F3, Shift+F3; Ctrl+H; Ctrl+G           | find; replace (Tab, Enter, Ctrl+Alt+Enter); go to line   |
+| Ctrl+F, F3, Shift+F3; Ctrl+G                   | find; go to line                                         |
 | Ctrl+Space; Tab, Escape; Alt+], Alt+[          | autocomplete; accept, dismiss; other ghost candidates    |
 | Ctrl+Shift+Space                               | signature help of the hydra function around the cursor   |
 | Tab, Shift+Tab; Escape (after a completion)    | next, previous argument of the call; end the tab stops   |

@@ -128,13 +128,6 @@ static void test_find(void) {
     EXPECT(editor_find(&editor, "a", 1, false, 1) && editor.anchor == 0); // a match at the cursor counts
     EXPECT(editor_find(&editor, "a", 1, false, 1) && editor.anchor == 4);
     EXPECT(editor_find(&editor, "a", 1, false, -1) && editor.anchor == 0);
-    EXPECT(editor_replace_next(&editor, "a", 1, "xy", 2, false)); // replaces the selected "a", selects the next
-    EXPECT_TEXT(&editor, "xy b a b a");
-    EXPECT(editor.anchor == 5);
-    EXPECT(editor_replace_all(&editor, "a", 1, "c", 1, false) == 2);
-    EXPECT_TEXT(&editor, "xy b c b c");
-    editor_undo(&editor);
-    EXPECT_TEXT(&editor, "xy b a b a");
 
     // The find bar of the browser: no case.
     load(&editor, "Osc OSC osc");
@@ -310,7 +303,6 @@ static void test_random_edits(void) {
         else if (choice < 188) editor_add_cursor(&editor, editor_offset_at(&editor, line, column));
         else if (choice < 192) editor_column_select(&editor, line, column, line + 3, column / 2);
         else if (choice < 196) editor.wrap_columns = column < 4 ? 0 : column;
-        else if (choice == 196) editor_replace_all(&editor, piece, strlen(piece), "x", 1, true);
         else editor_find(&editor, piece, strlen(piece), true, step % 2 ? 1 : -1);
         if (editor.length > RANDOM_MAX_LENGTH) editor_replace_text(&editor, "osc()", 5);
 

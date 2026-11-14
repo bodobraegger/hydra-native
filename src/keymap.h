@@ -83,7 +83,6 @@
     X(SPLIT_SELECTION, "one cursor per selected line") \
     X(FIND_NEXT, "find the next match") \
     X(FIND_PREVIOUS, "find the previous match") \
-    X(REPLACE, "find and replace") \
     X(GO_TO_LINE, "go to line") \
     X(COMMAND_PALETTE, "command palette") \
     X(TOGGLE_WRAP, "toggle soft wrap") \
@@ -102,16 +101,14 @@
     X(NUMBER_UP_LARGE, "number field: ten steps up") \
     X(NUMBER_DOWN_LARGE, "number field: ten steps down") \
     X(NUMBER_BACKSPACE, "number field: delete left") \
-    X(PROMPT_ACCEPT, "find next, replace, go, or run the command") \
+    X(PROMPT_ACCEPT, "find next, go, or run the command") \
     X(PROMPT_ACCEPT_BACKWARD, "find the previous match") \
-    X(PROMPT_NEXT_FIELD, "switch between find and replace") \
     X(PROMPT_UP, "next command up in the palette") \
     X(PROMPT_DOWN, "next command down in the palette") \
     X(PROMPT_BACKSPACE, "delete in the prompt") \
     X(MENU_NEXT, "next entry of the drop-down list") \
     X(MENU_PREVIOUS, "previous entry of the drop-down list") \
     X(MENU_ACCEPT, "run the entry of the drop-down list") \
-    X(REPLACE_ALL, "replace all") \
     X(CHORD, "first key of a two-key command") \
     X(SUBWORD_LEFT, "subword left (camelCase)") \
     X(SUBWORD_RIGHT, "subword right (camelCase)") \
@@ -158,7 +155,7 @@ enum key_context {
     CONTEXT_ANY,
     CONTEXT_COMPLETION, // the autocomplete list is open
     CONTEXT_GHOST, // a ghost-text suggestion shows after the cursor
-    CONTEXT_PROMPT, // find, replace, go to line or the command palette is open
+    CONTEXT_PROMPT, // find, go to line or the command palette is open
     CONTEXT_SNIPPET, // an inserted call has tab stops on its arguments
     CONTEXT_NUMBER, // a number of the settings menu is a text field
     CONTEXT_MENU, // the drop-down list of the toolbar button "reset" is open

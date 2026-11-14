@@ -192,10 +192,6 @@ void editor_select_next_occurrence(struct editor *editor); // Ctrl+D: the word, 
 bool editor_find(struct editor *editor, const char *needle, size_t length, bool ignore_case, int direction);
 size_t editor_find_all(const struct editor *editor, const char *needle, size_t length, bool ignore_case,
                        struct editor_range **matches); // returns the count; the caller frees the matches
-size_t editor_replace_all(struct editor *editor, const char *needle, size_t needle_length, const char *replacement,
-                          size_t replacement_length, bool ignore_case); // returns the number of replacements
-bool editor_replace_next(struct editor *editor, const char *needle, size_t needle_length, const char *replacement,
-                         size_t replacement_length, bool ignore_case); // then selects the next match
 
 // Words for autocomplete: the identifier before the primary cursor, and the identifiers of the text.
 size_t editor_word_before_cursor(const struct editor *editor, size_t *start);

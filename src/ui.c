@@ -166,7 +166,6 @@ static const char *const keywords[] = {
 enum prompt_kind {
     PROMPT_NONE,
     PROMPT_FIND,
-    PROMPT_REPLACE,
     PROMPT_GO_TO_LINE,
     PROMPT_PALETTE,
     PROMPT_SHARE,
@@ -308,13 +307,11 @@ static size_t colors_capacity;
 static struct {
     enum prompt_kind kind;
     char query[MAX_PROMPT];
-    char replacement[MAX_PROMPT];
-    int field; // 0 query, 1 replacement
     bool query_selected; // the next typed text replaces the query, as in the find bar of the browser
     size_t palette_index;
 } prompt;
 static char last_find_query[MAX_PROMPT];
-static struct editor_range *matches; // all matches of the find query while find or replace is open
+static struct editor_range *matches; // all matches of the find query while find is open
 static size_t match_count, active_match; // active_match is match_count when no match is selected
 
 static struct {
@@ -1065,7 +1062,7 @@ static void accept_completion(void) {
     close_completion();
 }
 
-// ---------------------------------------------------------------- prompts: find, replace, go to line, palette
+// ---------------------------------------------------------------- prompts: find, go to line, palette
 
 static bool palette_matches(enum command command) {
     return command != COMMAND_NONE && SDL_strcasestr(command_description(command), prompt.query) != NULL;
@@ -1079,7 +1076,7 @@ static enum command palette_command(size_t index) {
 
 static void open_prompt(enum prompt_kind kind) {
     close_completion();
-    if (kind == PROMPT_FIND || kind == PROMPT_REPLACE) {
+    if (kind == PROMPT_FIND) {
         // Start with the selected text, else with the last query, selected so that typing replaces it.
         size_t start, end;
         editor_selection(&editor, &start, &end);
@@ -1087,7 +1084,6 @@ static void open_prompt(enum prompt_kind kind) {
         if (end > start && end - start < MAX_PROMPT && !memchr(editor.text + start, '\n', end - start))
             snprintf(prompt.query, sizeof prompt.query, "%.*s", (int)(end - start), editor.text + start);
         prompt.query_selected = prompt.query[0] != '\0';
-        prompt.field = 0;
     } else {
         prompt.query[0] = '\0';
     }
@@ -1097,12 +1093,6 @@ static void open_prompt(enum prompt_kind kind) {
 
 static void set_server(const char *url);
 
-static char *prompt_field(void) {
-    return prompt.kind == PROMPT_REPLACE && prompt.field == 1 ? prompt.replacement : prompt.query;
-}
-
-static bool find_open(void) { return prompt.kind == PROMPT_FIND || prompt.kind == PROMPT_REPLACE; }
-
 static void find(int direction) {
     if (!prompt.query[0]) return;
     snprintf(last_find_query, sizeof last_find_query, "%s", prompt.query);
@@ -1111,9 +1101,8 @@ static void find(int direction) {
 
 // F3 and Shift+F3 open the find bar with the last query, as in the browser.
 static void find_again(int direction) {
-    if (!find_open()) {
+    if (prompt.kind != PROMPT_FIND) {
         prompt.kind = PROMPT_FIND;
-        prompt.field = 0;
         prompt.query_selected = false;
         snprintf(prompt.query, sizeof prompt.query, "%s", last_find_query);
     }
@@ -1124,7 +1113,8 @@ static void update_matches(void) {
     free(matches);
     matches = NULL;
     match_count = 0;
-    if (find_open() && prompt.query[0]) // ponytail: searches the whole text each frame, fine for sketch-sized code
+    // ponytail: searches the whole text each frame, fine for sketch-sized code
+    if (prompt.kind == PROMPT_FIND && prompt.query[0])
         match_count = editor_find_all(&editor, prompt.query, strlen(prompt.query), true, &matches);
     size_t start, end;
     editor_selection(&editor, &start, &end);
@@ -1141,7 +1131,7 @@ static void find_incremental(void) {
 }
 
 static void prompt_changed(void) {
-    if (prompt.kind == PROMPT_FIND || (prompt.kind == PROMPT_REPLACE && prompt.field == 0)) find_incremental();
+    if (prompt.kind == PROMPT_FIND) find_incremental();
     if (prompt.kind == PROMPT_PALETTE) prompt.palette_index = 0;
 }
 
@@ -1154,12 +1144,6 @@ static void load_settings_lists(void);
 static void accept_prompt(int direction) {
     switch (prompt.kind) {
     case PROMPT_FIND: find(direction); break;
-    case PROMPT_REPLACE:
-        if (prompt.field == 0) find(direction);
-        else
-            editor_replace_next(&editor, prompt.query, strlen(prompt.query), prompt.replacement,
-                                strlen(prompt.replacement), true);
-        break;
     case PROMPT_GO_TO_LINE: {
         long line = atol(prompt.query);
         if (line > 0) editor_go_to_line(&editor, (size_t)line - 1);
@@ -1624,12 +1608,11 @@ static void escape(void) {
 }
 
 static void prompt_backspace(void) {
-    char *field = prompt_field();
-    if (prompt.query_selected && field == prompt.query) field[0] = '\0';
+    if (prompt.query_selected) prompt.query[0] = '\0';
     prompt.query_selected = false;
-    size_t length = strlen(field);
-    while (length > 0 && (field[--length] & 0xC0) == 0x80) {}
-    field[length] = '\0';
+    size_t length = strlen(prompt.query);
+    while (length > 0 && (prompt.query[--length] & 0xC0) == 0x80) {}
+    prompt.query[length] = '\0';
     prompt_changed();
 }
 
@@ -1642,7 +1625,7 @@ static bool is_completion_command(enum command command) {
 }
 
 // The command palette reaches every command, and the keys of the prompt context apply to all prompts. A command
-// of a context does nothing where it has no meaning (the list is closed, the prompt is not "replace").
+// of a context does nothing where it has no meaning (the list is closed).
 static bool command_applies(enum command command) {
     switch (command) {
     case COMMAND_COMPLETION_NEXT:
@@ -1658,7 +1641,6 @@ static bool command_applies(enum command command) {
     case COMMAND_NUMBER_UP_LARGE:
     case COMMAND_NUMBER_DOWN_LARGE:
     case COMMAND_NUMBER_BACKSPACE: return number_field.open;
-    case COMMAND_REPLACE_ALL: return prompt.kind == PROMPT_REPLACE;
     case COMMAND_MENU_NEXT:
     case COMMAND_MENU_PREVIOUS:
     case COMMAND_MENU_ACCEPT: return reset_menu_open;
@@ -1769,7 +1751,6 @@ static void run_command_body(enum command command, bool extend) {
         return;
     case COMMAND_SELECT_NEXT_OCCURRENCE: editor_select_next_occurrence(&editor); break;
     case COMMAND_FIND: open_prompt(PROMPT_FIND); break;
-    case COMMAND_REPLACE: open_prompt(PROMPT_REPLACE); break;
     case COMMAND_GO_TO_LINE: open_prompt(PROMPT_GO_TO_LINE); break;
     case COMMAND_COMMAND_PALETTE: open_prompt(PROMPT_PALETTE); return;
     case COMMAND_FIND_NEXT: find_again(1); break;
@@ -1858,7 +1839,6 @@ static void run_command_body(enum command command, bool extend) {
     case COMMAND_NUMBER_BACKSPACE: number_backspace(); return;
     case COMMAND_PROMPT_ACCEPT: accept_prompt(1); break;
     case COMMAND_PROMPT_ACCEPT_BACKWARD: accept_prompt(-1); break;
-    case COMMAND_PROMPT_NEXT_FIELD: prompt.field = prompt.kind == PROMPT_REPLACE ? !prompt.field : 0; return;
     // The palette list grows upwards from the prompt line, so Up goes to the next entry.
     case COMMAND_PROMPT_UP:
         if (palette_command(prompt.palette_index + 1) != COMMAND_NONE) prompt.palette_index++;
@@ -1870,15 +1850,6 @@ static void run_command_body(enum command command, bool extend) {
         reset_menu_selected = (reset_menu_selected + RESET_MENU_COUNT - 1) % RESET_MENU_COUNT;
         return;
     case COMMAND_MENU_ACCEPT: run_command(reset_menu[reset_menu_selected].command, false); return;
-    case COMMAND_REPLACE_ALL: {
-        size_t count =
-            editor_replace_all(&editor, prompt.query, strlen(prompt.query), prompt.replacement,
-                               strlen(prompt.replacement), true);
-        char text[64];
-        snprintf(text, sizeof text, "%zu replaced", count);
-        ui_show_message(text, false);
-        break;
-    }
     case COMMAND_LEFT: editor_move(&editor, MOTION_LEFT, extend); break;
     case COMMAND_RIGHT: editor_move(&editor, MOTION_RIGHT, extend); break;
     case COMMAND_UP: editor_move(&editor, MOTION_UP, extend); break;
@@ -1923,10 +1894,6 @@ bool ui_key(const SDL_KeyboardEvent *event) {
     chord_prefix = 0;
     const struct key_binding *binding =
         keymap_lookup(key, (SDL_Keymod)event->mod, visible ? key_context() : CONTEXT_ANY, prefix, &extend);
-    // The key of a command that does not apply here keeps its meaning outside of the context (Ctrl+Alt+Enter
-    // evaluates all in the find prompt).
-    if (binding && !command_applies(binding->command))
-        binding = keymap_lookup(key, (SDL_Keymod)event->mod, CONTEXT_ANY, prefix, &extend);
     if (prefix && !binding) {
         ui_show_message("no command for this key after Ctrl+K", false);
         suppress_text = true;
@@ -1953,11 +1920,10 @@ void ui_text_input(const char *text) {
         return;
     }
     if (prompt.kind != PROMPT_NONE) {
-        char *field = prompt_field();
-        if (prompt.query_selected && field == prompt.query) field[0] = '\0';
+        if (prompt.query_selected) prompt.query[0] = '\0';
         prompt.query_selected = false;
-        size_t length = strlen(field);
-        snprintf(field + length, MAX_PROMPT - length, "%s", text);
+        size_t length = strlen(prompt.query);
+        snprintf(prompt.query + length, MAX_PROMPT - length, "%s", text);
         prompt_changed();
         reveal_cursor();
         return;
@@ -3330,9 +3296,9 @@ static void draw_completion(void) {
 }
 
 static void draw_prompt(int width, int height) {
-    char text[2 * MAX_PROMPT + 128], count[48] = "";
+    char text[MAX_PROMPT + 128], count[48] = "";
     uint32_t color = theme->info;
-    if (find_open() && prompt.query[0]) {
+    if (prompt.kind == PROMPT_FIND && prompt.query[0]) {
         // The match count of the find bar: "0/0" in red when nothing matches.
         snprintf(count, sizeof count, "   %zu/%zu", active_match < match_count ? active_match + 1 : 0, match_count);
         if (!match_count) color = theme->error;
@@ -3340,11 +3306,6 @@ static void draw_prompt(int width, int height) {
     switch (prompt.kind) {
     case PROMPT_FIND: snprintf(text, sizeof text, "find: %s%s   (Enter: next, Shift+Enter: previous)", prompt.query,
                                count); break;
-    case PROMPT_REPLACE:
-        snprintf(text, sizeof text, "find: %s%s%s   replace: %s%s   (Tab: field, Enter, Ctrl+Alt+Enter: all)",
-                 prompt.query,
-                 prompt.field == 0 ? "_" : "", count, prompt.replacement, prompt.field == 1 ? "_" : "");
-        break;
     case PROMPT_GO_TO_LINE: snprintf(text, sizeof text, "go to line: %s", prompt.query); break;
     case PROMPT_UNSAVED:
         snprintf(text, sizeof text, "unsaved changes in %s: s save, d discard, Escape cancel",
@@ -3439,7 +3400,7 @@ bool ui_text_input_rect(int *x, int *y, int *width, int *height) {
     *width = (int)overlay_char_width();
     *height = (int)line_height;
     if (prompt.kind != PROMPT_NONE) { // the end of the text in the bar
-        *x = (int)(MARGIN + (float)text_columns(prompt_field()) * overlay_char_width());
+        *x = (int)(MARGIN + (float)text_columns(prompt.query) * overlay_char_width());
         *y = (int)((float)last_height - bar_height() + BAR_PADDING);
         return true;
     }
