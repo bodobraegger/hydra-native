@@ -270,7 +270,7 @@ static void redo(struct editor *e) { editor_redo(e); }
 static void test_random_edits(void) {
     static void (*const commands[])(struct editor *) = {
         editor_insert_newline, editor_backspace, editor_delete_forward, editor_delete_selection,
-        editor_toggle_comment, editor_format, editor_duplicate_lines, editor_delete_lines, editor_join_lines,
+        editor_toggle_comment, editor_format, editor_duplicate_lines, editor_delete_lines,
         editor_select_lines, editor_split_selection_by_line, editor_go_to_bracket, editor_select_between_brackets,
         editor_select_next_occurrence, editor_collapse,
         editor_collapse_to_first, editor_select_all, editor_skip_and_select_next, editor_toggle_bookmark,

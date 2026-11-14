@@ -1752,7 +1752,6 @@ static void run_command_body(enum command command, bool extend) {
     case COMMAND_INDENT_LESS: editor_indent_lines(&editor, true); break;
     case COMMAND_SELECT_LINE: editor_select_lines(&editor); break;
     case COMMAND_DELETE_LINE: editor_delete_lines(&editor); break;
-    case COMMAND_JOIN_LINES: editor_join_lines(&editor); break;
     case COMMAND_SORT_LINES: editor_sort_lines(&editor, false, false); break;
     case COMMAND_SORT_LINES_INSENSITIVE: editor_sort_lines(&editor, false, true); break;
     case COMMAND_SORT_LINES_REVERSE: editor_sort_lines(&editor, true, false); break;

@@ -706,7 +706,7 @@ static void test_signatures(void) {
 static void test_random_input(const char *settings_file) {
     static const char *const json[] = { "{", "}", "[", "]", ":", ",", "\"", "\\", "theme", "themes", "keybindings",
                                         "fontSize", "audioGain", "autocompleteOpacity", "base", "#ff00", "-1", "1e99",
-                                        "true", "null", "\xFF", " ", "Ctrl+", "\n", "join_lines", "\"a\":\"b\"" };
+                                        "true", "null", "\xFF", " ", "Ctrl+", "\n", "delete_line", "\"a\":\"b\"" };
     static const char *const code[] = { "osc(", "noise(", ")", ",", ".", "'", "\"", "`", "${", "}", "[", "]", " ",
                                         "\\", "=>", "//", "/*", "\n", "wobble", "1", "\xE6\x97\xA5" };
     struct signature list[8];
@@ -763,7 +763,7 @@ int main(void) {
     write_file(settings_file,
                "{\n  \"fontSize\": 24,\n  \"theme\": \"mine\",\n  \"galleryServer\": \"http://127.0.0.1:9\",\n"
                               "  \"themes\": { \"mine\": { \"base\": \"solarized\", \"text\": \"#ff0000\" } },\n"
-                              "  \"keybindings\": { \"join_lines\": \"Ctrl+Alt+J\" },\n"
+                              "  \"keybindings\": { \"delete_line\": \"Ctrl+Alt+K\", \"join_lines\": \"Ctrl+J\" },\n"
                               "  \"somethingElse\": { \"kept\": [1, 2] }\n}\n");
     struct settings loaded;
     settings_defaults(&loaded);
@@ -771,10 +771,11 @@ int main(void) {
     EXPECT(loaded.font_size == 24 && !strcmp(loaded.theme, "mine") && loaded.autocomplete_style == AUTOCOMPLETE_LIST &&
            loaded.autocomplete_trigger == AUTOCOMPLETE_MANUAL && loaded.render_whitespace == WHITESPACE_ALL);
     EXPECT_STRING(loaded.gallery_server, "http://127.0.0.1:9");
-    EXPECT(loaded.theme_count == 1 && !strcmp(loaded.themes[0].base, "solarized") && loaded.keybinding_count == 1);
+    EXPECT(loaded.theme_count == 1 && !strcmp(loaded.themes[0].base, "solarized") && loaded.keybinding_count == 2);
     snprintf(loaded.theme, sizeof loaded.theme, "contrast");
     ui_init(&loaded, settings_file, path, &test_host);
     ui_draw(800, 600, 0);
+    EXPECT_CONTAINS(drawn, "keybindings: no command join_lines"); // a removed command: the file still loads
 
     key(SDLK_RETURN, SDL_KMOD_LALT); // the block around the cursor (line 0)
     EXPECT_STRING(evaluated, "osc(10)\n  .out()");
@@ -863,16 +864,17 @@ int main(void) {
     key(SDLK_RETURN, SDL_KMOD_LCTRL);
     EXPECT_STRING(evaluated, "noise");
 
-    // The "keybindings" of the file: Ctrl+Alt+J joins lines, and Ctrl+J (its default key) does nothing now.
+    // The "keybindings" of the file: Ctrl+Alt+K deletes the line, and Ctrl+Shift+K (its default key) does nothing
+    // now.
     key(SDLK_A, SDL_KMOD_LCTRL);
     type("osc()\n.out()");
     key(SDLK_HOME, SDL_KMOD_LCTRL);
-    key(SDLK_J, SDL_KMOD_LCTRL);
+    key(SDLK_K, SDL_KMOD_LCTRL | SDL_KMOD_LSHIFT);
     key(SDLK_RETURN, SDL_KMOD_LCTRL | SDL_KMOD_LALT);
     EXPECT_STRING(evaluated, "osc()\n.out()");
-    key(SDLK_J, SDL_KMOD_LCTRL | SDL_KMOD_LALT);
+    key(SDLK_K, SDL_KMOD_LCTRL | SDL_KMOD_LALT);
     key(SDLK_RETURN, SDL_KMOD_LCTRL | SDL_KMOD_LALT);
-    EXPECT_STRING(evaluated, "osc() .out()");
+    EXPECT_STRING(evaluated, ".out()");
 
     // The settings menu saves at once: a click on the theme "solarized"; the font size and the other keys of the
     // file stay.
@@ -883,7 +885,7 @@ int main(void) {
     settings_defaults(&loaded);
     EXPECT(settings_load(&loaded, settings_file, error, sizeof error));
     EXPECT_STRING(loaded.theme, "solarized");
-    EXPECT(loaded.font_size == 24 && loaded.theme_count == 1 && loaded.keybinding_count == 1);
+    EXPECT(loaded.font_size == 24 && loaded.theme_count == 1 && loaded.keybinding_count == 2);
     const char *content = read_file(settings_file);
     EXPECT_CONTAINS(content, "\"somethingElse\"");
     EXPECT_CONTAINS(content, "\"galleryServer\": \"http://127.0.0.1:9\"");

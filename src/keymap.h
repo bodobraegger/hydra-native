@@ -67,7 +67,6 @@
     X(DOCUMENT_END, "end of the file") \
     X(SELECT_LINE, "select the line, again for the next") \
     X(DELETE_LINE, "delete the lines") \
-    X(JOIN_LINES, "join lines") \
     X(SORT_LINES, "sort the lines") \
     X(DELETE_WORD_RIGHT, "delete the word right") \
     X(INDENT_MORE, "indent the lines") \

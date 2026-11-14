@@ -1404,29 +1404,6 @@ void editor_delete_lines(struct editor *editor) {
     editor_set_cursor(editor, editor_line_start(editor, line), false);
 }
 
-static void join_one(struct editor *editor, void *data) {
-    size_t start, end;
-    editor_selection(editor, &start, &end);
-    size_t first = editor_line_of(editor, start), last = editor_line_of(editor, end);
-    if (last == first) last = first + 1;
-    if (last >= editor->line_count) return;
-    size_t cursor = 0;
-    for (size_t joins = last - first; joins > 0; joins--) {
-        size_t newline = editor_line_end(editor, first);
-        size_t next_start = newline + 1, next_end = editor_line_end(editor, first + 1);
-        size_t indent = leading_whitespace(editor->text + next_start, next_end - next_start);
-        bool space = newline > editor_line_start(editor, first) && next_start + indent < next_end;
-        replace(editor, newline, next_start + indent, " ", space ? 1 : 0);
-        cursor = newline;
-    }
-    editor->cursor = editor->anchor = cursor;
-}
-
-void editor_join_lines(struct editor *editor) {
-    begin_edit(editor, EDIT_OTHER);
-    for_each_selection(editor, join_one, NULL);
-}
-
 static int compare_strings(const void *a, const void *b) { return strcmp(*(char *const *)a, *(char *const *)b); }
 static int compare_strings_insensitive(const void *a, const void *b) {
     return strcasecmp(*(char *const *)a, *(char *const *)b);

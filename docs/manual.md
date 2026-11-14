@@ -214,7 +214,7 @@ Keys marked "always" also work while the overlay is hidden.
 | Ctrl+Shift+F, Shift+Alt+F                      | format: indent by brackets and chains, with tabs         |
 | Ctrl+/ (Ctrl+Shift+7 on the ch layout)         | toggle comment                                           |
 | Alt+Up, Alt+Down; Shift+Alt+Down, Ctrl+Shift+D | move lines; duplicate lines                              |
-| Ctrl+L; Ctrl+Shift+K; Ctrl+J                   | select line; delete line; join lines                     |
+| Ctrl+L; Ctrl+Shift+K                           | select line; delete line                                 |
 | Ctrl+D                                         | select the word, then add the next occurrence            |
 | Ctrl+Shift+Up/Down, Ctrl+Alt+Up/Down           | add a cursor above or below                              |
 | Alt+click; Shift+Alt+drag; Shift+Alt+I         | add a cursor; column selection; a cursor per line        |

@@ -156,7 +156,6 @@ void editor_indent_lines(struct editor *editor, bool outdent); // Ctrl+] and Ctr
 void editor_move_lines(struct editor *editor, int direction); // -1 up, +1 down
 void editor_duplicate_lines(struct editor *editor);
 void editor_delete_lines(struct editor *editor);
-void editor_join_lines(struct editor *editor);
 void editor_sort_lines(struct editor *editor, bool reverse, bool insensitive);
 
 // Commands of the CodeMirror 5 sublime keymap.
