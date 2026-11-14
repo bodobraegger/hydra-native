@@ -270,6 +270,8 @@ s0.src.onended = () => s0.src.play()
 A seek, `play()` and a new `playbackRate` or `loop` start a new ffmpeg at the position, so the image changes after
 about 0.2 seconds; meanwhile the texture keeps the last frame.
 YouTube links play once and have no controls.
+hydra-native plays no sound. The sound of a video goes only into a render to file, with the render audio
+"sources" (see [Render to file](#render-to-file)).
 
 `fetch()` and `XMLHttpRequest` read local files and send HTTP and HTTPS requests with curl.
 The CORS and mixed-content rules of a web page do not apply, so a request can succeed here and fail in the web
@@ -316,8 +318,10 @@ options:
   than the window.
 - audio: the sound of the video. "file" puts the sound of the audio file into the video, and the video ends with
   the shorter of the two. "muted" gives a video without sound. "sources" is the sound of the video sources of the
-  sketch; video sources have no sound yet, so the video has no sound and the bar tells it at the end.
-- audio file: a sound file that drives `a` during the render, also with "muted" and "sources".
+  sketch (see below). Without a video source with sound in the whole render, the video has no sound and the bar
+  tells it at the end.
+- audio file: a sound file that drives `a` during the render, also with "muted", and with "sources" until a video
+  source sounds.
 
 During the render, `time` starts at 0 and advances exactly 1/fps per frame. The timers (setTimeout, setInterval,
 requestAnimationFrame), Date.now() and performance.now() follow the same frame time. The sketch draws into an
@@ -328,11 +332,23 @@ the window return.
 
 With an audio file, ffmpeg decodes the file into mono samples at 48 kHz. Before each frame, the analysis of the
 audio input gets the samples up to the time of that frame, so `a.fft` has the values that a live run with the
-same sound has. Without an audio file, `a.fft` stays 0 during the render. The keys, the mouse and the code socket
+same sound has. Without an audio file and without a video source with sound, `a.fft` stays 0 during the render.
+
+With "sources", each video source of `initVideo` with a file or an HTTP(S) URL that has an audio stream plays its
+sound in the time of the render: at the start of the render, each playing video starts again at its position. A
+seek, a new `playbackRate` or `loop`, `play()` and an `initVideo` during the render start its sound at the position
+from that frame on. A pause, the end of a video without loop, `clear()` and `hush()` stop it. A `playbackRate`
+changes the speed and the pitch together, as on tape. YouTube links and images give no sound. The sources mix in
+equal shares: each source gets 1/n, where n is the most sources that sounded at the same time so far in the
+render. Two sources play at 50/50; when one stops, the other keeps its share, so the loudness does not jump. The
+analysis gets this mix, so `a.fft` follows it frame by frame, and the video file gets the same mix. The render
+writes the video without sound and the mix next to the file (`<file>-video<extension>`, `<file>-sound.f32`), and
+at the end ffmpeg puts them together into the file. The keys, the mouse and the code socket
 do not reach the sketch until the end of the render.
 
 The render does not replay MIDI. Camera, screen, video and stream sources deliver their frames in real time, not
-in the time of the render.
+in the time of the render. So the picture of a video drifts from its sound when the render is faster or slower
+than real time.
 
 ## Text
 
