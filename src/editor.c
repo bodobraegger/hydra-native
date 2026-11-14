@@ -1781,15 +1781,6 @@ void editor_select_bookmarks(struct editor *editor) {
     free(list);
 }
 
-void editor_select_scope(struct editor *editor) {
-    size_t start, end;
-    editor_selection(editor, &start, &end);
-    editor_select_between_brackets(editor);
-    size_t new_start, new_end;
-    editor_selection(editor, &new_start, &new_end);
-    if (new_start == start && new_end == end) editor_select_all(editor);
-}
-
 static void case_one(struct editor *editor, void *data) {
     bool upper = *(const bool *)data;
     size_t start, end;

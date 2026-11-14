@@ -167,7 +167,6 @@ void editor_toggle_bookmark(struct editor *editor);
 void editor_next_bookmark(struct editor *editor, int direction);
 void editor_clear_bookmarks(struct editor *editor);
 void editor_select_bookmarks(struct editor *editor);
-void editor_select_scope(struct editor *editor);
 void editor_change_case(struct editor *editor, bool upper);
 void editor_delete_line_part(struct editor *editor, int direction); // to the line start (-1) or end (+1)
 void editor_set_mark(struct editor *editor);

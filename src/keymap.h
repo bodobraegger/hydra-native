@@ -116,7 +116,6 @@
     X(PREVIOUS_BOOKMARK, "previous bookmark") \
     X(CLEAR_BOOKMARKS, "clear the bookmarks") \
     X(SELECT_BOOKMARKS, "select the bookmarked lines") \
-    X(SELECT_SCOPE, "select inside the brackets, or all") \
     X(UPPER_CASE, "upper case") \
     X(LOWER_CASE, "lower case") \
     X(DELETE_LINE_RIGHT, "delete to the line end") \
