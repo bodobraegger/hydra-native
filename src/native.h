@@ -81,6 +81,12 @@ bool recorder_stop(void); // waits for ffmpeg; false when it failed
 // closes: the window of source_width x source_height, scaled to width x height.
 bool publisher_start(int stream, int source_width, int source_height, int width, int height, int rate);
 void publisher_stop(void);
+// The frames of a render to file (src/render.c): each frame of `framebuffer` (width x height) goes to `stream`, the
+// standard input of the ffmpeg `process`, which encoder_stop frees. A frame waits until ffmpeg took the frame before.
+struct process;
+void encoder_start(struct process *process, int stream, GLuint framebuffer, int width, int height);
+void encoder_frame(void); // after the hydra frame
+bool encoder_stop(void); // waits for ffmpeg; false when it failed
 // The webRTC patch bay (src/patch_bay_main.c): one helper process with JSON lines in and out.
 bool patch_bay_start(const char *program, const char *server, const char *room);
 bool patch_bay_send(const char *line);

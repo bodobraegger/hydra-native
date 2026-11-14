@@ -1,7 +1,7 @@
 // Video recording for vidRecorder.start() and stop(): frames of the hydra output go to ffmpeg, which writes WebM
-// with VP9 like the MediaRecorder of the web editor. The same writer feeds the output to the webRTC patch bay.
-// A writer thread keeps the pipe away from the render loop; when the reader is slower than the frames, frames
-// are dropped.
+// with VP9 like the MediaRecorder of the web editor. The same writer feeds the output to the webRTC patch bay, and
+// the frames of a render to file (src/render.c) to its ffmpeg. A writer thread keeps the pipe away from the render
+// loop; when the reader is slower than the frames, frames are dropped, except those of the render to file.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -19,7 +19,9 @@ struct frame_writer {
     struct process *process; // the child that reads the frames, or NULL
     int stream;
     int width, height;
-    int source_width, source_height; // of the window, when the frames are smaller
+    GLuint source; // the framebuffer of the frames: 0 for the window
+    int source_width, source_height; // of the source, when the frames are smaller
+    bool lossless; // a frame waits until the writer took the frame before
     GLuint framebuffer, renderbuffer; // the frame at width x height, or 0 when the window has that size
     unsigned char *pending; // the newest frame for the writer thread
     unsigned char *writing;
@@ -28,10 +30,10 @@ struct frame_writer {
     double next_frame;
     SDL_Thread *thread;
     SDL_Mutex *lock;
-    SDL_Condition *ready;
+    SDL_Condition *ready, *taken;
 };
 
-static struct frame_writer recorder = { .frame_ms = 1000.0 / RECORD_FPS }, publisher;
+static struct frame_writer recorder = { .frame_ms = 1000.0 / RECORD_FPS }, publisher, encoder = { .lossless = true };
 
 static int write_frames(void *argument) {
     struct frame_writer *writer = argument;
@@ -44,6 +46,7 @@ static int write_frames(void *argument) {
         writer->writing = writer->pending;
         writer->pending = swap;
         writer->fresh = false;
+        SDL_SignalCondition(writer->taken);
         SDL_UnlockMutex(writer->lock);
         stream_write_all(writer->stream, writer->writing, size);
         SDL_LockMutex(writer->lock);
@@ -76,6 +79,7 @@ static void writer_start(struct frame_writer *writer, int stream, struct process
     writer->next_frame = 0;
     writer->lock = SDL_CreateMutex();
     writer->ready = SDL_CreateCondition();
+    writer->taken = SDL_CreateCondition();
     writer->active = true;
     writer->thread = SDL_CreateThread(write_frames, "frame writer", writer);
 }
@@ -85,7 +89,8 @@ static void writer_frame(struct frame_writer *writer, double now) {
     writer->next_frame = writer->next_frame == 0 ? now + writer->frame_ms : writer->next_frame + writer->frame_ms;
     if (writer->next_frame < now) writer->next_frame = now + writer->frame_ms;
     SDL_LockMutex(writer->lock);
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    while (writer->lossless && writer->fresh) SDL_WaitCondition(writer->taken, writer->lock);
+    glBindFramebuffer(GL_FRAMEBUFFER, writer->source);
     // The GPU scales the window down, so that fewer bytes go to the readback and through the pipes.
     if (writer->framebuffer) {
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, writer->framebuffer);
@@ -113,6 +118,7 @@ static bool writer_stop(struct frame_writer *writer) {
     bool ok = !writer->process || process_wait(writer->process, PROCESS_WAIT_FOREVER) == 0;
     process_free(writer->process);
     SDL_DestroyCondition(writer->ready);
+    SDL_DestroyCondition(writer->taken);
     SDL_DestroyMutex(writer->lock);
     free(writer->pending);
     free(writer->writing);
@@ -157,3 +163,12 @@ bool publisher_start(int stream, int source_width, int source_height, int width,
 void publisher_stop(void) {
     if (publisher.active) writer_stop(&publisher);
 }
+
+void encoder_start(struct process *process, int stream, GLuint framebuffer, int width, int height) {
+    encoder.source = framebuffer;
+    writer_start(&encoder, stream, process, width, height, width, height);
+}
+
+void encoder_frame(void) { writer_frame(&encoder, 0); }
+
+bool encoder_stop(void) { return writer_stop(&encoder); }
