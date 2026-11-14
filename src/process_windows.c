@@ -209,6 +209,8 @@ int process_wait(struct process *process, int timeout_ms) {
     return process->status;
 }
 
+void process_kill_at_once(struct process *process) { process_kill(process); }
+
 int process_stop(struct process *process) {
     if (process_wait(process, 0) != PROCESS_RUNNING) return process->status;
     process_kill(process); // TerminateJobObject ends the group at once

@@ -107,6 +107,10 @@ void process_kill(struct process *process) {
     if (process->status == PROCESS_RUNNING) kill(-process->pid, SIGTERM);
 }
 
+void process_kill_at_once(struct process *process) {
+    if (process->status == PROCESS_RUNNING) kill(-process->pid, SIGKILL);
+}
+
 static bool reap(struct process *process, int options) {
     int status;
     pid_t result;

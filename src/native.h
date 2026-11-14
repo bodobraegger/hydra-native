@@ -11,6 +11,7 @@
 // command, see src/process.h), or a stream of the patch bay brings them (video_open_stream owns `stream`).
 int video_open(const char *command, int width, int height);
 int video_open_stream(int stream, int width, int height);
+int video_open_media(const char *command, int width, int height); // a command of sandbox_media_command
 // Camera `index` of the names that video_camera_names lists, in RGBA frames of width x height: GStreamer with the
 // /dev/video* capture nodes on Linux, the SDL camera elsewhere (AVFoundation on macOS, Media Foundation on Windows).
 int video_open_camera(int index, int width, int height);

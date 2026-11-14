@@ -23,6 +23,8 @@ struct process *process_start(const char *const argv[], int *input, int *output)
 struct process *process_start_shell(const char *command, int *input, int *output);
 // Asks the whole group to end: SIGTERM on POSIX, TerminateJobObject on Windows.
 void process_kill(struct process *process);
+// Ends the whole group without a chance to finish: SIGKILL on POSIX, TerminateJobObject on Windows.
+void process_kill_at_once(struct process *process);
 // Waits up to `timeout_ms` milliseconds (PROCESS_WAIT_FOREVER: no limit) for the end of the child. Returns its
 // exit status, 128 + the signal number after a signal on POSIX, or PROCESS_RUNNING.
 int process_wait(struct process *process, int timeout_ms);

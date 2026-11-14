@@ -223,7 +223,7 @@ static JSValue js_media_open(JSContext *ctx, JSValueConst this, int argc, JSValu
     if (url && kind) {
         switch (sandbox_media_command(command, sizeof command, url, kind, width, height)) {
         case COMMAND_OK:
-            result = video_handle(ctx, video_open(command, width, height), "cannot start video source");
+            result = video_handle(ctx, video_open_media(command, width, height), "cannot start video source");
             break;
         case COMMAND_SANDBOXED: result = JS_ThrowTypeError(ctx, "local file %s is off: " SANDBOX_REASON, url); break;
         default: result = JS_ThrowTypeError(ctx, "cannot use %s as a media URL", url); break;

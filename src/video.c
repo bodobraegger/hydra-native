@@ -16,6 +16,7 @@
 // bay), or takes them from an SDL camera when the render thread asks for a frame.
 struct video_source {
     struct process *process; // NULL for a stream of the patch bay and for a camera
+    bool kill_at_once;       // a media command, see video_open_media
     int stream;              // -1 for a camera
     SDL_Camera *camera;
     int width;
@@ -104,6 +105,14 @@ int video_open(const char *command, int width, int height) {
     struct process *process = process_start_shell(command, NULL, &output);
     if (!process) return -1;
     return add_source(handle, process, output, NULL, width, height);
+}
+
+// On SIGTERM, ffmpeg still writes the frames that it decoded already, at the pace of its input or filter, so
+// video_close kills it at once; its output has nothing to finish.
+int video_open_media(const char *command, int width, int height) {
+    int handle = video_open(command, width, height);
+    if (handle >= 0) sources[handle]->kill_at_once = true;
+    return handle;
 }
 
 int video_open_stream(int stream, int width, int height) {
@@ -275,6 +284,7 @@ void video_close(int handle) {
         source->camera = NULL;
     } else if (source->process) {
         // Not only SIGTERM: this runs on the main thread, which must not wait for a child that does not end.
+        if (source->kill_at_once) process_kill_at_once(source->process);
         process_stop(source->process);
     } else {
         SDL_SetAtomicInt(&source->running, 0);
