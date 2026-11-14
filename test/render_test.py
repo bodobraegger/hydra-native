@@ -2,7 +2,7 @@
 """Checks "render to file" (src/render.c): a sketch of 1 second at 30 fps and 320x180 gives a video with 30 frames of
 that size, each frame has the color of `time` at that frame, and the window size returns after the render. An audio
 file drives `a`; its sound goes into the video with "renderAudio": "file", and not with "muted" or "sources" without
-a video source with sound. With "sources", the sound of test videos with tones goes into the video: one video for the
+a video source with sound. A color goes into the video as BT.709 with its tags. With "sources", the sound of test videos with tones goes into the video: one video for the
 whole render, two videos in equal shares, and a seek during the render that changes the tone at that frame. The
 picture of a video follows the render clock: a video of four colors shows each color at its time, also at
 playbackRate 2, in a render faster than real time, and a change of color and tone comes at the same frame.
@@ -29,6 +29,8 @@ SHARE_RATIO = 3  # in a mix of two tones, neither is this much louder than the o
 COLORS = {"black": (0, 0, 0), "red": (255, 0, 0), "lime": (0, 255, 0), "blue": (0, 0, 255),
           "white": (255, 255, 255)}
 FRAME_TOLERANCE = 1  # frames between the change of color and of tone
+SOLID = (40, 200, 60)  # a color that BT.601 and BT.709 give differently
+BT709_TAGS = {"color_range": "tv", "color_space": "bt709", "color_transfer": "bt709", "color_primaries": "bt709"}
 # The gray level follows `time`, which starts at 0 and advances 1/fps per frame. The sketch starts the render as
 # the command palette does, once ffprobe has given the duration of a video in s0, and logs the loudest `a.vol` of the
 # render, the size after it and the seconds that it took.
@@ -145,14 +147,25 @@ with tempfile.TemporaryDirectory() as directory:
     tone = pathlib.Path(directory, "tone.wav")
     subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i", f"sine=frequency=440:duration={SECONDS}",
                     str(tone)], check=True)
-    for audio, wanted_types in [("file", ["video", "audio"]), ("muted", ["video"])]:
-        video, result = render(directory, f"{audio}.mp4", str(tone), audio)
+    solid = "solid({}, {}, {}).out()".format(*(channel / 255 for channel in SOLID))
+    for audio, wanted_types, setup in [("file", ["video", "audio"], ""), ("muted", ["video"], solid)]:
+        video, result = render(directory, f"{audio}.mp4", str(tone), audio, setup)
         found = streams(video)
         print(f"render_test: render audio {audio}: streams {found}, sketch {result}")
         if [stream["codec_type"] for stream in found] != wanted_types:
             errors.append(f"render audio {audio}: got the streams {found}, expected {wanted_types}")
         if result["loudest"] <= 0:
             errors.append(f"render audio {audio}: a.vol stays 0 with the audio file")
+
+    # The muted video shows SOLID; ffmpeg decodes it with the matrix of the tags.
+    output = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "stream=" + ",".join(BT709_TAGS), "-of",
+                             "json", str(video)], capture_output=True, text=True, check=True).stdout
+    tags, color = json.loads(output)["streams"][0], center_pixels(video, "rgb24", 3)[0]
+    print(f"render_test: solid {SOLID}: tags {tags}, decoded {color}")
+    if tags != BT709_TAGS:
+        errors.append(f"solid: the tags are {tags}, expected {BT709_TAGS}")
+    if any(abs(a - b) > COLOR_TOLERANCE for a, b in zip(color, SOLID)):
+        errors.append(f"solid: {SOLID} decodes as {color}")
 
     low = tone_video(pathlib.Path(directory, "low.mp4"), LOW)
     high = tone_video(pathlib.Path(directory, "high.mp4"), HIGH)

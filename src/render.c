@@ -22,6 +22,11 @@
 #define MAX_ARGUMENTS 48
 #define VIDEO_SUFFIX "-video" // with "sources", the video without sound before the mux: <file>-video<extension>
 #define MIX_SUFFIX "-sound.f32" // and the raw samples of the mix of the video sources
+// The rows from the bottom, converted to YUV with BT.709 in limited range and tagged so, as players assume for HD
+// video; without it, ffmpeg converts with BT.601 and tags nothing. ProRes in .mov keeps no range tag.
+#define VIDEO_FILTER \
+    "vflip,scale=out_color_matrix=bt709:out_range=tv," \
+    "setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv"
 
 // The codecs of each file extension; `audio_codec` encodes the audio file.
 static const struct container {
@@ -208,8 +213,8 @@ static bool finish_sources(bool mux) {
     return muxed || !sounded;
 }
 
-// The frames come as raw RGBA on the standard input, with the rows from the bottom; the audio file is the second
-// input, and the video ends with the shorter of the two.
+// The frames come as raw RGBA on the standard input, with the rows from the bottom (VIDEO_FILTER); the audio file is
+// the second input, and the video ends with the shorter of the two.
 static int start_encoder(const struct container *container, const char *audio, const char *output) {
     char size[32], rate[16];
     snprintf(size, sizeof size, "%dx%d", render.width, render.height);
@@ -223,7 +228,7 @@ static int start_encoder(const struct container *container, const char *audio, c
         for (size_t i = 0; i < SDL_arraysize(audio_options); i++) argv[count++] = audio_options[i];
     }
     argv[count++] = "-vf";
-    argv[count++] = "vflip";
+    argv[count++] = VIDEO_FILTER;
     for (const char *const *option = container->video_options; *option; option++) argv[count++] = *option;
     argv[count++] = output;
     argv[count] = NULL;

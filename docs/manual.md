@@ -312,7 +312,7 @@ options:
 
 - file: the video file. Without a file, the render writes hydra-native-<date>-<time>.mp4 into the videos folder
   of the system (~/Videos). The extension sets the format: .mp4 gives H.264 (crf 18), .mov gives ProRes 422 HQ,
-  .webm gives VP9.
+  .webm gives VP9, each with BT.709 colors in limited range, as HD players expect.
 - length, fps: the duration in seconds (30), with up to two decimals (12.75), and the frames per second (60).
   The video has length times fps frames, rounded to the nearest frame.
 - size: the size of the video in pixels as WxH (1920x1080), two even numbers up to 8192. The size can be larger
