@@ -1781,35 +1781,6 @@ void editor_select_bookmarks(struct editor *editor) {
     free(list);
 }
 
-// findUnder and findUnderPrevious: the word or the selection, then its next match (one selection).
-void editor_find_under(struct editor *editor, int direction) {
-    if (!editor_has_selection(editor)) editor_select_word_at(editor, editor->cursor);
-    size_t start, end;
-    editor_selection(editor, &start, &end);
-    if (start == end) return;
-    char *needle = strndup(editor->text + start, end - start);
-    editor_find(editor, needle, end - start, false, direction);
-    free(needle);
-}
-
-// findAllUnder: every match of the word or the selection becomes a selection.
-void editor_select_all_under(struct editor *editor) {
-    if (!editor_has_selection(editor)) editor_select_word_at(editor, editor->cursor);
-    size_t start, end;
-    editor_selection(editor, &start, &end);
-    size_t length = end - start, count = 0, capacity = 16;
-    if (!length) return;
-    struct selection *list = malloc(capacity * sizeof *list);
-    for (size_t i = 0; i + length <= editor->length; i++) {
-        if (memcmp(editor->text + i, editor->text + start, length) != 0) continue;
-        if (count == capacity) list = realloc(list, (capacity *= 2) * sizeof *list);
-        list[count++] = (struct selection){ i + length, i, 0, false, i == start };
-        i += length - 1;
-    }
-    store_selections(editor, list, count);
-    free(list);
-}
-
 void editor_select_scope(struct editor *editor) {
     size_t start, end;
     editor_selection(editor, &start, &end);

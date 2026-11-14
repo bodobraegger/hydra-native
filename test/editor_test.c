@@ -265,7 +265,6 @@ static void line_end(struct editor *e) { editor_delete_line_part(e, 1); }
 static void sort(struct editor *e) { editor_sort_lines(e, false, true); }
 static void upper(struct editor *e) { editor_change_case(e, true); }
 static void outdent(struct editor *e) { editor_indent(e, true); }
-static void find_next(struct editor *e) { editor_find_under(e, 1); }
 static void undo(struct editor *e) { editor_undo(e); }
 static void redo(struct editor *e) { editor_redo(e); }
 
@@ -274,11 +273,11 @@ static void test_random_edits(void) {
         editor_insert_newline, editor_backspace, editor_delete_forward, editor_delete_selection,
         editor_toggle_comment, editor_format, editor_duplicate_lines, editor_delete_lines, editor_join_lines,
         editor_select_lines, editor_split_selection_by_line, editor_go_to_bracket, editor_select_between_brackets,
-        editor_select_next_occurrence, editor_select_all_under, editor_select_scope, editor_collapse,
+        editor_select_next_occurrence, editor_select_scope, editor_collapse,
         editor_collapse_to_first, editor_select_all, editor_set_mark, editor_select_to_mark, editor_delete_to_mark,
         editor_swap_with_mark, editor_yank, editor_skip_and_select_next, editor_toggle_bookmark,
         editor_select_bookmarks, up, down, cursor_below, word_back, line_end, sort, upper, outdent,
-        find_next, undo, redo,
+        undo, redo,
     };
     static const char *const pieces[] = { "osc(", ")", "\n", "\t", "  ", "'", "\"", "{", "}", "[", "a", "B_c", ".",
                                           "\xC3\xA9", "e\xCC\x81", "\xE6\x97\xA5", "\xF0\x9F\x91\x8D\xF0\x9F\x8F\xBD",

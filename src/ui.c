@@ -1784,9 +1784,6 @@ static void run_command_body(enum command command, bool extend) {
     case COMMAND_PREVIOUS_BOOKMARK: editor_next_bookmark(&editor, -1); break;
     case COMMAND_CLEAR_BOOKMARKS: editor_clear_bookmarks(&editor); break;
     case COMMAND_SELECT_BOOKMARKS: editor_select_bookmarks(&editor); break;
-    case COMMAND_FIND_UNDER: editor_find_under(&editor, 1); break;
-    case COMMAND_FIND_UNDER_PREVIOUS: editor_find_under(&editor, -1); break;
-    case COMMAND_FIND_ALL_UNDER: editor_select_all_under(&editor); break;
     case COMMAND_SELECT_SCOPE: editor_select_scope(&editor); break;
     case COMMAND_UPPER_CASE: editor_change_case(&editor, true); break;
     case COMMAND_LOWER_CASE: editor_change_case(&editor, false); break;

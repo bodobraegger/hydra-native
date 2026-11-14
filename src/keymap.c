@@ -112,9 +112,6 @@ static const struct key_binding default_keymap[] = {
     { SDLK_F2, KEY_SHIFT, COMMAND_PREVIOUS_BOOKMARK },
     { SDLK_F2, KEY_CTRL | KEY_SHIFT, COMMAND_CLEAR_BOOKMARKS },
     { SDLK_F2, KEY_ALT, COMMAND_SELECT_BOOKMARKS },
-    { SDLK_F3, KEY_CTRL, COMMAND_FIND_UNDER },
-    { SDLK_F3, KEY_CTRL | KEY_SHIFT, COMMAND_FIND_UNDER_PREVIOUS },
-    { SDLK_F3, KEY_ALT, COMMAND_FIND_ALL_UNDER },
     { SDLK_SPACE, KEY_CTRL | KEY_SHIFT, COMMAND_SIGNATURE_HELP }, // in sublime: select scope, which the palette keeps
     { SDLK_Q, KEY_ALT, COMMAND_NONE }, // wrapLines of the sublime keymap needs the hardwrap addon, which the web lacks
     { SDLK_LEFTBRACKET, KEY_CTRL | KEY_SHIFT, COMMAND_NONE }, // fold: the web editor loads no fold addon

@@ -116,9 +116,6 @@
     X(PREVIOUS_BOOKMARK, "previous bookmark") \
     X(CLEAR_BOOKMARKS, "clear the bookmarks") \
     X(SELECT_BOOKMARKS, "select the bookmarked lines") \
-    X(FIND_UNDER, "find the next word under the cursor") \
-    X(FIND_UNDER_PREVIOUS, "find the previous word under the cursor") \
-    X(FIND_ALL_UNDER, "select every word under the cursor") \
     X(SELECT_SCOPE, "select inside the brackets, or all") \
     X(UPPER_CASE, "upper case") \
     X(LOWER_CASE, "lower case") \
