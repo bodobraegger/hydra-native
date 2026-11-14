@@ -33,6 +33,12 @@ void audio_set_gain(int percent); // multiplies the samples before the analysis
 struct audio_device;
 int audio_devices(struct audio_device *devices, int capacity); // see audio_input_devices() of src/audio_input.h
 bool audio_features(float specific[BARK_BAND_COUNT], float *total);
+// During a render to file (src/render.c) the features come from the samples of an audio file instead of the input:
+// audio_feed_start() starts a new analysis with all features at 0, audio_feed() adds mono samples at
+// AUDIO_SAMPLE_RATE (src/audio_processing.h), and audio_feed_stop() returns to the input.
+void audio_feed_start(void);
+void audio_feed(const float *samples, size_t count);
+void audio_feed_stop(void);
 
 // The options of curl for each request: only HTTP and HTTPS, also after a redirect, so that no URL reads a local file.
 #define CURL_PROTOCOL_OPTIONS "--proto", "=http,https", "--proto-redir", "=http,https"
