@@ -398,10 +398,10 @@ endif()
 add_test(NAME check COMMAND hydra-native --hidden ${CMAKE_SOURCE_DIR}/test/check.js)
 add_test(NAME window COMMAND window-test)
 add_test(NAME programs COMMAND programs-test)
-foreach(check fetch gallery patch_bay error sandbox video)
+foreach(check fetch gallery patch_bay error sandbox video render)
   add_test(NAME ${check} COMMAND python3 ${CMAKE_SOURCE_DIR}/test/${check}_test.py)
 endforeach()
-set_tests_properties(check window programs fetch gallery patch_bay error sandbox video PROPERTIES LABELS check
+set_tests_properties(check window programs fetch gallery patch_bay error sandbox video render PROPERTIES LABELS check
   RUN_SERIAL true)
 get_property(ALL_TESTS DIRECTORY PROPERTY TESTS)
 set_tests_properties(${ALL_TESTS} PROPERTIES TIMEOUT 300 # seconds; a sketch that never exits stops CI otherwise
