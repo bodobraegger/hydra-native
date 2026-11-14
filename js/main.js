@@ -5,7 +5,7 @@ import { apiSignatureLines } from './api-signatures.js'
 import { rewriteDeclarations } from './declarations.js'
 import { PatchBay } from './patch-bay.js'
 import Hydra from 'hydra-synth'
-import { installSources, scriptRelative } from './sources.js'
+import { installSources, restartVideos, scriptRelative } from './sources.js'
 import { installText } from './text.js'
 import './editor-actions.js'
 import './midi.js'
@@ -56,7 +56,10 @@ outputPrototype.render = function (passes) {
 // The time of the sketch starts at 0, and a new pass waits for its shader, so that each frame shows the newest pass.
 let rendering = false
 window.__setRenderClock = (time) => {
-  if (time !== null && !rendering) hydra.synth.time = 0
+  if (time !== null && !rendering) {
+    hydra.synth.time = 0
+    restartVideos(hydra.s)
+  }
   rendering = time !== null
   setRenderClock(time)
 }

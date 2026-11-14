@@ -128,6 +128,12 @@ class VideoElement extends EventTarget {
   }
 }
 
+// A render to file starts each playing video again at its position, so that its sound in the render (src/render.c)
+// starts there.
+export function restartVideos (sources) {
+  for (const { src } of sources) if (src instanceof VideoElement) src.currentTime = src.currentTime
+}
+
 export function installSources (sourcePrototype) {
   const clear = sourcePrototype.clear
 

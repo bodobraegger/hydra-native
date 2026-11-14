@@ -8,7 +8,6 @@
 #include "native.h"
 #include "process.h"
 
-#define MAX_VIDEO_SOURCES 16
 #define MAX_VIDEO_DIMENSION 16384 // a sketch gives the size; larger frames are no video and overflow no size
 #define CAMERA_FPS 30
 

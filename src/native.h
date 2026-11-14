@@ -9,6 +9,7 @@
 
 // Video sources: a child process writes raw RGBA frames of a fixed size to its stdout (video_open runs a shell
 // command, see src/process.h), or a stream of the patch bay brings them (video_open_stream owns `stream`).
+#define MAX_VIDEO_SOURCES 16 // the handles are 0 to MAX_VIDEO_SOURCES - 1
 int video_open(const char *command, int width, int height);
 int video_open_stream(int stream, int width, int height);
 int video_open_media(const char *command, int width, int height); // a command of sandbox_media_command

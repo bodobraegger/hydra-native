@@ -226,9 +226,12 @@ static JSValue js_media_open(JSContext *ctx, JSValueConst this, int argc, JSValu
     JSValue result = JS_EXCEPTION;
     if (url && kind) {
         switch (sandbox_media_command(command, sizeof command, url, kind, width, height, &playback)) {
-        case COMMAND_OK:
-            result = video_handle(ctx, video_open_media(command, width, height), "cannot start video source");
+        case COMMAND_OK: {
+            int handle = video_open_media(command, width, height);
+            if (handle >= 0 && !strcmp(kind, "video")) render_source_play(handle, sandbox_media_input(url), &playback);
+            result = video_handle(ctx, handle, "cannot start video source");
             break;
+        }
         case COMMAND_SANDBOXED: result = JS_ThrowTypeError(ctx, "local file %s is off: " SANDBOX_REASON, url); break;
         default: result = JS_ThrowTypeError(ctx, "cannot use %s as a media URL", url); break;
         }
@@ -323,6 +326,7 @@ static JSValue js_video_running(JSContext *ctx, JSValueConst this, int argc, JSV
 
 static JSValue js_video_close(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
     video_close(to_int(ctx, argv[0]));
+    render_source_stop(to_int(ctx, argv[0]));
     return JS_UNDEFINED;
 }
 

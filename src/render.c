@@ -1,6 +1,7 @@
 #include "render.h"
 
 #include <limits.h>
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
@@ -13,11 +14,14 @@
 #include "engine.h"
 #include "native.h"
 #include "process.h"
+#include "sandbox.h"
 #include "ui.h"
 
 #define DISPLAY_INTERVAL_MS 100.0 // the window shows the progress this often
 #define DEFAULT_FILE_NAME "hydra-native-%Y%m%d-%H%M%S.mp4" // strftime, in the videos folder
 #define MAX_ARGUMENTS 48
+#define VIDEO_SUFFIX "-video" // with "sources", the video without sound before the mux: <file>-video<extension>
+#define MIX_SUFFIX "-sound.f32" // and the raw samples of the mix of the video sources
 
 // The codecs of each file extension; `audio_codec` encodes the audio file.
 static const struct container {
@@ -43,7 +47,14 @@ static struct {
     int samples; // the output of the decoder: mono float samples at AUDIO_SAMPLE_RATE
     long long samples_fed;
     bool muxed; // the video has the sound of the audio file, so it ends with that file
-    bool sources_muted; // "sources" without a video source with sound
+    const struct container *container;
+    FILE *mix; // "sources": the mix of the video sources, which goes into the video at the end; else NULL
+    char video_path[PATH_MAX + 16], mix_path[PATH_MAX + 16];
+    struct {
+        struct process *decoder;
+        int samples;
+    } sources[MAX_VIDEO_SOURCES]; // by the handle of the video source
+    int shares; // the most video sources that sounded at the same time
     double last_display;
 } render;
 
@@ -67,35 +78,139 @@ static void default_path(char *path, size_t size) {
 }
 
 // ---------------------------------------------------------------- the sound of the render
-// All sound of the render goes through the next three functions: the mono samples that drive `a` in the time span
-// of each frame, and the sound that ffmpeg puts into the video. Only the audio file gives sound now; the choice
-// "sources" (the sound of the video sources of the sketch, mixed in equal shares, in the time of the picture) goes
-// here when the video sources have sound.
+// All sound of the render goes through muxed_audio, start_decoder and analysis_samples: the mono samples that drive
+// `a` in the time span of each frame, and the sound that ffmpeg puts into the video. With "sources", the video
+// sources play their sound in the time of the render, from the frame of each mediaOpen to its videoClose (src/
+// bindings.c), and analysis_samples writes their mix to a file that mux_sources puts into the video at the end.
 
 // The file whose sound goes into the video, or NULL for a video without sound.
 static const char *muxed_audio(const struct settings *settings) {
     return settings->render_audio == RENDER_AUDIO_FILE ? settings->render_audio_file : NULL;
 }
 
-static bool start_decoder(const char *audio) {
-    char rate[16];
+// An ffmpeg that writes the sound of `input` as mono float samples at AUDIO_SAMPLE_RATE to *samples: an audio file
+// (`playback` NULL), or a video source from its position, at its rate as on tape, so that the pitch follows the
+// speed. A video without sound gives no samples; its ffmpeg would only report that, so it reports nothing.
+static struct process *start_decoder(const char *input, const struct media_playback *playback, int *samples) {
+    char rate[16], start[32], filter[64];
     snprintf(rate, sizeof rate, "%d", AUDIO_SAMPLE_RATE);
-    const char *argv[] = { "ffmpeg", "-hide_banner", "-loglevel", "error", "-i", audio, "-vn", "-f", "f32le", "-ac",
-                           "1", "-ar", rate, "-", NULL };
-    render.decoder = process_start(argv, NULL, &render.samples);
-    return render.decoder != NULL;
+    const char *argv[MAX_ARGUMENTS] = { "ffmpeg", "-hide_banner", "-loglevel", playback ? "quiet" : "error" };
+    int count = 4;
+    if (playback) {
+        snprintf(start, sizeof start, "%.3f", playback->start);
+        snprintf(filter, sizeof filter, "aresample=%d,asetrate=%ld", AUDIO_SAMPLE_RATE,
+                 lround(AUDIO_SAMPLE_RATE * playback->rate));
+        if (sandbox_active()) {
+            argv[count++] = "-protocol_whitelist";
+            argv[count++] = SANDBOX_PROTOCOLS;
+        }
+        argv[count++] = "-ss";
+        argv[count++] = start;
+        if (playback->loop) {
+            argv[count++] = "-stream_loop";
+            argv[count++] = "-1";
+        }
+    }
+    argv[count++] = "-i";
+    argv[count++] = input;
+    if (playback) {
+        argv[count++] = "-af";
+        argv[count++] = filter;
+    }
+    const char *output[] = { "-vn", "-f", "f32le", "-ac", "1", "-ar", rate, "-", NULL };
+    for (size_t i = 0; i < SDL_arraysize(output); i++) argv[count++] = output[i];
+    return process_start(argv, NULL, samples);
 }
 
-// The next `count` samples that drive `a`: of the audio file, then silence. False after the end of the file.
+static void stop_decoder(struct process **decoder, int samples) {
+    if (!*decoder) return;
+    stream_close(samples);
+    process_stop(*decoder);
+    process_free(*decoder);
+    *decoder = NULL;
+}
+
+// Mixes the next `count` samples of the video sources into `mixed`, in equal shares of the most sources that
+// sounded at the same time so far, so that a source does not get louder when another one stops. False while no
+// source has sounded.
+static bool mix_sources(float *mixed, size_t count) {
+    float samples[AUDIO_BUFFER_SIZE];
+    int sounding = 0;
+    memset(mixed, 0, count * sizeof mixed[0]);
+    for (int handle = 0; handle < MAX_VIDEO_SOURCES; handle++) {
+        if (!render.sources[handle].decoder) continue;
+        // The partial span at the end of a video is lost.
+        if (!stream_read_all(render.sources[handle].samples, samples, count * sizeof samples[0])) {
+            stop_decoder(&render.sources[handle].decoder, render.sources[handle].samples);
+            continue;
+        }
+        sounding++;
+        for (size_t i = 0; i < count; i++) mixed[i] += samples[i];
+    }
+    render.shares = SDL_max(render.shares, sounding);
+    for (size_t i = 0; i < count && render.shares > 0; i++) mixed[i] /= (float)render.shares;
+    return render.shares > 0;
+}
+
+// The next `count` samples that drive `a`: of the audio file, then silence; with "sources", the mix of the video
+// sources once one has sounded. False after the end of the audio file.
 static bool analysis_samples(float *samples, size_t count) {
-    if (stream_read_all(render.samples, samples, count * sizeof samples[0])) return true;
-    memset(samples, 0, count * sizeof samples[0]);
-    return false;
+    bool more = render.decoder && stream_read_all(render.samples, samples, count * sizeof samples[0]);
+    if (!more) memset(samples, 0, count * sizeof samples[0]);
+    float mixed[AUDIO_BUFFER_SIZE];
+    if (render.mix && mix_sources(mixed, count)) memcpy(samples, mixed, count * sizeof samples[0]);
+    if (render.mix) fwrite(mixed, sizeof mixed[0], count, render.mix);
+    return more;
+}
+
+void render_source_play(int handle, const char *input, const struct media_playback *playback) {
+    if (!render.mix || handle < 0 || handle >= MAX_VIDEO_SOURCES) return;
+    render.sources[handle].decoder = start_decoder(input, playback, &render.sources[handle].samples);
+}
+
+void render_source_stop(int handle) {
+    if (handle >= 0 && handle < MAX_VIDEO_SOURCES)
+        stop_decoder(&render.sources[handle].decoder, render.sources[handle].samples);
+}
+
+// The video of the encoder with the mix as its sound, into the file of the render. False when ffmpeg fails.
+static bool mux_sources(void) {
+    char rate[16];
+    snprintf(rate, sizeof rate, "%d", AUDIO_SAMPLE_RATE);
+    const char *argv[] = { "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", render.video_path, "-f",
+                           "f32le", "-ar", rate, "-ac", "1", "-i", render.mix_path, "-map", "0:v", "-map", "1:a",
+                           "-c:v", "copy", "-c:a", render.container->audio_codec, render.path, NULL };
+    struct process *muxer = process_start(argv, NULL, NULL);
+    bool ok = muxer && process_wait(muxer, PROCESS_WAIT_FOREVER) == 0;
+    process_free(muxer);
+    return ok;
+}
+
+static void close_mix(void) {
+    fclose(render.mix);
+    render.mix = NULL;
+    remove(render.mix_path);
+}
+
+// Ends "sources": with `mux` and a source that sounded, the video gets the mix; otherwise it stays without sound.
+// False when the mux fails.
+static bool finish_sources(bool mux) {
+    for (int handle = 0; handle < MAX_VIDEO_SOURCES; handle++) render_source_stop(handle);
+    if (!render.mix) return true;
+    fflush(render.mix);
+    bool sounded = mux && render.shares > 0, muxed = sounded && mux_sources();
+    if (!muxed) {
+        remove(render.path); // rename does not replace a file on Windows
+        rename(render.video_path, render.path);
+    }
+    remove(render.video_path);
+    close_mix();
+    return muxed || !sounded;
 }
 
 // The frames come as raw RGBA on the standard input, with the rows from the bottom; the audio file is the second
 // input, and the video ends with the shorter of the two.
-static int start_encoder(const struct container *container, const char *audio) {
+static int start_encoder(const struct container *container, const char *audio, const char *output) {
     char size[32], rate[16];
     snprintf(size, sizeof size, "%dx%d", render.width, render.height);
     snprintf(rate, sizeof rate, "%d", render.fps);
@@ -110,19 +225,11 @@ static int start_encoder(const struct container *container, const char *audio) {
     argv[count++] = "-vf";
     argv[count++] = "vflip";
     for (const char *const *option = container->video_options; *option; option++) argv[count++] = *option;
-    argv[count++] = render.path;
+    argv[count++] = output;
     argv[count] = NULL;
     int input;
     render.encoder = process_start(argv, &input, NULL);
     return render.encoder ? input : -1;
-}
-
-static void stop_decoder(void) {
-    if (!render.decoder) return;
-    stream_close(render.samples);
-    process_stop(render.decoder);
-    process_free(render.decoder);
-    render.decoder = NULL;
 }
 
 static void dispatch_resize(void) {
@@ -165,12 +272,28 @@ void render_start(const struct settings *settings, double clock_ms) {
     render.start_ms = clock_ms;
     render.samples_fed = 0;
     render.muxed = muxed != NULL;
-    render.sources_muted = settings->render_audio == RENDER_AUDIO_SOURCES;
+    render.container = container;
+    render.shares = 0;
     render.last_display = 0;
-    if (audio && !start_decoder(audio)) return ui_show_message("render: cannot start ffmpeg", true);
-    int input = start_encoder(container, muxed);
+    const char *output = render.path;
+    if (settings->render_audio == RENDER_AUDIO_SOURCES) {
+        snprintf(render.video_path, sizeof render.video_path, "%s" VIDEO_SUFFIX "%s", render.path,
+                 container->extension);
+        snprintf(render.mix_path, sizeof render.mix_path, "%s" MIX_SUFFIX, render.path);
+        if (!(render.mix = fopen(render.mix_path, "wb"))) {
+            snprintf(message, sizeof message, "render: cannot write %s", render.mix_path);
+            return ui_show_message(message, true);
+        }
+        output = render.video_path;
+    }
+    if (audio && !(render.decoder = start_decoder(audio, NULL, &render.samples))) {
+        if (render.mix) close_mix();
+        return ui_show_message("render: cannot start ffmpeg", true);
+    }
+    int input = start_encoder(container, muxed, output);
     if (input < 0) {
-        stop_decoder();
+        stop_decoder(&render.decoder, render.samples);
+        if (render.mix) close_mix();
         return ui_show_message("render: cannot start ffmpeg", true);
     }
     glGenRenderbuffers(1, &render.renderbuffer);
@@ -194,7 +317,9 @@ static void finish(enum render_end end) {
     if (end == RENDER_CANCELED) process_kill(render.encoder);
     bool ok = encoder_stop() && end != RENDER_FAILED; // it frees the encoder
     render.encoder = NULL;
-    stop_decoder();
+    stop_decoder(&render.decoder, render.samples);
+    bool sources_muted = render.mix && render.shares == 0; // "sources" without a video source with sound
+    ok = finish_sources(ok && end == RENDER_DONE) && ok;
     glDeleteFramebuffers(1, &render.framebuffer);
     glDeleteRenderbuffers(1, &render.renderbuffer);
     render.framebuffer = render.renderbuffer = 0;
@@ -210,15 +335,16 @@ static void finish(enum render_end end) {
     } else {
         snprintf(message, sizeof message, ok ? "rendered %s%s" : "render failed: %s (see the ffmpeg output)%s",
                  render.path,
-                 render.sources_muted ? "; render audio: sources needs a video with sound; the file is muted" : "");
+                 sources_muted ? "; render audio: sources needs a video with sound; the file is muted" : "");
     }
     ui_show_message(message, end != RENDER_CANCELED && !ok);
 }
 
-bool render_frame_begin(double *clock_ms) {
-    long long wanted = (long long)render.frame * AUDIO_SAMPLE_RATE / render.fps;
+// Feeds the sound up to the time of `frame`. False when the render ended instead, because the audio file ended.
+static bool feed(long frame) {
+    long long wanted = (long long)frame * AUDIO_SAMPLE_RATE / render.fps;
     float samples[AUDIO_BUFFER_SIZE];
-    while (render.decoder && render.samples_fed < wanted) {
+    while ((render.decoder || render.mix) && render.samples_fed < wanted) {
         size_t count = (size_t)SDL_min(wanted - render.samples_fed, (long long)AUDIO_BUFFER_SIZE);
         if (!analysis_samples(samples, count) && render.muxed) {
             finish(RENDER_DONE); // the video ends with its sound
@@ -227,6 +353,11 @@ bool render_frame_begin(double *clock_ms) {
         audio_feed(samples, count);
         render.samples_fed += (long long)count;
     }
+    return true;
+}
+
+bool render_frame_begin(double *clock_ms) {
+    if (!feed(render.frame)) return false;
     *clock_ms = render.start_ms + (double)render.frame * 1000.0 / render.fps;
     set_clock(JS_NewFloat64(js, *clock_ms));
     return true;
@@ -252,7 +383,10 @@ void render_frame_end(void) {
     render.frame++;
     int status = process_wait(render.encoder, 0); // ffmpeg ends early after an error, or at the end of the audio
     if (status != PROCESS_RUNNING) return finish(status == 0 ? RENDER_DONE : RENDER_FAILED);
-    if (render.frame >= render.frame_count) return finish(RENDER_DONE);
+    if (render.frame >= render.frame_count) {
+        if (feed(render.frame)) finish(RENDER_DONE); // the sound of the last frame
+        return;
+    }
     double now = now_ms();
     if (now - render.last_display < DISPLAY_INTERVAL_MS) return;
     render.last_display = now;
