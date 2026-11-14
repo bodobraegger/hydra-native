@@ -11,9 +11,11 @@
 #include "settings.h"
 
 // `clock_ms` is the clock of the last frame of the sketch, which the first frame of the render keeps, so that the
-// time of the sketch starts at 0. The bar shows an error, such as a file name without a known extension.
-void render_start(const struct settings *settings, double clock_ms);
+// time of the sketch starts at 0. The bar shows an error, such as a file name without a known extension. With
+// `progress` (--render), stderr gets the progress every second and the messages of the bar too.
+void render_start(const struct settings *settings, double clock_ms, bool progress);
 bool render_active(void);
+bool render_succeeded(void); // the last render wrote its file
 // Before each frame of the sketch: feeds the audio up to the frame time and sets the clock of the sketch to it.
 // False when the render ended instead, because the audio file ended.
 bool render_frame_begin(double *clock_ms);

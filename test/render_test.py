@@ -5,7 +5,8 @@ file drives `a`; its sound goes into the video with "renderAudio": "file", and n
 a video source with sound. A color goes into the video as BT.709 with its tags. With "sources", the sound of test videos with tones goes into the video: one video for the
 whole render, two videos in equal shares, and a seek during the render that changes the tone at that frame. The
 picture of a video follows the render clock: a video of four colors shows each color at its time, also at
-playbackRate 2, in a render faster than real time, and a change of color and tone comes at the same frame.
+playbackRate 2, in a render faster than real time, and a change of color and tone comes at the same frame. The
+flag --render renders a sketch with the render settings of its flags and exits with status 0.
 Run with `make check` (it needs build/hydra-native and ffmpeg)."""
 import array
 import json
@@ -229,6 +230,18 @@ with tempfile.TemporaryDirectory() as directory:
     print(f"render_test: sync: the color changes at frame {picture}, the tone at frame {tone}")
     if abs(picture - tone) > FRAME_TOLERANCE:
         errors.append(f"sync: the color changes at frame {picture}, the tone at frame {tone}")
+
+    config = pathlib.Path(directory, "flag-config")
+    sketch, video = pathlib.Path(directory, "flag.js"), pathlib.Path(directory, "flag.mp4")
+    sketch.write_text("osc().out()", encoding="utf-8")
+    run = subprocess.run([str(BUILD / "hydra-native"), "--socket", str(config / "socket"), "--render", str(video),
+                          "--length", "1.5", "--fps", "10", "--size", "160x90", "--audio", "muted", str(sketch)],
+                         capture_output=True, text=True, timeout=60, env=dict(os.environ, XDG_CONFIG_HOME=str(config)))
+    found = streams(video) if video.exists() else []
+    print(f"render_test: --render: exit {run.returncode}, streams {found}, stderr {run.stderr.splitlines()}")
+    wanted = [{"codec_type": "video", "width": 160, "height": 90, "nb_read_frames": "15"}]
+    if run.returncode != 0 or found != wanted:
+        errors.append(f"--render: exit {run.returncode} and the streams {found}, expected 0 and {wanted}")
 if errors:
     sys.exit("render_test: " + "\n".join(errors))
 print("render_test: ok")

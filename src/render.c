@@ -18,6 +18,7 @@
 #include "ui.h"
 
 #define DISPLAY_INTERVAL_MS 100.0 // the window shows the progress this often
+#define PROGRESS_INTERVAL_MS 1000.0 // and stderr with `progress` of render_start
 #define DEFAULT_FILE_NAME "hydra-native-%Y%m%d-%H%M%S.mp4" // strftime, in the videos folder
 #define MAX_ARGUMENTS 48
 #define VIDEO_SUFFIX "-video" // with "sources", the video without sound before the mux: <file>-video<extension>
@@ -60,7 +61,9 @@ static struct {
         int samples;
     } sources[MAX_VIDEO_SOURCES]; // by the handle of the video source
     int shares; // the most video sources that sounded at the same time
-    double last_display;
+    double last_display, last_progress;
+    bool progress; // see render_start
+    bool succeeded; // the last render wrote its file
 } render;
 
 static const struct container *find_container(const char *path) {
@@ -71,6 +74,11 @@ static const struct container *find_container(const char *path) {
             return &containers[i];
     }
     return NULL;
+}
+
+static void tell(const char *text, bool error) {
+    ui_show_message(text, error);
+    if (render.progress) fprintf(stderr, "%s\n", text);
 }
 
 static void default_path(char *path, size_t size) {
@@ -244,8 +252,10 @@ static void dispatch_resize(void) {
 
 static void set_clock(JSValue clock) { engine_call("__setRenderClock", 1, &clock); }
 
-void render_start(const struct settings *settings, double clock_ms) {
+void render_start(const struct settings *settings, double clock_ms, bool progress) {
     if (render.active) return;
+    render.progress = progress;
+    render.succeeded = false;
     char message[PATH_MAX + 64];
     if (settings->render_file[0]) snprintf(render.path, sizeof render.path, "%s", settings->render_file);
     else default_path(render.path, sizeof render.path);
@@ -256,18 +266,18 @@ void render_start(const struct settings *settings, double clock_ms) {
     glGetIntegerv(GL_MAX_RENDERBUFFER_SIZE, &max_size);
     if (!container) {
         snprintf(message, sizeof message, "render: %s needs the extension .mp4, .mov or .webm", render.path);
-        return ui_show_message(message, true);
+        return tell(message, true);
     }
-    if (!process_find_program("ffmpeg")) return ui_show_message("render to file needs ffmpeg in PATH", true);
+    if (!process_find_program("ffmpeg")) return tell("render to file needs ffmpeg in PATH", true);
     if (settings->render_width > max_size || settings->render_height > max_size) {
         snprintf(message, sizeof message, "render: the GPU renders at most %dx%d", max_size, max_size);
-        return ui_show_message(message, true);
+        return tell(message, true);
     }
     if (settings->render_audio == RENDER_AUDIO_FILE && !audio)
-        return ui_show_message("render audio: \"file\" needs an audio file (settings menu, render)", true);
+        return tell("render audio: \"file\" needs an audio file (settings menu, render)", true);
     if (audio && access(audio, R_OK) != 0) {
         snprintf(message, sizeof message, "render: cannot read the audio file %s", audio);
-        return ui_show_message(message, true);
+        return tell(message, true);
     }
     render.width = settings->render_width;
     render.height = settings->render_height;
@@ -279,7 +289,7 @@ void render_start(const struct settings *settings, double clock_ms) {
     render.muxed = muxed != NULL;
     render.container = container;
     render.shares = 0;
-    render.last_display = 0;
+    render.last_display = render.last_progress = 0;
     const char *output = render.path;
     if (settings->render_audio == RENDER_AUDIO_SOURCES) {
         snprintf(render.video_path, sizeof render.video_path, "%s" VIDEO_SUFFIX "%s", render.path,
@@ -287,19 +297,19 @@ void render_start(const struct settings *settings, double clock_ms) {
         snprintf(render.mix_path, sizeof render.mix_path, "%s" MIX_SUFFIX, render.path);
         if (!(render.mix = fopen(render.mix_path, "wb"))) {
             snprintf(message, sizeof message, "render: cannot write %s", render.mix_path);
-            return ui_show_message(message, true);
+            return tell(message, true);
         }
         output = render.video_path;
     }
     if (audio && !(render.decoder = start_decoder(audio, NULL, &render.samples))) {
         if (render.mix) close_mix();
-        return ui_show_message("render: cannot start ffmpeg", true);
+        return tell("render: cannot start ffmpeg", true);
     }
     int input = start_encoder(container, muxed, output);
     if (input < 0) {
         stop_decoder(&render.decoder, render.samples);
         if (render.mix) close_mix();
-        return ui_show_message("render: cannot start ffmpeg", true);
+        return tell("render: cannot start ffmpeg", true);
     }
     glGenRenderbuffers(1, &render.renderbuffer);
     glBindRenderbuffer(GL_RENDERBUFFER, render.renderbuffer);
@@ -317,6 +327,8 @@ void render_start(const struct settings *settings, double clock_ms) {
 }
 
 bool render_active(void) { return render.active; }
+
+bool render_succeeded(void) { return render.succeeded; }
 
 static void finish(enum render_end end) {
     if (end == RENDER_CANCELED) process_kill(render.encoder);
@@ -342,7 +354,8 @@ static void finish(enum render_end end) {
                  render.path,
                  sources_muted ? "; render audio: sources needs a video with sound; the file is muted" : "");
     }
-    ui_show_message(message, end != RENDER_CANCELED && !ok);
+    render.succeeded = ok && end == RENDER_DONE;
+    tell(message, end != RENDER_CANCELED && !ok);
 }
 
 // Feeds the sound up to the time of `frame`. False when the render ended instead, because the audio file ended.
@@ -393,6 +406,10 @@ void render_frame_end(void) {
         return;
     }
     double now = now_ms();
+    if (render.progress && now - render.last_progress >= PROGRESS_INTERVAL_MS) {
+        render.last_progress = now;
+        fprintf(stderr, "render %ld / %ld frames\n", render.frame, render.frame_count);
+    }
     if (now - render.last_display < DISPLAY_INTERVAL_MS) return;
     render.last_display = now;
     display();

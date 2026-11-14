@@ -331,6 +331,17 @@ without the code, and the bar shows the progress ("render 312 / 1800 frames"). E
 deletes the partial file. At the end, the bar names the file. Then the real clock, the audio input and the size of
 the window return.
 
+From the command line, `--render FILE` renders the sketch without a window and exits. As at a normal start, the
+setup file and the other files of the command line run first; the render starts 0.5 seconds later, so that ffprobe
+knows the videos of the sketch. The render settings of settings.json apply, and the flags `--length SECONDS`
+(decimals allowed), `--fps N`, `--size WxH` (of the video), `--audio sources|file|muted` and `--audio-file PATH`
+replace them for this run only. stderr gets the progress every second and the file name at the end. The exit
+status is 0 when the file is complete; an error, SIGINT or SIGTERM gives 1, and a cancel deletes the partial file.
+
+```sh
+hydra-native --render out.mp4 --length 12.5 --fps 30 --size 1280x720 --audio muted sketch.js
+```
+
 With an audio file, ffmpeg decodes the file into mono samples at 48 kHz. Before each frame, the analysis of the
 audio input gets the samples up to the time of that frame, so `a.fft` has the values that a live run with the
 same sound has. Without an audio file and without a video source with sound, `a.fft` stays 0 during the render.

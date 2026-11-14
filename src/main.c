@@ -34,6 +34,7 @@
 #define BENCH_WARMUP_MS 3000
 #define BENCH_FINISH_FRAMES 30
 #define SCREENSHOT_DELAY_MS 1500
+#define RENDER_START_DELAY_MS 500 // --render: ffprobe gives the duration of the videos meanwhile (js/sources.js)
 
 #define DEFAULT_WINDOW_WIDTH 1280
 #define DEFAULT_WINDOW_HEIGHT 720
@@ -43,12 +44,15 @@ struct options {
     int file_count;
     int width, height;
     const char *screenshot_path;
+    const char *size; // the text of --size
+    const char *render_file; // --render
     double bench_seconds;
     bool hidden;
     bool send;
 };
 
 static struct settings settings; // of the settings file, as they are at the start
+static struct settings render_settings; // of --render: the settings with the flags of the render over them
 
 #define SWAP_MARGIN_MS 3.0 // time left for the swap after the timers
 #define MIN_FRAME_PERIOD_MS 4.0
@@ -233,15 +237,37 @@ static void usage(void) {
             "  --hidden           do not show the window\n"
             "  --size WxH         window size (default %dx%d)\n"
             "  --bench SECONDS    measure frame rate after a warm-up, print JSON and exit\n"
-            "  --screenshot FILE  write the window content with the code as PNG after %d ms and exit\n",
-            CODE_SOCKET_FILE_NAME, DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT, SCREENSHOT_DELAY_MS);
+            "  --screenshot FILE  write the window content with the code as PNG after %d ms and exit\n"
+            "  --render FILE      render the sketch to FILE without a window after %d ms, print the progress, and\n"
+            "                     exit; these flags replace the render settings for the run (--size: of the video):\n"
+            "  --length SECONDS   1 to %d, with decimals\n"
+            "  --fps N            1 to %d\n"
+            "  --audio NAME       sources, file or muted\n"
+            "  --audio-file PATH  drives `a`, and its sound goes into the video with --audio file\n",
+            CODE_SOCKET_FILE_NAME, DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT, SCREENSHOT_DELAY_MS,
+            RENDER_START_DELAY_MS, SETTINGS_MAX_RENDER_SECONDS, SETTINGS_MAX_RENDER_FPS);
 }
 
+static bool parse_render_audio(const char *name, enum render_audio *audio) {
+    for (int i = RENDER_AUDIO_SOURCES; i <= RENDER_AUDIO_MUTED; i++) {
+        if (strcmp(name, settings_render_audio_name((enum render_audio)i)) != 0) continue;
+        *audio = (enum render_audio)i;
+        return true;
+    }
+    return false;
+}
+
+// After the settings file: the flags of the render go into render_settings.
 static bool parse_options(int argc, char **argv, struct options *options) {
     *options = (struct options){ .width = DEFAULT_WINDOW_WIDTH, .height = DEFAULT_WINDOW_HEIGHT };
+    render_settings = settings;
+    bool render_flags = false;
     for (int i = 1; i < argc; i++) {
         const char *argument = argv[i];
         bool has_value = i + 1 < argc;
+        if (has_value && (!strcmp(argument, "--length") || !strcmp(argument, "--fps") ||
+                          !strcmp(argument, "--audio") || !strcmp(argument, "--audio-file")))
+            render_flags = true;
         if (!strcmp(argument, "--hidden")) options->hidden = true;
         else if (!strcmp(argument, "--socket") && has_value)
             snprintf(settings.socket, sizeof settings.socket, "%s", argv[++i]);
@@ -249,12 +275,31 @@ static bool parse_options(int argc, char **argv, struct options *options) {
         else if (!strcmp(argument, "--send")) options->send = true;
         else if (!strcmp(argument, "--bench") && has_value) options->bench_seconds = atof(argv[++i]);
         else if (!strcmp(argument, "--size") && has_value) {
-            if (sscanf(argv[++i], "%dx%d", &options->width, &options->height) != 2) return false;
+            options->size = argv[++i];
+            if (sscanf(options->size, "%dx%d", &options->width, &options->height) != 2) return false;
+        } else if (!strcmp(argument, "--render") && has_value) {
+            options->render_file = argv[++i];
+            snprintf(render_settings.render_file, sizeof render_settings.render_file, "%s", options->render_file);
+        } else if (!strcmp(argument, "--length") && has_value) {
+            render_settings.render_seconds = atof(argv[++i]);
+            if (render_settings.render_seconds < 1 || render_settings.render_seconds > SETTINGS_MAX_RENDER_SECONDS)
+                return false;
+        } else if (!strcmp(argument, "--fps") && has_value) {
+            render_settings.render_fps = atoi(argv[++i]);
+            if (render_settings.render_fps < 1 || render_settings.render_fps > SETTINGS_MAX_RENDER_FPS) return false;
+        } else if (!strcmp(argument, "--audio") && has_value) {
+            if (!parse_render_audio(argv[++i], &render_settings.render_audio)) return false;
+        } else if (!strcmp(argument, "--audio-file") && has_value) {
+            snprintf(render_settings.render_audio_file, sizeof render_settings.render_audio_file, "%s", argv[++i]);
         } else if (argument[0] == '-') return false;
         else if (options->file_count < (int)(sizeof options->files / sizeof options->files[0]))
             options->files[options->file_count++] = argument;
     }
-    return true;
+    if (!options->render_file) return !render_flags;
+    options->hidden = true;
+    bool size = !options->size ||
+                settings_parse_size(options->size, &render_settings.render_width, &render_settings.render_height);
+    return size && options->file_count > 0;
 }
 
 static bool create_window(const struct options *options) {
@@ -537,15 +582,18 @@ int main(int argc, char **argv) {
 
     double start = now_ms(), bench_start = 0, frame_js_ms = 0, frame_overlay_ms = 0, frame_clock = start;
     long bench_frames = 0;
+    bool render_requested_by_flag = false;
     while (!quit_requested) {
         if (render_requested) {
             render_requested = false;
-            render_start(ui_settings(), frame_clock);
+            render_start(options.render_file ? &render_settings : ui_settings(), frame_clock,
+                         options.render_file != NULL);
         }
         if (render_active()) {
             render_frame();
             continue;
         }
+        if (render_requested_by_flag) break; // the render of --render ended, or it could not start
         handle_events();
         code_socket_poll(listener);
 
@@ -579,6 +627,8 @@ int main(int argc, char **argv) {
         ui_draw(drawable_width, drawable_height, now);
         update_text_input_rect(drawable_width);
         double after_overlay = now_ms();
+        if (options.render_file && !render_requested_by_flag && now - start >= RENDER_START_DELAY_MS)
+            render_requested = render_requested_by_flag = true;
         if (options.screenshot_path && now - start >= SCREENSHOT_DELAY_MS) {
             if (!snapshot_write_png(options.screenshot_path, drawable_width, drawable_height)) exit_code = 1;
             quit_requested = true;
@@ -623,6 +673,7 @@ int main(int argc, char **argv) {
     }
 
     render_cancel();
+    if (options.render_file && !render_succeeded()) exit_code = 1;
     if (recorder_active()) recorder_stop();
     patch_bay_stop();
     fetch_stop_all();
