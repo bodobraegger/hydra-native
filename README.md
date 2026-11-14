@@ -22,8 +22,8 @@ Some inputs need more packages:
 - `initCam`: gstreamer1.0-tools and gstreamer1.0-plugins-good.
 - `initScreen`, `initMonitor`, `initArea` and `initWindow`: gstreamer1.0-tools, gstreamer1.0-pipewire and
   xdg-desktop-portal. Only `initScreen` works outside of GNOME.
-- `initVideo`, `initImage`, `vidRecorder` and the patch bay (`pb`, `initStream`): ffmpeg. YouTube links also
-  need yt-dlp.
+- `initVideo`, `initImage`, `vidRecorder`, "render to file" and the patch bay (`pb`, `initStream`): ffmpeg.
+  YouTube links also need yt-dlp.
 - The links of the info panel: xdg-utils.
 
 The folder runs from any place. The desktop file and the icons are in `assets/`.

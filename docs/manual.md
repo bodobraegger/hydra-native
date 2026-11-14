@@ -122,6 +122,12 @@ the file.
 | streamMaxRate         | 60               | stream rate in (max) | 1 to 60 fps of a stream    |
 | l10nUrl               | "" (l10n)        | translation URL...   | editor.json of a language  |
 | setupFile             | "" (none)        | setup file           | runs before the sketch     |
+| renderFile            | "" (Videos)      | render: file         | the video file             |
+| renderLength          | 30               | render: length       | 1 to 3600 seconds          |
+| renderFps             | 60               | render: fps          | 1 to 240 frames per second |
+| renderSize            | "1920x1080"      | render: size         | WxH, even, up to 8192      |
+| renderAudio           | "sources"        | render: audio        | sources, file or muted     |
+| renderAudioFile       | "" (none)        | render: audio file   | drives `a` in the render   |
 | socket                | "" (runtime dir) |                      | the code socket (scripts)  |
 | themes                | {}               |                      | custom themes, see below   |
 | keybindings           | {}               |                      | keys, see below            |
@@ -294,6 +300,39 @@ of the system (macOS 14 or newer). A program that a terminal starts uses the per
 On Windows, `initCommand` runs its command with cmd.exe, so the command uses double quotes and `%NAME%`
 variables. The microphone needs "Let desktop apps access your microphone" in the privacy settings. Windows draws
 a yellow border around a captured window or monitor. The system output is not available as audio input.
+
+## Render to file
+
+The command "render to file" (Ctrl+Shift+P, or "start" in the "render" group of the settings menu) renders the
+running sketch into a video file. It needs ffmpeg in PATH. It renders frame by frame at a fixed rate and size, as
+fast as the GPU and the encoder allow, and it drops no frame. The "render" group of the settings menu sets the
+options:
+
+- file: the video file. Without a file, the render writes hydra-native-<date>-<time>.mp4 into the videos folder
+  of the system (~/Videos). The extension sets the format: .mp4 gives H.264 (crf 18), .mov gives ProRes 422 HQ,
+  .webm gives VP9.
+- length, fps: the duration in seconds (30) and the frames per second (60).
+- size: the size of the video in pixels as WxH (1920x1080), two even numbers up to 8192. The size can be larger
+  than the window.
+- audio: the sound of the video. "file" puts the sound of the audio file into the video, and the video ends with
+  the shorter of the two. "muted" gives a video without sound. "sources" is the sound of the video sources of the
+  sketch; video sources have no sound yet, so the video has no sound and the bar tells it at the end.
+- audio file: a sound file that drives `a` during the render, also with "muted" and "sources".
+
+During the render, `time` starts at 0 and advances exactly 1/fps per frame. The timers (setTimeout, setInterval,
+requestAnimationFrame), Date.now() and performance.now() follow the same frame time. The sketch draws into an
+offscreen framebuffer of the render size, and `width` and `height` have that size. The window shows the frames,
+without the code, and the bar shows the progress ("render 312 / 1800 frames"). Escape cancels the render and
+deletes the partial file. At the end, the bar names the file. Then the real clock, the audio input and the size of
+the window return.
+
+With an audio file, ffmpeg decodes the file into mono samples at 48 kHz. Before each frame, the analysis of the
+audio input gets the samples up to the time of that frame, so `a.fft` has the values that a live run with the
+same sound has. Without an audio file, `a.fft` stays 0 during the render. The keys, the mouse and the code socket
+do not reach the sketch until the end of the render.
+
+The render does not replay MIDI. Camera, screen, video and stream sources deliver their frames in real time, not
+in the time of the render.
 
 ## Text
 
