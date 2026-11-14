@@ -1733,22 +1733,6 @@ static void run_command_body(enum command command, bool extend) {
         snprintf(prompt.query, sizeof prompt.query, "%.*s", (int)sizeof prompt.query - 1, settings.gallery_server);
         prompt.query_selected = prompt.query[0] != '\0'; // typing replaces the current URL
         return;
-    case COMMAND_NEXT_THEME: {
-        set_theme(&themes[(size_t)(theme - themes + 1) % theme_count]);
-        char text[96];
-        snprintf(text, sizeof text, "theme %s", theme->name);
-        ui_show_message(text, false);
-        return;
-    }
-    case COMMAND_TOGGLE_AUTOCOMPLETE_STYLE:
-        set_autocomplete(settings.autocomplete_style == AUTOCOMPLETE_LIST ? AUTOCOMPLETE_GHOST : AUTOCOMPLETE_LIST,
-                         settings.autocomplete_trigger);
-        return;
-    case COMMAND_TOGGLE_AUTOCOMPLETE_TRIGGER:
-        set_autocomplete(settings.autocomplete_style,
-                         settings.autocomplete_trigger == AUTOCOMPLETE_MANUAL ? AUTOCOMPLETE_TYPING
-                         : AUTOCOMPLETE_MANUAL);
-        return;
     case COMMAND_SELECT_NEXT_OCCURRENCE: editor_select_next_occurrence(&editor); break;
     case COMMAND_FIND: open_prompt(PROMPT_FIND); break;
     case COMMAND_GO_TO_LINE: open_prompt(PROMPT_GO_TO_LINE); break;

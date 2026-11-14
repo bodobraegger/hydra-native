@@ -874,11 +874,12 @@ int main(void) {
     key(SDLK_RETURN, SDL_KMOD_LCTRL | SDL_KMOD_LALT);
     EXPECT_STRING(evaluated, "osc() .out()");
 
-    // The settings menu saves at once: the next theme after "contrast" is "solarized"; the font size and the other
-    // keys of the file stay.
-    key(SDLK_P, SDL_KMOD_LCTRL | SDL_KMOD_LSHIFT);
-    type("next color theme");
-    key(SDLK_RETURN, 0);
+    // The settings menu saves at once: a click on the theme "solarized"; the font size and the other keys of the
+    // file stay.
+    key(SDLK_COMMA, SDL_KMOD_LCTRL);
+    ui_draw(800, 600, 0);
+    EXPECT(click_text("solarized", 0));
+    key(SDLK_ESCAPE, 0);
     settings_defaults(&loaded);
     EXPECT(settings_load(&loaded, settings_file, error, sizeof error));
     EXPECT_STRING(loaded.theme, "solarized");
