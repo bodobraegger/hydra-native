@@ -123,7 +123,7 @@ the file.
 | l10nUrl               | "" (l10n)        | translation URL...   | editor.json of a language  |
 | setupFile             | "" (none)        | setup file           | runs before the sketch     |
 | renderFile            | "" (Videos)      | render: file         | the video file             |
-| renderLength          | 30               | render: length       | 1 to 3600 seconds          |
+| renderLength          | 30               | render: length       | 1 to 3600 s, 2 decimals    |
 | renderFps             | 60               | render: fps          | 1 to 240 frames per second |
 | renderSize            | "1920x1080"      | render: size         | WxH, even, up to 8192      |
 | renderAudio           | "sources"        | render: audio        | sources, file or muted     |
@@ -313,7 +313,8 @@ options:
 - file: the video file. Without a file, the render writes hydra-native-<date>-<time>.mp4 into the videos folder
   of the system (~/Videos). The extension sets the format: .mp4 gives H.264 (crf 18), .mov gives ProRes 422 HQ,
   .webm gives VP9.
-- length, fps: the duration in seconds (30) and the frames per second (60).
+- length, fps: the duration in seconds (30), with up to two decimals (12.75), and the frames per second (60).
+  The video has length times fps frames, rounded to the nearest frame.
 - size: the size of the video in pixels as WxH (1920x1080), two even numbers up to 8192. The size can be larger
   than the window.
 - audio: the sound of the video. "file" puts the sound of the audio file into the video, and the video ends with

@@ -4,6 +4,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <limits.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -146,6 +147,14 @@ static void read_number(JSContext *ctx, JSValueConst object, const char *key, do
     JS_FreeValue(ctx, value);
 }
 
+// A number from `minimum` to `maximum`, rounded to `decimals`; a negative or missing number keeps `*out`.
+static void read_decimal(JSContext *ctx, JSValueConst object, const char *key, double minimum, double maximum,
+                         int decimals, double *out) {
+    double number = *out, scale = pow(10, decimals);
+    read_number(ctx, object, key, &number);
+    if (number >= 0) *out = round(SDL_clamp(number, minimum, maximum) * scale) / scale;
+}
+
 // The index of the value of `key` in `names`, or `current` without such a value.
 static int read_choice(JSContext *ctx, JSValueConst object, const char *key, const char *const *names, size_t count,
                        int current) {
@@ -286,7 +295,8 @@ bool settings_load(struct settings *settings, const char *path, char *error, siz
         read_string(ctx, root, "socket", settings->socket, sizeof settings->socket);
         read_string(ctx, root, "setupFile", settings->setup_file, sizeof settings->setup_file);
         read_string(ctx, root, "renderFile", settings->render_file, sizeof settings->render_file);
-        read_integer(ctx, root, "renderLength", 1, SETTINGS_MAX_RENDER_SECONDS, &settings->render_seconds);
+        read_decimal(ctx, root, "renderLength", 1, SETTINGS_MAX_RENDER_SECONDS, SETTINGS_RENDER_SECONDS_DECIMALS,
+                     &settings->render_seconds);
         read_integer(ctx, root, "renderFps", 1, SETTINGS_MAX_RENDER_FPS, &settings->render_fps);
         char render_size[SETTINGS_NAME] = "";
         read_string(ctx, root, "renderSize", render_size, sizeof render_size);
@@ -373,7 +383,7 @@ bool settings_save(const struct settings *settings, const char *path, char *erro
         set_string(ctx, root, "l10nUrl", settings->l10n_url);
         set_string(ctx, root, "setupFile", settings->setup_file);
         set_string(ctx, root, "renderFile", settings->render_file);
-        JS_SetPropertyStr(ctx, root, "renderLength", JS_NewInt32(ctx, settings->render_seconds));
+        JS_SetPropertyStr(ctx, root, "renderLength", JS_NewFloat64(ctx, settings->render_seconds));
         JS_SetPropertyStr(ctx, root, "renderFps", JS_NewInt32(ctx, settings->render_fps));
         char render_size[SETTINGS_NAME];
         snprintf(render_size, sizeof render_size, "%dx%d", settings->render_width, settings->render_height);

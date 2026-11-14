@@ -328,8 +328,16 @@ static int saved_opacity(const char *settings_file) {
     return loaded.completion_opacity;
 }
 
+static struct settings saved_settings(const char *settings_file) {
+    struct settings loaded;
+    char error[SETTINGS_TEXT];
+    settings_defaults(&loaded);
+    settings_load(&loaded, settings_file, error, sizeof error);
+    return loaded;
+}
+
 // The numbers of the settings menu as text fields: typing, Enter, Escape, the clamp, the arrows, the wheel, an
-// invalid entry, and a unit after the number.
+// invalid entry, a unit after the number, and the two decimals of the render length.
 static void test_number_fields(const char *settings_file) {
     key(SDLK_COMMA, SDL_KMOD_LCTRL);
     ui_draw(800, 1200, 0);
@@ -383,17 +391,20 @@ static void test_number_fields(const char *settings_file) {
     key(SDLK_RETURN, 0);
     EXPECT(overlay_font_size() == OVERLAY_MIN_FONT_SIZE);
     overlay_set_font_size(20);
+
+    ui_draw(800, 1200, 0);
+    EXPECT(click_text("30 s", 0));
+    type("12.754");
+    key(SDLK_RETURN, 0);
+    EXPECT(saved_settings(settings_file).render_seconds == 12.75);
+    ui_draw(800, 1200, 0);
+    EXPECT(click_text("12.75 s", 0));
+    key(SDLK_UP, 0);
+    EXPECT(saved_settings(settings_file).render_seconds == 13.75);
+    key(SDLK_ESCAPE, 0); // cancels the field
     key(SDLK_ESCAPE, 0); // closes the settings menu
     ui_draw(800, 1200, 0);
     EXPECT(strstr(drawn, "code display") == NULL);
-}
-
-static struct settings saved_settings(const char *settings_file) {
-    struct settings loaded;
-    char error[SETTINGS_TEXT];
-    settings_defaults(&loaded);
-    settings_load(&loaded, settings_file, error, sizeof error);
-    return loaded;
 }
 
 // The rows of the settings menu for the options that also exist as flags: each applies at once (or says that it

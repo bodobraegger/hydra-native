@@ -36,6 +36,7 @@ enum render_audio { RENDER_AUDIO_SOURCES, RENDER_AUDIO_FILE, RENDER_AUDIO_MUTED 
 #define SETTINGS_MAX_STREAM_RATE 60 // frames per second of the patch bay, also the default of both rates
 #define SETTINGS_DEFAULT_RENDER_SECONDS 30
 #define SETTINGS_MAX_RENDER_SECONDS 3600
+#define SETTINGS_RENDER_SECONDS_DECIMALS 2
 #define SETTINGS_DEFAULT_RENDER_FPS 60
 #define SETTINGS_MAX_RENDER_FPS 240
 #define SETTINGS_DEFAULT_RENDER_WIDTH 1920
@@ -89,7 +90,8 @@ struct settings {
     char socket[SETTINGS_TEXT];
     char setup_file[SETTINGS_TEXT]; // runs at the start before the sketch, "" for none
     char render_file[SETTINGS_TEXT]; // the video of "render to file", "" for a new name in the videos folder
-    int render_seconds, render_fps, render_width, render_height;
+    double render_seconds; // with SETTINGS_RENDER_SECONDS_DECIMALS
+    int render_fps, render_width, render_height;
     enum render_audio render_audio;
     char render_audio_file[SETTINGS_TEXT]; // drives `a` during the render, "" for none
     struct custom_theme themes[MAX_CUSTOM_THEMES];

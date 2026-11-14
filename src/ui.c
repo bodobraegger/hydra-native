@@ -1311,6 +1311,7 @@ static const struct {
     const char *unit; // accepted after the number, and shown after it
     double minimum, maximum;
     int button_step; // of the - and + buttons
+    int decimals; // of the value, shown only when they are not 0
 } number_specs[] = {
     [NUMBER_OPACITY] = { "%", 0, 100, OPACITY_STEP },
     [NUMBER_FONT_SIZE] = { "px", OVERLAY_MIN_FONT_SIZE, OVERLAY_MAX_FONT_SIZE, (int)FONT_SIZE_STEP },
@@ -1318,7 +1319,8 @@ static const struct {
     [NUMBER_COMPLETION_OPACITY] = { "%", 0, 100, OPACITY_STEP },
     [NUMBER_STREAM_RATE] = { "fps", 1, SETTINGS_MAX_STREAM_RATE, RATE_STEP },
     [NUMBER_STREAM_MAX_RATE] = { "fps", 1, SETTINGS_MAX_STREAM_RATE, RATE_STEP },
-    [NUMBER_RENDER_SECONDS] = { "s", 1, SETTINGS_MAX_RENDER_SECONDS, RENDER_SECONDS_STEP },
+    [NUMBER_RENDER_SECONDS] = { "s", 1, SETTINGS_MAX_RENDER_SECONDS, RENDER_SECONDS_STEP,
+                                SETTINGS_RENDER_SECONDS_DECIMALS },
     [NUMBER_RENDER_FPS] = { "fps", 1, SETTINGS_MAX_RENDER_FPS, RATE_STEP },
 };
 #define MAX_NUMBER_TEXT 16
@@ -1346,8 +1348,14 @@ static double number_value(enum number_kind kind) {
     return 0;
 }
 
+static double round_decimals(enum number_kind kind, double value) {
+    double scale = pow(10, number_specs[kind].decimals);
+    return round(value * scale) / scale;
+}
+
+// The values stay below a million, so %g shows no exponent.
 static void format_number(enum number_kind kind, double value, char *text, size_t size) {
-    snprintf(text, size, "%.0f %s", value, number_specs[kind].unit);
+    snprintf(text, size, "%g %s", round_decimals(kind, value), number_specs[kind].unit);
 }
 
 static void set_number(enum number_kind kind, double value) {
@@ -1369,7 +1377,7 @@ static void set_number(enum number_kind kind, double value) {
         else settings.stream_max_rate = (int)lround(value);
         host.set_stream_rates(settings.stream_rate, settings.stream_max_rate);
         break;
-    case NUMBER_RENDER_SECONDS: settings.render_seconds = (int)lround(value); break;
+    case NUMBER_RENDER_SECONDS: settings.render_seconds = round_decimals(kind, value); break;
     case NUMBER_RENDER_FPS: settings.render_fps = (int)lround(value); break;
     }
     save_settings();

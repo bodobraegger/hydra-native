@@ -268,7 +268,7 @@ void render_start(const struct settings *settings, double clock_ms) {
     render.height = settings->render_height;
     render.fps = settings->render_fps;
     render.frame = 0;
-    render.frame_count = (long)settings->render_seconds * render.fps;
+    render.frame_count = lround(settings->render_seconds * render.fps);
     render.start_ms = clock_ms;
     render.samples_fed = 0;
     render.muxed = muxed != NULL;
