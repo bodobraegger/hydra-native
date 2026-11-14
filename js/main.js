@@ -5,7 +5,7 @@ import { apiSignatureLines } from './api-signatures.js'
 import { rewriteDeclarations } from './declarations.js'
 import { PatchBay } from './patch-bay.js'
 import Hydra from 'hydra-synth'
-import { installSources } from './sources.js'
+import { installSources, scriptRelative } from './sources.js'
 import { installText } from './text.js'
 import './editor-actions.js'
 import './midi.js'
@@ -75,7 +75,6 @@ hydra.synth.vidRecorder = window.vidRecorder = { start: () => native.recordStart
 
 const URL_PATTERN = /^https?:\/\//
 const FILE_URL_PATTERN = /^file:\/\//
-const ABSOLUTE_PATH_PATTERN = /^([/\\]|[A-Za-z]:)/ // also of Windows
 // src/engine.c passes the sketch code through it before the evaluation (js/declarations.js).
 window.__rewriteDeclarations = rewriteDeclarations
 
@@ -94,8 +93,7 @@ function runScript (code, url) {
 window.loadScript = (url = '') => new Promise((resolve) => {
   url = String(url)
   if (!URL_PATTERN.test(url)) {
-    const path = FILE_URL_PATTERN.test(url) ? url.replace(FILE_URL_PATTERN, '')
-      : ABSOLUTE_PATH_PATTERN.test(url) ? url : native.scriptFolder() + url
+    const path = FILE_URL_PATTERN.test(url) ? url.replace(FILE_URL_PATTERN, '') : scriptRelative(url)
     try {
       runScript(native.readFile(path), path)
     } catch (error) {

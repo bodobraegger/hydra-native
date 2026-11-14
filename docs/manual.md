@@ -245,6 +245,7 @@ All `init*` calls accept `{ width, height }` for the capture size (default 1280x
 `initMonitor`, `initArea` and `initWindow` use the Mutter ScreenCast API directly and open no dialog.
 On macOS, ScreenCaptureKit and its picker do the same, and on Windows Windows.Graphics.Capture.
 initVideo, initImage and vidRecorder need ffmpeg in PATH; the error bar names a missing program.
+A relative path of initVideo and initImage is relative to the folder of the open sketch, as for `loadScript`.
 A monitor stream sends no frame until something on that monitor repaints.
 Window and area streams start at once.
 

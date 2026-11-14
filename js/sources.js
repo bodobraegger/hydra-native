@@ -8,6 +8,7 @@ const DEFAULT_WIDTH = 1280
 const DEFAULT_HEIGHT = 720
 const DEFAULT_WINDOW_DELAY_SECONDS = 3
 const YOUTUBE_PATTERN = /^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\//
+const ABSOLUTE_PATTERN = /^([a-z]+:\/\/|[/\\]|[A-Za-z]:)/ // URLs and absolute paths, also of Windows
 
 // A missing program gives a warning in the error bar.
 function requireProgram (program, call) {
@@ -26,6 +27,10 @@ export function nativeVideo (handle, width, height) {
     get running () { return native.videoRunning(handle) }
   }
 }
+
+// A relative path is relative to the folder of the running file or of the open sketch, as a URL is relative to its
+// page in the browser.
+export const scriptRelative = (url) => ABSOLUTE_PATTERN.test(url) ? url : native.scriptFolder() + url
 
 export function installSources (sourcePrototype) {
   const clear = sourcePrototype.clear
@@ -95,14 +100,16 @@ export function installSources (sourcePrototype) {
 
   // Loops files and network streams; YouTube links need yt-dlp in PATH and play once.
   sourcePrototype.initVideo = function (url = '', options) {
+    url = scriptRelative(String(url))
     const youtube = YOUTUBE_PATTERN.test(url)
     if (!requireProgram('ffmpeg', 'initVideo') || (youtube && !requireProgram('yt-dlp', 'initVideo'))) return
     const kind = youtube ? 'youtube' : 'video'
-    return initHandle(this, options, (width, height) => native.mediaOpen(String(url), width, height, kind))
+    return initHandle(this, options, (width, height) => native.mediaOpen(url, width, height, kind))
   }
 
   sourcePrototype.initImage = function (url = '', options) {
     if (!requireProgram('ffmpeg', 'initImage')) return
-    return initHandle(this, options, (width, height) => native.mediaOpen(String(url), width, height, 'image'))
+    const path = scriptRelative(String(url))
+    return initHandle(this, options, (width, height) => native.mediaOpen(path, width, height, 'image'))
   }
 }
