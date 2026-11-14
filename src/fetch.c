@@ -1,5 +1,5 @@
 // Child processes whose output the main loop reads without blocking: downloads with curl (loadScript, languages,
-// extensions, thumbnails, fetch and XMLHttpRequest).
+// extensions, thumbnails, fetch and XMLHttpRequest) and ffprobe (initVideo).
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
@@ -58,6 +58,8 @@ int fetch_start(const char *url) {
                      NULL };
     return process_start(argv, NULL);
 }
+
+int fetch_start_program(const char *const argv[]) { return process_start((char *const *)argv, NULL); }
 
 int http_start(const char *url, const char *method, const char *const *headers, size_t header_count, const void *body,
                size_t body_length) {

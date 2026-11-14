@@ -26,6 +26,7 @@ struct video_source {
     uint8_t *front;
     uint8_t *back;
     bool fresh;
+    SDL_AtomicInt frames; // received from the stream
     SDL_AtomicInt running;
     SDL_Thread *thread;
     SDL_Mutex *lock;
@@ -42,6 +43,7 @@ static int read_frames(void *argument) {
         source->back = swap;
         source->fresh = true;
         SDL_UnlockMutex(source->lock);
+        SDL_AddAtomicInt(&source->frames, 1);
     }
     SDL_SetAtomicInt(&source->running, 0);
     return 0;
@@ -268,6 +270,11 @@ bool video_size(int handle, int *width, int *height) {
     *width = source->width;
     *height = source->height;
     return true;
+}
+
+int video_frames(int handle) {
+    struct video_source *source = find_source(handle);
+    return source ? SDL_GetAtomicInt(&source->frames) : 0;
 }
 
 bool video_is_running(int handle) {

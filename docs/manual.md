@@ -230,16 +230,16 @@ As in the browser, sketches get every key event, also the keys that the overlay 
 
 All `init*` calls accept `{ width, height }` for the capture size (default 1280x720) and the regl texture options (`min`, `mag`, `wrap`).
 
-| Call                            | Source                                                        |
-| ------------------------------- | ------------------------------------------------------------- |
-| `s0.initCam(index)`             | webcam number `index` (GStreamer on Linux, else SDL)          |
-| `s0.initScreen()`               | a window or monitor that you pick in the system dialog        |
-| `s0.initMonitor(index)`         | monitor number `index`, no dialog                             |
-| `s0.initArea(x, y, w, h)`       | an area of the screen, no dialog                              |
-| `s0.initWindow(delay)`          | the window that has the focus after `delay` seconds           |
-| `s0.initVideo(url)`             | a file or stream (ffmpeg, loops); YouTube links need `yt-dlp` |
-| `s0.initImage(url)`             | an image (ffmpeg)                                             |
-| `s0.initCommand(shell, {w, h})` | any command that writes raw RGBA frames of w x h to stdout    |
+| Call                            | Source                                                     |
+| ------------------------------- | ---------------------------------------------------------- |
+| `s0.initCam(index)`             | webcam number `index` (GStreamer on Linux, else SDL)       |
+| `s0.initScreen()`               | a window or monitor that you pick in the system dialog     |
+| `s0.initMonitor(index)`         | monitor number `index`, no dialog                          |
+| `s0.initArea(x, y, w, h)`       | an area of the screen, no dialog                           |
+| `s0.initWindow(delay)`          | the window that has the focus after `delay` seconds        |
+| `s0.initVideo(url, {loop})`     | a file or stream (ffmpeg); YouTube links need `yt-dlp`     |
+| `s0.initImage(url)`             | an image (ffmpeg)                                          |
+| `s0.initCommand(shell, {w, h})` | any command that writes raw RGBA frames of w x h to stdout |
 
 `initScreen()` opens the picker of xdg-desktop-portal, as `getDisplayMedia()` does in the browser.
 `initMonitor`, `initArea` and `initWindow` use the Mutter ScreenCast API directly and open no dialog.
@@ -248,6 +248,22 @@ initVideo, initImage and vidRecorder need ffmpeg in PATH; the error bar names a 
 A relative path of initVideo and initImage is relative to the folder of the open sketch, as for `loadScript`.
 A monitor stream sends no frame until something on that monitor repaints.
 Window and area streams start at once.
+
+`initVideo` plays in a loop unless you give `{ loop: false }`.
+As in the web editor, `s0.src` controls the video like a `<video>` element:
+
+```js
+s0.src.currentTime = 12      // seek, in seconds
+s0.src.pause(); s0.src.play()
+s0.src.playbackRate = 0.5    // 0.25 to 4
+s0.src.loop = false          // at the end, paused is true and an 'ended' event fires
+s0.src.onended = () => s0.src.play()
+```
+
+`currentTime`, `duration` (from ffprobe, `NaN` until it is known) and `paused` give the state.
+A seek, `play()` and a new `playbackRate` or `loop` start a new ffmpeg at the position, so the image changes after
+about 0.2 seconds; meanwhile the texture keeps the last frame.
+YouTube links play once and have no controls.
 
 `fetch()` and `XMLHttpRequest` read local files and send HTTP and HTTPS requests with curl.
 The CORS and mixed-content rules of a web page do not apply, so a request can succeed here and fail in the web

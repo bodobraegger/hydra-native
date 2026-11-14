@@ -18,6 +18,7 @@ int video_open_camera(int index, int width, int height);
 int video_camera_names(const char **names, int capacity);
 bool video_upload(int handle, GLuint texture);
 bool video_is_running(int handle);
+int video_frames(int handle); // the count of frames that the stream delivered
 bool video_size(int handle, int *width, int *height);
 bool video_copy_frame(int handle, unsigned char *pixels);
 void video_close(int handle);
@@ -39,6 +40,8 @@ bool audio_features(float specific[BARK_BAND_COUNT], float *total);
 // Downloads with curl, and other child processes; fetch_poll calls `done` once per finished process with its
 // output and whether it exited with status 0.
 int fetch_start(const char *url);
+// Another program, argv[0] in PATH, whose standard output fetch_poll collects.
+int fetch_start_program(const char *const argv[]);
 // A request of fetch() and XMLHttpRequest; the output is the response header blocks and then the body.
 int http_start(const char *url, const char *method, const char *const *headers, size_t header_count, const void *body,
                size_t body_length);

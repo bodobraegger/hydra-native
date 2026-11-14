@@ -57,27 +57,36 @@ static char *shell_word(const char *text) {
     return word;
 }
 
-enum command_status sandbox_media_command(char *command, size_t size, const char *url, const char *kind, int width,
-                                          int height) {
+const char *sandbox_media_input(const char *url) {
     bool remote = !strncmp(url, "https://", 8) || !strncmp(url, "http://", 7);
-    if (sandboxed && !remote) return COMMAND_SANDBOXED;
-    char *word = shell_word(!remote && !strncmp(url, "file://", 7) ? url + 7 : url);
+    if (sandboxed && !remote) return NULL;
+    return !remote && !strncmp(url, "file://", 7) ? url + 7 : url;
+}
+
+enum command_status sandbox_media_command(char *command, size_t size, const char *url, const char *kind, int width,
+                                          int height, const struct media_playback *playback) {
+    const char *input = sandbox_media_input(url);
+    if (!input) return COMMAND_SANDBOXED;
+    char *word = shell_word(input);
     if (!word) return COMMAND_INVALID;
     char format[64];
     snprintf(format, sizeof format, "best[height<=%d]/best", height);
     char *format_word = shell_word(format);
-    char output[96];
-    snprintf(output, sizeof output, "-vf scale=%d:%d -pix_fmt rgba -f rawvideo -", width, height);
-    // ffmpeg opens no local file for a URL of shared code, also not from a playlist
-    const char *protocols = sandboxed ? "-protocol_whitelist http,https,tcp,tls,crypto " : "";
+    // A video decodes at full speed and the realtime filter paces its frames, so that the frames from the keyframe
+    // before the position of -ss to the position come at once.
+    char pace[48] = "";
+    if (!strcmp(kind, "video")) snprintf(pace, sizeof pace, "realtime=speed=%.3f,", playback->rate);
+    char output[144];
+    snprintf(output, sizeof output, "-vf %sscale=%d:%d -pix_fmt rgba -f rawvideo -", pace, width, height);
+    const char *protocols = sandboxed ? "-protocol_whitelist " SANDBOX_PROTOCOLS " " : "";
     if (!strcmp(kind, "youtube"))
         snprintf(command, size, "yt-dlp -q -f %s -o - %s | ffmpeg -hide_banner -loglevel error -re -i - %s",
                  format_word, word, output);
     else if (!strcmp(kind, "image"))
         snprintf(command, size, "ffmpeg -hide_banner -loglevel error %s-i %s -frames:v 1 %s", protocols, word, output);
     else
-        snprintf(command, size, "ffmpeg -hide_banner -loglevel error %s-re -stream_loop -1 -i %s %s", protocols, word,
-                 output);
+        snprintf(command, size, "ffmpeg -hide_banner -loglevel error %s-ss %.3f %s-i %s %s", protocols,
+                 playback->start, playback->loop ? "-stream_loop -1 " : "", word, output);
     free(word);
     free(format_word);
     return COMMAND_OK;

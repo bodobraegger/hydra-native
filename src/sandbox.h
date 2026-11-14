@@ -22,10 +22,25 @@ enum command_status {
     COMMAND_FAILED,
 };
 
-// The command of initVideo and initImage: ffmpeg plays `url` (a file or a stream; "video", in a loop), takes the
-// first frame ("image"), or plays the output of yt-dlp ("youtube"), as RGBA frames of width x height.
+// The protocols of ffmpeg and ffprobe in the sandbox, so that no URL of shared code opens a local file, also not
+// from a playlist.
+#define SANDBOX_PROTOCOLS "http,https,tcp,tls,crypto"
+
+// The position in seconds, the speed (a factor of the realtime filter) and the loop of a "video" of
+// sandbox_media_command.
+struct media_playback {
+    double start;
+    double rate;
+    bool loop;
+};
+
+// The input of ffmpeg and ffprobe for `url`: the path of a file:// URL, or the URL itself; NULL for a local file in
+// the sandbox.
+const char *sandbox_media_input(const char *url);
+// The command of initVideo and initImage: ffmpeg plays `url` (a file or a stream; "video", as in `playback`), takes
+// the first frame ("image"), or plays the output of yt-dlp ("youtube"), as RGBA frames of width x height.
 enum command_status sandbox_media_command(char *command, size_t size, const char *url, const char *kind, int width,
-                                          int height);
+                                          int height, const struct media_playback *playback);
 // The command of the screen capture: hydra-native-capture of `program_directory` (src/capture_main.c) with the
 // mode "picker", "monitor", "area" or "window" and the numbers of its usage.
 enum command_status sandbox_capture_command(char *command, size_t size, const char *program_directory,

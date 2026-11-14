@@ -213,15 +213,16 @@ static JSValue js_video_open(JSContext *ctx, JSValueConst this, int argc, JSValu
     return video_handle(ctx, handle, "cannot start video source");
 }
 
-// mediaOpen(url, width, height, kind): initVideo ("video", "youtube") and initImage ("image"), see
-// sandbox_media_command. In the sandbox, only HTTP and HTTPS URLs work.
+// mediaOpen(url, width, height, kind, start, rate, loop): initVideo ("video", "youtube") and initImage ("image"),
+// see sandbox_media_command. In the sandbox, only HTTP and HTTPS URLs work.
 static JSValue js_media_open(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
     const char *url = JS_ToCString(ctx, argv[0]), *kind = JS_ToCString(ctx, argv[3]);
     int width = to_int(ctx, argv[1]), height = to_int(ctx, argv[2]);
+    struct media_playback playback = { to_float(ctx, argv[4]), to_float(ctx, argv[5]), JS_ToBool(ctx, argv[6]) };
     char command[MAX_COMMAND];
     JSValue result = JS_EXCEPTION;
     if (url && kind) {
-        switch (sandbox_media_command(command, sizeof command, url, kind, width, height)) {
+        switch (sandbox_media_command(command, sizeof command, url, kind, width, height, &playback)) {
         case COMMAND_OK:
             result = video_handle(ctx, video_open_media(command, width, height), "cannot start video source");
             break;
@@ -232,6 +233,26 @@ static JSValue js_media_open(JSContext *ctx, JSValueConst this, int argc, JSValu
     JS_FreeCString(ctx, url);
     JS_FreeCString(ctx, kind);
     return result;
+}
+
+// mediaProbe(url): the id of an ffprobe for native.onFetchDone, or -1; its output has the frame rate of the first
+// video stream ("25/1") and the duration in seconds on lines of their own.
+static JSValue js_media_probe(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    const char *url = JS_ToCString(ctx, argv[0]);
+    if (!url) return JS_EXCEPTION;
+    const char *input = sandbox_media_input(url);
+    const char *arguments[16] = { "ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                                  "format=duration:stream=r_frame_rate", "-of", "csv=p=0" };
+    size_t count = 9;
+    if (sandbox_active()) {
+        arguments[count++] = "-protocol_whitelist";
+        arguments[count++] = SANDBOX_PROTOCOLS;
+    }
+    arguments[count++] = "-i";
+    arguments[count] = input;
+    int id = input ? fetch_start_program(arguments) : -1;
+    JS_FreeCString(ctx, url);
+    return JS_NewInt32(ctx, id);
 }
 
 // captureOpen(mode, ...numbers, width, height): the screen capture as a video source, see
@@ -287,6 +308,10 @@ static JSValue js_text_texture(JSContext *ctx, JSValueConst this, int argc, JSVa
 
 static JSValue js_video_upload(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
     return JS_NewBool(ctx, video_upload(to_int(ctx, argv[0]), (GLuint)to_int(ctx, argv[1])));
+}
+
+static JSValue js_video_frames(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    return JS_NewInt32(ctx, video_frames(to_int(ctx, argv[0])));
 }
 
 static JSValue js_video_running(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
@@ -716,11 +741,13 @@ static const JSCFunctionListEntry native_functions[] = {
     JS_CFUNC_DEF("textWidth", 4, js_text_width),
     JS_CFUNC_DEF("textTexture", 14, js_text_texture),
     JS_CFUNC_DEF("videoOpen", 3, js_video_open),
-    JS_CFUNC_DEF("mediaOpen", 4, js_media_open),
+    JS_CFUNC_DEF("mediaOpen", 7, js_media_open),
+    JS_CFUNC_DEF("mediaProbe", 1, js_media_probe),
     JS_CFUNC_DEF("captureOpen", 3, js_capture_open),
     JS_CFUNC_DEF("sandbox", 0, js_sandbox),
     JS_CFUNC_DEF("videoUpload", 2, js_video_upload),
     JS_CFUNC_DEF("videoRunning", 1, js_video_running),
+    JS_CFUNC_DEF("videoFrames", 1, js_video_frames),
     JS_CFUNC_DEF("videoClose", 1, js_video_close),
     JS_CFUNC_DEF("cameraOpen", 3, js_camera_open),
     JS_CFUNC_DEF("cameras", 0, js_cameras),
