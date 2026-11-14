@@ -145,7 +145,6 @@ void editor_backspace(struct editor *editor);
 void editor_delete_forward(struct editor *editor);
 void editor_delete_word(struct editor *editor, int direction); // delGroupBefore and delGroupAfter of CodeMirror 5
 void editor_delete_selection(struct editor *editor);
-void editor_transpose(struct editor *editor);
 bool editor_undo(struct editor *editor);
 bool editor_redo(struct editor *editor);
 

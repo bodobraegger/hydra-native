@@ -137,7 +137,6 @@ static const struct key_binding default_keymap[] = {
     { SDLK_0, KEY_CTRL, COMMAND_NONE, .prefix = SDLK_K }, // unfold all, fold all: no fold addon in the web editor
     { SDLK_1, KEY_CTRL, COMMAND_NONE, .prefix = SDLK_K },
     { SDLK_J, KEY_CTRL, COMMAND_NONE, .prefix = SDLK_K },
-    { SDLK_T, KEY_CTRL, COMMAND_TRANSPOSE },
     { SDLK_DELETE, KEY_CTRL, COMMAND_DELETE_WORD_RIGHT },
     { SDLK_RIGHTBRACKET, KEY_CTRL, COMMAND_INDENT_MORE },
     { SDLK_LEFTBRACKET, KEY_CTRL, COMMAND_INDENT_LESS },

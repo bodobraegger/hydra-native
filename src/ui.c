@@ -1804,7 +1804,6 @@ static void run_command_body(enum command command, bool extend) {
     case COMMAND_SWAP_WITH_MARK: editor_swap_with_mark(&editor); break;
     case COMMAND_YANK: editor_yank(&editor); break;
     case COMMAND_SKIP_AND_SELECT_NEXT: editor_skip_and_select_next(&editor); break;
-    case COMMAND_TRANSPOSE: editor_transpose(&editor); break;
     case COMMAND_GO_TO_BRACKET: editor_go_to_bracket(&editor); break;
     case COMMAND_SELECT_BETWEEN_BRACKETS: editor_select_between_brackets(&editor); break;
     case COMMAND_ADD_CURSOR_ABOVE: editor_add_cursor_vertical(&editor, -1); break;

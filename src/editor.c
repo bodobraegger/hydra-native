@@ -1077,27 +1077,6 @@ void editor_delete_selection(struct editor *editor) {
     for_each_selection(editor, insert_one, &arguments);
 }
 
-static void transpose_one(struct editor *editor, void *data) {
-    if (editor_has_selection(editor) || editor->cursor == 0) return;
-    size_t line = editor_line_of(editor, editor->cursor);
-    size_t middle = editor->cursor == editor_line_end(editor, line) ? previous_char(editor, editor->cursor)
-        : editor->cursor;
-    size_t start = previous_char(editor, middle), end = next_char(editor, middle);
-    if (start >= middle || middle >= end || start < editor_line_start(editor, line)) return;
-    char swapped[16];
-    size_t first = middle - start, second = end - middle;
-    if (first + second > sizeof swapped) return;
-    memcpy(swapped, editor->text + middle, second);
-    memcpy(swapped + second, editor->text + start, first);
-    replace(editor, start, end, swapped, first + second);
-    editor->cursor = editor->anchor = end;
-}
-
-void editor_transpose(struct editor *editor) {
-    begin_edit(editor, EDIT_OTHER);
-    for_each_selection(editor, transpose_one, NULL);
-}
-
 // ---------------------------------------------------------------- line commands
 
 // Marks the lines that any selection touches; returns the first and the last of them.

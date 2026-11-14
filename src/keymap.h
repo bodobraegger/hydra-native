@@ -72,7 +72,6 @@
     X(DELETE_LINE, "delete the lines") \
     X(JOIN_LINES, "join lines") \
     X(SORT_LINES, "sort the lines") \
-    X(TRANSPOSE, "swap the characters around the cursor") \
     X(DELETE_WORD_RIGHT, "delete the word right") \
     X(INDENT_MORE, "indent the lines") \
     X(INDENT_LESS, "outdent the lines") \
