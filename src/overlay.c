@@ -360,13 +360,23 @@ void overlay_image(float x, float y, float width, float height, unsigned texture
     if (image_count < MAX_IMAGES) images[image_count++] = (typeof(images[0])){ x, y, width, height, texture };
 }
 
+// False without memory; the arrays that did grow keep working at the old capacity.
+static bool grow_vertices(void) {
+    size_t capacity = vertex_capacity ? vertex_capacity * 2 : 6 * 4096;
+    struct vertex *grown = realloc(vertices, capacity * sizeof *grown);
+    if (grown) vertices = grown;
+    struct vertex *sorted = realloc(sorted_vertices, capacity * sizeof *sorted);
+    if (sorted) sorted_vertices = sorted;
+    uint8_t *layers = realloc(quad_layers, capacity / 6);
+    if (layers) quad_layers = layers;
+    if (!grown || !sorted || !layers) return false;
+    vertex_capacity = capacity;
+    return true;
+}
+
+// A quad that does not fit into memory is not drawn.
 static void push_quad(float x0, float y0, float x1, float y1, float u0, float v0, float u1, float v1, uint32_t color) {
-    if (vertex_count + 6 > vertex_capacity) {
-        vertex_capacity = vertex_capacity ? vertex_capacity * 2 : 6 * 4096;
-        vertices = realloc(vertices, vertex_capacity * sizeof *vertices);
-        sorted_vertices = realloc(sorted_vertices, vertex_capacity * sizeof *sorted_vertices);
-        quad_layers = realloc(quad_layers, vertex_capacity / 6);
-    }
+    if (vertex_count + 6 > vertex_capacity && !grow_vertices()) return;
     quad_layers[vertex_count / 6] = (uint8_t)current_layer;
     uint8_t rgba[4] = { color >> 24, (color >> 16) & 0xFF, (color >> 8) & 0xFF, color & 0xFF };
     struct vertex corners[4] = {
@@ -420,9 +430,40 @@ static GLuint window_texture(int width, int height) {
     return texture;
 }
 
+// The bounding rectangle of a difference layer in window pixels, and the quad at `quad` that composites it.
+struct difference_pass {
+    bool drawn; // false for a layer outside of the window
+    float x0, y0, x1, y1;
+    size_t quad;
+};
+
+// The rectangle of the vertices [first, end) and its quad after the other vertices; overlay_end uploads it.
+static struct difference_pass plan_difference_layer(size_t first, size_t end, int width, int height) {
+    struct difference_pass pass = { .x0 = (float)width, .y0 = (float)height };
+    for (size_t i = first; i < end; i++) {
+        pass.x0 = fminf(pass.x0, vertices[i].x);
+        pass.y0 = fminf(pass.y0, vertices[i].y);
+        pass.x1 = fmaxf(pass.x1, vertices[i].x);
+        pass.y1 = fmaxf(pass.y1, vertices[i].y);
+    }
+    pass.x0 = floorf(fmaxf(pass.x0, 0));
+    pass.y0 = floorf(fmaxf(pass.y0, 0));
+    pass.x1 = ceilf(fminf(pass.x1, (float)width));
+    pass.y1 = ceilf(fminf(pass.y1, (float)height));
+    if (pass.x1 <= pass.x0 || pass.y1 <= pass.y0) return pass;
+    // v counts from the bottom, as the rows of the textures do.
+    pass.quad = vertex_count;
+    push_quad(pass.x0, pass.y0, pass.x1, pass.y1, pass.x0 / (float)width, 1 - pass.y0 / (float)height,
+              pass.x1 / (float)width, 1 - pass.y1 / (float)height, 0xFFFFFFFFu);
+    pass.drawn = vertex_count > pass.quad;
+    return pass;
+}
+
 // Draws the vertices [first, end) into a window-sized texture (premultiplied), then composites their bounding
 // rectangle onto the window with |destination - source|. The shader path copies the window below that rectangle.
-static void draw_difference_layer(size_t first, size_t end, int width, int height) {
+static void draw_difference_layer(size_t first, size_t end, int width, int height,
+                                  const struct difference_pass *pass) {
+    if (!pass->drawn) return;
     if (!difference.checked) check_difference_support();
     if (difference.texture_width != width || difference.texture_height != height) {
         if (difference.texture) {
@@ -437,18 +478,7 @@ static void draw_difference_layer(size_t first, size_t end, int width, int heigh
         difference.texture_width = width;
         difference.texture_height = height;
     }
-    float x0 = (float)width, y0 = (float)height, x1 = 0, y1 = 0;
-    for (size_t i = first; i < end; i++) {
-        x0 = fminf(x0, vertices[i].x);
-        y0 = fminf(y0, vertices[i].y);
-        x1 = fmaxf(x1, vertices[i].x);
-        y1 = fmaxf(y1, vertices[i].y);
-    }
-    x0 = floorf(fmaxf(x0, 0));
-    y0 = floorf(fmaxf(y0, 0));
-    x1 = ceilf(fminf(x1, (float)width));
-    y1 = ceilf(fminf(y1, (float)height));
-    if (x1 <= x0 || y1 <= y0) return;
+    float x0 = pass->x0, y0 = pass->y0, x1 = pass->x1, y1 = pass->y1;
     glBindFramebuffer(GL_FRAMEBUFFER, difference.framebuffer);
     glEnable(GL_SCISSOR_TEST); // only the rectangle of the layer is cleared and drawn
     glScissor((GLint)x0, height - (GLint)y1, (GLsizei)(x1 - x0), (GLsizei)(y1 - y0));
@@ -462,11 +492,7 @@ static void draw_difference_layer(size_t first, size_t end, int width, int heigh
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
 
-    // The quad of the layer rectangle; v counts from the bottom, as the rows of the textures do.
-    size_t quad = vertex_count;
-    push_quad(x0, y0, x1, y1, x0 / (float)width, 1 - y0 / (float)height, x1 / (float)width, 1 - y1 / (float)height,
-              0xFFFFFFFFu);
-    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(vertex_count * sizeof *vertices), vertices, GL_STREAM_DRAW);
+    GLint quad = (GLint)pass->quad;
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, difference.texture);
     glUseProgram(difference.program);
@@ -474,7 +500,7 @@ static void draw_difference_layer(size_t first, size_t end, int width, int heigh
     if (difference.advanced) {
         glBlendEquation(GL_DIFFERENCE_KHR_VALUE);
         if (difference.barrier) difference.barrier();
-        glDrawArrays(GL_TRIANGLES, (GLint)quad, 6);
+        glDrawArrays(GL_TRIANGLES, quad, 6);
         glBlendEquation(GL_FUNC_ADD);
     } else {
         int left = (int)x0 < 0 ? 0 : (int)x0, bottom = height - (int)y1 < 0 ? 0 : height - (int)y1;
@@ -484,11 +510,10 @@ static void draw_difference_layer(size_t first, size_t end, int width, int heigh
         if (copy_width > 0 && copy_height > 0)
             glCopyTexSubImage2D(GL_TEXTURE_2D, 0, left, bottom, left, bottom, copy_width, copy_height);
         glDisable(GL_BLEND);
-        glDrawArrays(GL_TRIANGLES, (GLint)quad, 6);
+        glDrawArrays(GL_TRIANGLES, quad, 6);
         glActiveTexture(GL_TEXTURE0);
         glEnable(GL_BLEND);
     }
-    vertex_count = quad;
     glUseProgram(program);
     glBindTexture(GL_TEXTURE_2D, atlas);
 }
@@ -573,7 +598,6 @@ size_t overlay_text_columns(const char *text, size_t length) {
     return columns;
 }
 
-static void draw_images(void);
 
 static void copy_backdrop(int width, int height) {
     if (backdrop.width != width || backdrop.height != height) {
@@ -587,20 +611,35 @@ static void copy_backdrop(int width, int height) {
     glBindTexture(GL_TEXTURE_2D, atlas);
 }
 
-// Draws the backdrop into the rectangle of each quad of [first, end) with the alpha of the quad, over the code below
-// the popup boxes.
-static void restore_backdrop(size_t first, size_t end, int width, int height) {
-    size_t quad = vertex_count;
+// The quads that draw the backdrop into the rectangle of each quad of [first, end) with the alpha of the quad, over
+// the code below the popup boxes.
+static void plan_backdrop(size_t first, size_t end, int width, int height) {
     for (size_t i = first; i < end; i += 6) {
         float x0 = vertices[i].x, y0 = vertices[i].y, x1 = vertices[i + 2].x, y1 = vertices[i + 2].y;
         push_quad(x0, y0, x1, y1, x0 / (float)width, 1 - y0 / (float)height, x1 / (float)width, 1 - y1 / (float)height,
                   0xFFFFFF00u | vertices[i].color[3]);
     }
-    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(vertex_count * sizeof *vertices), vertices, GL_STREAM_DRAW);
+}
+
+static void restore_backdrop(size_t first, size_t end) {
     glBindTexture(GL_TEXTURE_2D, backdrop.texture);
-    glDrawArrays(GL_TRIANGLES, (GLint)quad, (GLsizei)(vertex_count - quad));
+    glDrawArrays(GL_TRIANGLES, (GLint)first, (GLsizei)(end - first));
     glBindTexture(GL_TEXTURE_2D, atlas);
-    vertex_count = quad;
+}
+
+// Images draw after the top layer, one draw call each, from their quads at `first`.
+static void plan_images(void) {
+    for (int i = 0; i < image_count; i++)
+        push_quad(images[i].x, images[i].y, images[i].x + images[i].width, images[i].y + images[i].height, 0, 0, 1, 1,
+                  0xFFFFFFFFu);
+}
+
+static void draw_images(size_t first, size_t end) {
+    for (size_t i = 0; first + 6 * i < end; i++) {
+        glBindTexture(GL_TEXTURE_2D, images[i].texture);
+        glDrawArrays(GL_TRIANGLES, (GLint)(first + 6 * i), 6);
+    }
+    glBindTexture(GL_TEXTURE_2D, atlas);
 }
 
 void overlay_end(int width, int height) {
@@ -634,35 +673,26 @@ void overlay_end(int width, int height) {
     struct vertex *swap = vertices;
     vertices = sorted_vertices;
     sorted_vertices = swap;
+    // The quads of the passes besides the layers go after them, so that one upload holds all vertices.
+    struct difference_pass passes[OVERLAY_LAYER_COUNT] = { 0 };
+    for (int layer = 0; layer < OVERLAY_LAYER_COUNT; layer++)
+        if (layer_difference[layer] && starts[layer + 1] > starts[layer])
+            passes[layer] = plan_difference_layer(starts[layer], starts[layer + 1], width, height);
+    size_t backdrop_first = vertex_count;
+    plan_backdrop(starts[OVERLAY_POPUP], starts[OVERLAY_POPUP + 1], width, height);
+    size_t images_first = vertex_count;
+    plan_images();
     glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(vertex_count * sizeof *vertices), vertices, GL_STREAM_DRAW);
     bool popup = starts[OVERLAY_POPUP + 1] > starts[OVERLAY_POPUP];
     if (popup) copy_backdrop(width, height);
     for (int layer = 0; layer < OVERLAY_LAYER_COUNT; layer++) {
-        if (layer == OVERLAY_POPUP) draw_images();
+        if (layer == OVERLAY_POPUP) draw_images(images_first, vertex_count);
         size_t first = starts[layer], end = starts[layer + 1];
         if (end == first) continue;
-        if (layer == OVERLAY_POPUP) restore_backdrop(first, end, width, height);
-        if (layer_difference[layer]) draw_difference_layer(first, end, width, height);
+        if (layer == OVERLAY_POPUP) restore_backdrop(backdrop_first, images_first);
+        if (layer_difference[layer]) draw_difference_layer(first, end, width, height, &passes[layer]);
         else glDrawArrays(GL_TRIANGLES, (GLint)first, (GLsizei)(end - first));
     }
     glBindVertexArray(0);
     glDisable(GL_BLEND);
-}
-
-// Images draw after the top layer, one draw call each, from quads after the vertices of the layers.
-static void draw_images(void) {
-    if (image_count) {
-        size_t first = vertex_count;
-        for (int i = 0; i < image_count; i++)
-            push_quad(images[i].x, images[i].y, images[i].x + images[i].width, images[i].y + images[i].height, 0, 0, 1,
-                      1,
-                      0xFFFFFFFFu);
-        glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(vertex_count * sizeof *vertices), vertices, GL_STREAM_DRAW);
-        for (int i = 0; i < image_count; i++) {
-            glBindTexture(GL_TEXTURE_2D, images[i].texture);
-            glDrawArrays(GL_TRIANGLES, (GLint)(first + 6 * (size_t)i), 6);
-        }
-        vertex_count = first;
-        glBindTexture(GL_TEXTURE_2D, atlas);
-    }
 }
