@@ -678,6 +678,7 @@ int main(int argc, char **argv) {
     patch_bay_stop();
     fetch_stop_all();
     video_close_all();
+    audio_stop();
     if (listener >= 0) {
         close(listener);
         unlink(socket_path);

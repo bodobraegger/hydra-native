@@ -17,7 +17,8 @@ static char program_directory[1024]; // of hydra-native-capture, for the system 
 #define DEVICE_WAIT_MS 50
 
 static void analyze(void);
-static bool started;
+static SDL_Thread *thread;
+static SDL_AtomicInt stopping; // audio_stop() ends the thread
 static SDL_SpinLock lock;
 static bool available;
 static float latest_specific[BARK_BAND_COUNT];
@@ -50,7 +51,7 @@ static void compute_band_limits(int limits[BARK_BAND_COUNT + 1]) {
 
 static int capture(void *argument) {
     (void)argument;
-    for (;;) {
+    while (!SDL_GetAtomicInt(&stopping)) {
         // The flag clears before the copy, so that a change after the copy opens the device again.
         SDL_SetAtomicInt(&device_changed, 0);
         char device[sizeof device_name];
@@ -65,7 +66,7 @@ static int capture(void *argument) {
         if (!fed) available = false;
         SDL_UnlockSpinlock(&lock);
         // A failed or switched-off input waits for the next change.
-        while (!SDL_GetAtomicInt(&device_changed)) SDL_Delay(DEVICE_WAIT_MS);
+        while (!SDL_GetAtomicInt(&device_changed) && !SDL_GetAtomicInt(&stopping)) SDL_Delay(DEVICE_WAIT_MS);
     }
     return 0;
 }
@@ -102,7 +103,8 @@ static void analyze(void) {
     // Processed 10 ms frames collect here until a buffer of the size of Meyda is full.
     float pending[AUDIO_BUFFER_SIZE + AUDIO_FRAME_SIZE];
     size_t pending_count = 0;
-    while (!SDL_GetAtomicInt(&device_changed) && audio_input_read(pending + pending_count)) {
+    while (!SDL_GetAtomicInt(&device_changed) && !SDL_GetAtomicInt(&stopping) &&
+           audio_input_read(pending + pending_count)) {
         float input_gain = gain();
         for (int i = 0; i < AUDIO_FRAME_SIZE; i++) pending[pending_count + i] *= input_gain;
         pending_count += AUDIO_FRAME_SIZE;
@@ -159,13 +161,18 @@ void audio_set_device(const char *device) {
 int audio_devices(struct audio_device *devices, int capacity) { return audio_input_devices(devices, capacity); }
 
 bool audio_start(const char *directory) {
-    if (started) return true;
+    if (thread) return true;
     if (!audio_input_init()) return false;
     snprintf(program_directory, sizeof program_directory, "%s", directory);
-    SDL_Thread *thread = SDL_CreateThread(capture, "audio", NULL);
-    started = thread != NULL;
-    SDL_DetachThread(thread);
-    return started;
+    thread = SDL_CreateThread(capture, "audio", NULL);
+    return thread != NULL;
+}
+
+void audio_stop(void) {
+    if (!thread) return;
+    SDL_SetAtomicInt(&stopping, 1);
+    SDL_WaitThread(thread, NULL);
+    thread = NULL;
 }
 
 bool audio_features(float specific[BARK_BAND_COUNT], float *total) {

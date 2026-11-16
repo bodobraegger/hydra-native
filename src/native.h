@@ -31,6 +31,7 @@ void video_close_all(void);
 // The running input closes and the new one opens; before audio_start() it only sets the name.
 void audio_set_device(const char *device);
 bool audio_start(const char *program_directory); // the folder of hydra-native-capture; opens the device of above
+void audio_stop(void); // closes the input and ends its thread
 void audio_set_gain(int percent); // multiplies the samples before the analysis
 struct audio_device;
 int audio_devices(struct audio_device *devices, int capacity); // see audio_input_devices() of src/audio_input.h
