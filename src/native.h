@@ -93,9 +93,10 @@ bool recorder_stop(void); // waits for ffmpeg; false when it failed
 bool publisher_start(int stream, int source_width, int source_height, int width, int height, int rate);
 void publisher_stop(void);
 // The frames of a render to file (src/render.c): each frame of `framebuffer` (width x height) goes to `stream`, the
-// standard input of the ffmpeg `process`, which encoder_stop frees. A frame waits until ffmpeg took the frame before.
+// standard input of the ffmpeg `process`, which encoder_stop frees. Every frame goes to ffmpeg in its order; a frame
+// waits while ffmpeg has not taken the frames before. False when it cannot start; the caller keeps `process` then.
 struct process;
-void encoder_start(struct process *process, int stream, GLuint framebuffer, int width, int height);
+bool encoder_start(struct process *process, int stream, GLuint framebuffer, int width, int height);
 void encoder_frame(void); // after the hydra frame
 bool encoder_stop(void); // waits for ffmpeg; false when it failed
 // The webRTC patch bay (src/patch_bay_main.c): one helper process with JSON lines in and out.

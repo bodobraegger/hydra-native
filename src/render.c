@@ -319,7 +319,19 @@ void render_start(const struct settings *settings, double clock_ms, bool progres
     glBindFramebuffer(GL_FRAMEBUFFER, render.framebuffer);
     glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, render.renderbuffer);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    encoder_start(render.encoder, input, render.framebuffer, render.width, render.height);
+    if (!encoder_start(render.encoder, input, render.framebuffer, render.width, render.height)) {
+        stream_close(input);
+        process_kill(render.encoder);
+        process_free(render.encoder);
+        render.encoder = NULL;
+        stop_decoder(&render.decoder, render.samples);
+        if (render.mix) close_mix();
+        glDeleteFramebuffers(1, &render.framebuffer);
+        glDeleteRenderbuffers(1, &render.renderbuffer);
+        render.framebuffer = render.renderbuffer = 0;
+        remove(render.path);
+        return tell("render: no memory for the frames", true);
+    }
     render.active = true;
     SDL_GL_SetSwapInterval(0); // the window shows the progress only, and a swap must not wait for the display
     audio_feed_start();
