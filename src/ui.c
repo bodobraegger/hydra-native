@@ -1856,14 +1856,16 @@ bool ui_key(const SDL_KeyboardEvent *event) {
         return false; // a modifier alone keeps a pending two-key command
     SDL_Keycode prefix = chord_prefix;
     chord_prefix = 0;
+    // Hidden code and the help take only the global commands, so that no key edits code that does not show.
+    bool editing = visible && !help_visible;
     const struct key_binding *binding =
-        keymap_lookup(key, (SDL_Keymod)event->mod, visible ? key_context() : CONTEXT_ANY, prefix, &extend);
+        keymap_lookup(key, (SDL_Keymod)event->mod, editing ? key_context() : CONTEXT_ANY, prefix, &extend);
     if (prefix && !binding) {
         ui_show_message("no command for this key after Ctrl+K", false);
         suppress_text = true;
         return true;
     }
-    if (!binding || (!visible && !binding->global)) return false;
+    if (!binding || (!editing && !binding->global)) return false;
     // A held key repeats editing commands, but it does not evaluate or toggle again and again.
     if (event->repeat && binding->global) return true;
     suppress_text = true;
