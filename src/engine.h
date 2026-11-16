@@ -8,6 +8,7 @@
 extern JSContext *js;
 
 void engine_start(int argc, char **argv);
+void engine_stop(void);
 double now_ms(void); // the clock of performance.now() and of the timers
 char *read_file(const char *path, size_t *length); // malloc'd with a final NUL, or NULL with errno
 // Evaluates code in the global scope with top-level await, like the web editor, but `var` and functions

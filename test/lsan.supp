@@ -1,0 +1,4 @@
+# LeakSanitizer suppressions for `make sanitize`.
+# fontconfig leaks its parsed configuration when Pango calls FcInit in a GLib thread. libdecor's GTK plugin loads
+# them to draw the window frame on Wayland; hydra-native itself does not use libfontconfig.
+leak:libfontconfig.so

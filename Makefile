@@ -20,11 +20,13 @@ clean:
 
 .PHONY: all test check sanitize clean
 
-# The whole program with the address and undefined-behavior sanitizers, on the render check.
+# The whole program with the address, leak and undefined-behavior sanitizers, on the render check. At exit the
+# program frees the QuickJS runtime, whose debug build then asserts that the C code freed every JS value.
 sanitize:
 	cmake -S . -B build-sanitize -G Ninja -DCMAKE_BUILD_TYPE=Debug \
 		-DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
 		-DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
 	cmake --build build-sanitize
-	HYDRA_NATIVE_TEST=1 XDG_CONFIG_HOME=build-sanitize/test-config ASAN_OPTIONS=detect_leaks=0 \
+	HYDRA_NATIVE_TEST=1 XDG_CONFIG_HOME=build-sanitize/test-config ASAN_OPTIONS=detect_leaks=1 \
+		LSAN_OPTIONS=suppressions=test/lsan.supp \
 		build-sanitize/hydra-native --hidden test/check.js

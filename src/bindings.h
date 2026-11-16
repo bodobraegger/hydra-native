@@ -7,5 +7,6 @@
 #include "quickjs.h"
 
 JSValue bindings_create(JSContext *ctx);
+void bindings_free(JSContext *ctx); // the values that the bindings keep, before the context goes
 // Gives the result of a download of fetchStart or httpRequest to the callback of native.onFetchDone.
 void bindings_fetch_done(JSContext *ctx, int id, bool ok, const char *data, size_t length);

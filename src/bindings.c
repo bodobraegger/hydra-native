@@ -747,6 +747,11 @@ static JSValue js_on_fetch_done(JSContext *ctx, JSValueConst this, int argc, JSV
     return JS_UNDEFINED;
 }
 
+void bindings_free(JSContext *ctx) {
+    JS_FreeValue(ctx, fetch_done_callback);
+    fetch_done_callback = JS_UNDEFINED;
+}
+
 void bindings_fetch_done(JSContext *ctx, int id, bool ok, const char *data, size_t length) {
     if (!JS_IsFunction(ctx, fetch_done_callback)) return;
     // The text for scripts and JSON, the bytes for binary files.

@@ -123,6 +123,17 @@ char *engine_evaluate(const char *code, size_t length, const char *name) {
     return message;
 }
 
+// After the bindings let go of their values; in a debug build, QuickJS then asserts that no value is left, which
+// finds a reference that the C code did not free.
+void engine_stop(void) {
+    for (int i = 0; i < pending_evaluation_count; i++) JS_FreeValue(js, pending_evaluations[i]);
+    pending_evaluation_count = 0;
+    JS_FreeContext(js);
+    JS_FreeRuntime(runtime);
+    js = NULL;
+    runtime = NULL;
+}
+
 void engine_check_pending_evaluations(void) {
     for (int i = 0; i < pending_evaluation_count;) {
         JSValue promise = pending_evaluations[i];
