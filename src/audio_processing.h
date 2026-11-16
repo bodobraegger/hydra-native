@@ -11,6 +11,9 @@
 
 struct audio_processor {
     bool started;
+    // The tables of the first call: the Hann window and the twiddle factors of the FFT.
+    float window[AUDIO_BUFFER_SIZE];
+    float twiddle_real[AUDIO_BUFFER_SIZE / 2], twiddle_imaginary[AUDIO_BUFFER_SIZE / 2];
     float noise[SPECTRUM_SIZE];
     float smoothed_power[SPECTRUM_SIZE]; // smoothed for the noise tracking
     float previous_clean[SPECTRUM_SIZE]; // the power after suppression of the last frame

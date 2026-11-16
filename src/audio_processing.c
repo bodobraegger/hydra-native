@@ -25,7 +25,19 @@
 #define LIMITER_DBFS -1.0f
 #define SILENCE 1e-12f
 
-static void fft(float *real, float *imaginary, int size) {
+static void make_tables(struct audio_processor *processor) {
+    for (int i = 0; i < AUDIO_BUFFER_SIZE; i++)
+        processor->window[i] = 0.5f - 0.5f * cosf(2.0f * (float)M_PI * (float)i / (AUDIO_BUFFER_SIZE - 1));
+    for (int k = 0; k < AUDIO_BUFFER_SIZE / 2; k++) {
+        float angle = -2.0f * (float)M_PI * (float)k / AUDIO_BUFFER_SIZE;
+        processor->twiddle_real[k] = cosf(angle);
+        processor->twiddle_imaginary[k] = sinf(angle);
+    }
+}
+
+// An FFT of AUDIO_BUFFER_SIZE points in place, with the twiddle factors of the processor.
+static void fft(const struct audio_processor *processor, float *real, float *imaginary) {
+    const int size = AUDIO_BUFFER_SIZE;
     for (int i = 1, j = 0; i < size; i++) {
         int bit = size >> 1;
         for (; j & bit; bit >>= 1) j ^= bit;
@@ -36,10 +48,11 @@ static void fft(float *real, float *imaginary, int size) {
         }
     }
     for (int length = 2; length <= size; length <<= 1) {
-        float angle = -2.0f * (float)M_PI / (float)length;
+        int stride = size / length; // the twiddle of k in this length is that of k * stride in the full size
         for (int start = 0; start < size; start += length) {
             for (int k = 0; k < length / 2; k++) {
-                float w_real = cosf(angle * k), w_imaginary = sinf(angle * k);
+                float w_real = processor->twiddle_real[k * stride];
+                float w_imaginary = processor->twiddle_imaginary[k * stride];
                 int even = start + k, odd = start + k + length / 2;
                 float odd_real = real[odd] * w_real - imaginary[odd] * w_imaginary;
                 float odd_imaginary = real[odd] * w_imaginary + imaginary[odd] * w_real;
@@ -65,13 +78,14 @@ static float frame_power(const float *power) {
 
 void audio_analyze(struct audio_processor *processor, const float samples[AUDIO_BUFFER_SIZE],
                    float magnitude[SPECTRUM_SIZE]) {
+    if (!processor->started) make_tables(processor);
     float real[AUDIO_BUFFER_SIZE], imaginary[AUDIO_BUFFER_SIZE], peak = 0.0f;
     for (int i = 0; i < AUDIO_BUFFER_SIZE; i++) {
-        real[i] = samples[i] * (0.5f - 0.5f * cosf(2.0f * (float)M_PI * (float)i / (AUDIO_BUFFER_SIZE - 1)));
+        real[i] = samples[i] * processor->window[i];
         imaginary[i] = 0.0f;
         peak = fmaxf(peak, fabsf(samples[i]));
     }
-    fft(real, imaginary, AUDIO_BUFFER_SIZE);
+    fft(processor, real, imaginary);
     float power[SPECTRUM_SIZE], clean[SPECTRUM_SIZE];
     for (int bin = 0; bin < SPECTRUM_SIZE; bin++) {
         power[bin] = real[bin] * real[bin] + imaginary[bin] * imaginary[bin];
