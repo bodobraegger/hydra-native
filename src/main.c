@@ -380,8 +380,13 @@ static void wait_for_frame(double deadline, int listener) {
         double next = engine_run_timers(), now = now_ms();
         if (now >= deadline || quit_requested) return;
         double until = next >= 0 && next < deadline ? next : deadline;
-        int wait = (int)(until - now);
-        if (wait > 0 && SDL_WaitEventTimeout(NULL, wait)) handle_events();
+        // The wait for events counts whole milliseconds, so the rest of a millisecond is a plain sleep: a wait of
+        // 0 ms would return at once and spin until the deadline.
+        if (until - now >= 1.0) {
+            if (SDL_WaitEventTimeout(NULL, (Sint32)(until - now))) handle_events();
+        } else {
+            SDL_DelayNS((Uint64)((until - now) * 1e6));
+        }
         code_socket_poll(listener);
     }
 }
