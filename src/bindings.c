@@ -356,10 +356,8 @@ static JSValue js_find_program(JSContext *ctx, JSValueConst this, int argc, JSVa
     return JS_NewBool(ctx, found);
 }
 
-static const char *audio_device;
-
 static JSValue js_audio_start(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
-    return JS_NewBool(ctx, audio_start(audio_device, executable_path_directory));
+    return JS_NewBool(ctx, audio_start(executable_path_directory));
 }
 
 // Returns the shape of Meyda's analyzer.get(): { loudness: { specific, total } }, or null before the first buffer.
@@ -805,8 +803,7 @@ static const JSCFunctionListEntry native_functions[] = {
     JS_CFUNC_DEF("exit", 1, js_exit),
 };
 
-JSValue bindings_create(JSContext *ctx, const char *device) {
-    audio_device = device;
+JSValue bindings_create(JSContext *ctx) {
     JSValue native = JS_NewObject(ctx);
     JS_SetPropertyFunctionList(ctx, native, native_functions, sizeof native_functions / sizeof native_functions[0]);
     return native;

@@ -27,10 +27,10 @@ void video_close(int handle);
 void video_close_all(void);
 
 // Audio input: Meyda-compatible "loudness" features of the audio input (src/audio_input.h).
-bool audio_start(const char *device, const char *program_directory); // the folder of hydra-native-capture
 // The input of `a` from now on: a device name as in audio_devices(), "" for the default, AUDIO_NONE for none.
 // The running input closes and the new one opens; before audio_start() it only sets the name.
 void audio_set_device(const char *device);
+bool audio_start(const char *program_directory); // the folder of hydra-native-capture; opens the device of above
 void audio_set_gain(int percent); // multiplies the samples before the analysis
 struct audio_device;
 int audio_devices(struct audio_device *devices, int capacity); // see audio_input_devices() of src/audio_input.h

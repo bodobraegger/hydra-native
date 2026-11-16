@@ -157,10 +157,9 @@ void audio_set_device(const char *device) {
 
 int audio_devices(struct audio_device *devices, int capacity) { return audio_input_devices(devices, capacity); }
 
-bool audio_start(const char *device, const char *directory) {
+bool audio_start(const char *directory) {
     if (started) return true;
     if (!audio_input_init()) return false;
-    audio_set_device(device);
     snprintf(program_directory, sizeof program_directory, "%s", directory);
     SDL_Thread *thread = SDL_CreateThread(capture, "audio", NULL);
     started = thread != NULL;

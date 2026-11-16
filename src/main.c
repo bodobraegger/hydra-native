@@ -487,6 +487,7 @@ int main(int argc, char **argv) {
 #ifdef SIGPIPE // Windows has none: a write to a closed pipe fails
     signal(SIGPIPE, SIG_IGN);
 #endif
+    audio_set_device(settings.audio_source);
     audio_set_gain(settings.audio_gain);
     share_set_server(settings.gallery_server);
     patch_bay_set_rates(settings.stream_rate, settings.stream_max_rate);
@@ -496,7 +497,7 @@ int main(int argc, char **argv) {
 
     engine_start(argc, argv);
     JSValue global = JS_GetGlobalObject(js);
-    JSValue native = bindings_create(js, settings.audio_source[0] ? settings.audio_source : NULL);
+    JSValue native = bindings_create(js);
     char directory[PATH_MAX];
     if (!executable_directory(directory, sizeof directory)) return 1;
     snprintf(executable_path_directory, sizeof executable_path_directory, "%s", directory);
