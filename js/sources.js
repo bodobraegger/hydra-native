@@ -1,5 +1,5 @@
 // Replaces the DOM media inputs of HydraSource (s0..s3) with native video sources:
-// a child process writes raw RGBA frames to a pipe, src/video.c uploads the newest frame.
+// a child process writes raw frames (RGBA, or I420 for videos) to a pipe, src/video.c uploads the newest frame.
 // src/sandbox.c builds the commands from numbers and URLs (gst-launch-1.0 for cameras on Linux, ffmpeg, yt-dlp and
 // build/hydra-native-capture), so that they hold no code of a sketch; only initCommand runs a command of the sketch,
 // and the sandbox of shared code turns it off. On macOS and Windows, the cameras come from SDL in the process.
@@ -14,6 +14,8 @@ const ABSOLUTE_PATTERN = /^([a-z]+:\/\/|[/\\]|[A-Za-z]:)/ // URLs and absolute p
 const MIN_PLAYBACK_RATE = 0.25
 const MAX_PLAYBACK_RATE = 4
 const FRAME_TOLERANCE = 1e-6 // of a frame: a frame time in floating point can come out just below its frame
+// YouTube encodes in BT.709; its stream comes through a pipe, which ffprobe cannot read before ffmpeg.
+const YOUTUBE_COLOR = ['bt709', 'tv']
 
 // A missing program gives a warning in the error bar.
 function requireProgram (program, call) {
@@ -55,14 +57,16 @@ class VideoElement extends EventTarget {
     this.duration = NaN
     this.frameRate = NaN
     this.opened = null // the render clock in ms at the start of an ffmpeg on demand
+    this.color = ['unknown', 'unknown'] // color_space and color_range of ffprobe, for each new ffmpeg
     const probe = native.mediaProbe(url)
     if (probe >= 0) {
       pendingFetches.set(probe, (ok, text) => {
-        for (const line of text.trim().split('\n')) {
-          const [numerator, denominator] = line.split('/')
-          if (denominator) this.frameRate = numerator / denominator
-          else this.duration = parseFloat(line)
-        }
+        const fields = Object.fromEntries(text.trim().split('\n').map((line) => line.split('=')))
+        const [numerator, denominator] = (fields.r_frame_rate || '').split('/')
+        if (denominator > 0) this.frameRate = numerator / denominator
+        this.duration = parseFloat(fields.duration)
+        this.color = [fields.color_space, fields.color_range]
+        if (this.handle >= 0) native.videoColor(this.handle, ...this.color)
         if (native.rendering() && this.handle >= 0) this.currentTime = this.currentTime // on demand from now on
       })
     }
@@ -91,6 +95,7 @@ class VideoElement extends EventTarget {
     this.opened = onDemand ? performance.now() : null
     this.handle = native.mediaOpen(this.url, this.width, this.height, 'video', this.start, this.rate, this.looping,
       onDemand)
+    native.videoColor(this.handle, ...this.color)
     native.videoClose(previous)
   }
 
@@ -223,7 +228,11 @@ export function installSources (sourcePrototype) {
     url = scriptRelative(String(url))
     if (YOUTUBE_PATTERN.test(url)) {
       if (!requireProgram('ffmpeg', 'initVideo') || !requireProgram('yt-dlp', 'initVideo')) return
-      return initHandle(this, options, (width, height) => native.mediaOpen(url, width, height, 'youtube'))
+      return initHandle(this, options, (width, height) => {
+        const handle = native.mediaOpen(url, width, height, 'youtube')
+        native.videoColor(handle, ...YOUTUBE_COLOR)
+        return handle
+      })
     }
     if (!requireProgram('ffmpeg', 'initVideo')) return
     return initHandle(this, options, (width, height) => native.mediaOpen(url, width, height, 'video', 0, 1, loop),

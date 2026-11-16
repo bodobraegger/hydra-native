@@ -14,7 +14,7 @@
 // usage: hydra-native-patch-bay SERVER ROOM SOCKET
 // SOCKET is the path of a local socket for the frames. Each connection starts with one line that names its channel:
 //   output WIDTHxHEIGHT FPS                        hydra-native sends RGBA frames of its output (rows from the bottom)
-//   stream-N-WIDTHxHEIGHT                          the helper sends the RGBA frames of a received stream
+//   stream-N-WIDTHxHEIGHT                          the helper sends the I420 frames of a received stream (BT.601)
 // stdin, one JSON object per line, from src/patch_bay.c:
 //   { type: 'call', method, args }                 a method of pb: initSource, setName, broadcast, and
 //                                                    setMaxRate(nick, fps) for the fps of s0.initStream
@@ -82,6 +82,11 @@
 #define MAX_QUEUED_PACKETS 4096 // RTP packets for the main thread; more are dropped
 #define MAX_MID 63
 #define RGBA_BYTES 4
+
+// The bytes of a frame in I420, as ffmpeg writes it: the planes without padding, the chroma at half the size.
+static size_t i420_frame_size(int width, int height) {
+    return (size_t)width * (size_t)height + 2 * (size_t)((width + 1) / 2) * (size_t)((height + 1) / 2);
+}
 #define DEFAULT_PAYLOAD_TYPE 96
 #define MAX_PAYLOAD_TYPE 127 // RTP has 7 bits for it
 #define STUN_SERVER "stun:stun.l.google.com:19302" // the first STUN server of the defaults of simple-peer
@@ -148,7 +153,7 @@ struct buffer {
     size_t start, size, capacity;
 };
 
-// A received stream: RTP packets with VP8 go to an ffmpeg decoder, whose RGBA frames go to hydra-native.
+// A received stream: RTP packets with VP8 go to an ffmpeg decoder, whose I420 frames go to hydra-native.
 struct receiver {
     int number, width, height; // a new frame size gives a new channel name
     char channel_name[MAX_CHANNEL_LINE];
@@ -159,7 +164,7 @@ struct receiver {
     int decoder_input, decoder_output;
     struct buffer to_decoder;
     uint32_t decoded_count;
-    unsigned char *frame; // RGBA from the decoder
+    unsigned char *frame; // I420 from the decoder
     size_t frame_used;
     unsigned char *encoded; // the VP8 frame of the RTP packets so far
     size_t encoded_size;
@@ -1021,11 +1026,12 @@ static void open_channel(struct peer *peer, int width, int height) {
 static bool start_decoder(struct peer *peer, int width, int height) {
     struct receiver *receiver = &peer->receiver;
     stop_decoder(receiver);
-    receiver->frame = malloc((size_t)width * (size_t)height * RGBA_BYTES);
+    receiver->frame = malloc(i420_frame_size(width, height));
     // One thread for the decoder and for the rawvideo encoder of the output: frame threads hold frames back.
     const char *argv[] = { "ffmpeg", "-hide_banner", "-loglevel", "error", "-probesize", "32", "-analyzeduration", "0",
                            "-flags", "low_delay", "-threads", "1", "-f", "ivf", "-i", "-", "-fps_mode", "passthrough",
-                           "-threads", "1", "-f", "rawvideo", "-pix_fmt", "rgba", "-flush_packets", "1", "-", NULL };
+                           "-threads", "1", "-f", "rawvideo", "-pix_fmt", "yuv420p", "-flush_packets", "1", "-",
+                           NULL };
     if (receiver->frame) receiver->decoder = process_start(argv, &receiver->decoder_input, &receiver->decoder_output);
     if (!receiver->decoder) {
         log_text(true, "cannot start the video decoder: the patch bay needs ffmpeg");
@@ -1143,13 +1149,13 @@ static void write_hydra(void *context) {
     }
 }
 
-// RGBA frames of the decoder; one that comes while hydra-native still reads the one before, or above the maximum
+// I420 frames of the decoder; one that comes while hydra-native still reads the one before, or above the maximum
 // rate, is dropped.
 static void read_decoder(void *context) {
     struct peer *peer = context;
     struct receiver *receiver = &peer->receiver;
     if (receiver->decoder_output < 0) return;
-    size_t frame_size = (size_t)receiver->width * (size_t)receiver->height * RGBA_BYTES;
+    size_t frame_size = i420_frame_size(receiver->width, receiver->height);
     ssize_t count = read_stream(receiver->decoder_output, receiver->frame + receiver->frame_used,
                                 frame_size - receiver->frame_used);
     if (count == 0 || (count < 0 && errno != EAGAIN && errno != EINTR)) {

@@ -255,6 +255,10 @@ initVideo, initImage and vidRecorder need ffmpeg in PATH; the error bar names a 
 A relative path of initVideo and initImage is relative to the folder of the open sketch, as for `loadScript`.
 A monitor stream sends no frame until something on that monitor repaints.
 Window and area streams start at once.
+Videos, cameras on Linux and the streams of the patch bay come in YUV 4:2:0, which the GPU converts with the color
+matrix of the video (BT.601, BT.709 or BT.2020, as ffprobe reports it; BT.601 for a video without color tags).
+This needs about half the memory of RGBA and less CPU time, so more videos play at once. The alpha channel of a
+video (for example ProRes 4444) is lost; `initImage` and `initCommand` keep RGBA.
 
 `initVideo` plays in a loop unless you give `{ loop: false }`.
 As in the web editor, `s0.src` controls the video like a `<video>` element:

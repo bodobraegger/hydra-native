@@ -9,6 +9,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include "native.h"
+
 #define SANDBOX_REASON "shared code ran in this session (restart hydra-native to use it)"
 
 void sandbox_enter(void);
@@ -40,9 +42,11 @@ struct media_playback {
 // the sandbox.
 const char *sandbox_media_input(const char *url);
 // The command of initVideo and initImage: ffmpeg plays `url` (a file or a stream; "video", as in `playback`), takes
-// the first frame ("image"), or plays the output of yt-dlp ("youtube"), as RGBA frames of width x height.
+// the first frame ("image"), or plays the output of yt-dlp ("youtube"), as frames of width x height in `format`.
+// I420 keeps the YUV matrix of the source, see video_set_color.
 enum command_status sandbox_media_command(char *command, size_t size, const char *url, const char *kind, int width,
-                                          int height, const struct media_playback *playback);
+                                          int height, enum video_format format,
+                                          const struct media_playback *playback);
 // The command of the screen capture: hydra-native-capture of `program_directory` (src/capture_main.c) with the
 // mode "picker", "monitor", "area" or "window" and the numbers of its usage.
 enum command_status sandbox_capture_command(char *command, size_t size, const char *program_directory,

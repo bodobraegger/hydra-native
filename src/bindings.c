@@ -226,9 +226,11 @@ static JSValue js_media_open(JSContext *ctx, JSValueConst this, int argc, JSValu
     char command[MAX_COMMAND];
     JSValue result = JS_EXCEPTION;
     if (url && kind) {
-        switch (sandbox_media_command(command, sizeof command, url, kind, width, height, &playback)) {
+        // An image keeps the full resolution of its colors; a video goes as I420, see src/native.h.
+        enum video_format format = strcmp(kind, "image") ? VIDEO_FORMAT_I420 : VIDEO_FORMAT_RGBA;
+        switch (sandbox_media_command(command, sizeof command, url, kind, width, height, format, &playback)) {
         case COMMAND_OK: {
-            int handle = video_open_media(command, width, height, playback.on_demand);
+            int handle = video_open_media(command, width, height, format, playback.on_demand);
             if (handle >= 0 && !strcmp(kind, "video")) render_source_play(handle, sandbox_media_input(url), &playback);
             result = video_handle(ctx, handle, "cannot start video source");
             break;
@@ -242,14 +244,15 @@ static JSValue js_media_open(JSContext *ctx, JSValueConst this, int argc, JSValu
     return result;
 }
 
-// mediaProbe(url): the id of an ffprobe for native.onFetchDone, or -1; its output has the frame rate of the first
-// video stream ("25/1") and the duration in seconds on lines of their own.
+// mediaProbe(url): the id of an ffprobe for native.onFetchDone, or -1; its output has lines `name=value` with the
+// frame rate ("r_frame_rate=25/1"), the color_space and color_range of the first video stream, and the duration.
 static JSValue js_media_probe(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
     const char *url = JS_ToCString(ctx, argv[0]);
     if (!url) return JS_EXCEPTION;
     const char *input = sandbox_media_input(url);
     const char *arguments[16] = { "ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
-                                  "format=duration:stream=r_frame_rate", "-of", "csv=p=0" };
+                                  "format=duration:stream=r_frame_rate,color_space,color_range", "-of",
+                                  "default=noprint_wrappers=1" };
     size_t count = 9;
     if (sandbox_active()) {
         arguments[count++] = "-protocol_whitelist";
@@ -323,6 +326,19 @@ static JSValue js_video_frames(JSContext *ctx, JSValueConst this, int argc, JSVa
 
 static JSValue js_video_running(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
     return JS_NewBool(ctx, video_is_running(to_int(ctx, argv[0])));
+}
+
+// videoColor(handle, colorSpace, colorRange) with the names of ffprobe; other matrices count as BT.601, which
+// ffmpeg also assumes for video without tags.
+static JSValue js_video_color(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
+    const char *space = JS_ToCString(ctx, argv[1]), *range = JS_ToCString(ctx, argv[2]);
+    enum video_matrix matrix = VIDEO_MATRIX_BT601;
+    if (space && !strcmp(space, "bt709")) matrix = VIDEO_MATRIX_BT709;
+    else if (space && !strncmp(space, "bt2020", 6)) matrix = VIDEO_MATRIX_BT2020;
+    video_set_color(to_int(ctx, argv[0]), matrix, range && !strcmp(range, "pc"));
+    JS_FreeCString(ctx, space);
+    JS_FreeCString(ctx, range);
+    return JS_UNDEFINED;
 }
 
 static JSValue js_video_close(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
@@ -766,6 +782,7 @@ static const JSCFunctionListEntry native_functions[] = {
     JS_CFUNC_DEF("videoRunning", 1, js_video_running),
     JS_CFUNC_DEF("videoFrames", 1, js_video_frames),
     JS_CFUNC_DEF("videoClose", 1, js_video_close),
+    JS_CFUNC_DEF("videoColor", 3, js_video_color),
     JS_CFUNC_DEF("cameraOpen", 3, js_camera_open),
     JS_CFUNC_DEF("cameras", 0, js_cameras),
     JS_CFUNC_DEF("findProgram", 1, js_find_program),

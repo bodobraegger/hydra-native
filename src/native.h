@@ -7,24 +7,31 @@
 
 #define BARK_BAND_COUNT 24
 
-// Video sources: a child process writes raw RGBA frames of a fixed size to its stdout (video_open runs a shell
-// command, see src/process.h), or a stream of the patch bay brings them (video_open_stream owns `stream`).
+// Video sources: a child process writes raw frames of a fixed size to its stdout (video_open runs a shell command,
+// see src/process.h), or a stream of the patch bay brings them (video_open_stream owns `stream`). The frames are
+// RGBA, or I420 (planar YUV 4:2:0, the planes without padding), which the GPU converts to RGBA. I420 needs 1.5
+// bytes per pixel instead of 4, and most decoders write it without a conversion.
 #define MAX_VIDEO_SOURCES 16 // the handles are 0 to MAX_VIDEO_SOURCES - 1
-int video_open(const char *command, int width, int height);
-int video_open_stream(int stream, int width, int height);
-// A command of sandbox_media_command. With `on_demand`, video_upload reads the frames instead of a thread.
-int video_open_media(const char *command, int width, int height, bool on_demand);
-// Camera `index` of the names that video_camera_names lists, in RGBA frames of width x height: GStreamer with the
+enum video_format { VIDEO_FORMAT_RGBA, VIDEO_FORMAT_I420 };
+// The YUV matrix of I420 frames; video_set_color() names them as ffprobe does.
+enum video_matrix { VIDEO_MATRIX_BT601, VIDEO_MATRIX_BT709, VIDEO_MATRIX_BT2020 };
+int video_open(const char *command, int width, int height); // RGBA
+int video_open_stream(int stream, int width, int height);   // I420 of the patch bay helper, BT.601
+// A command of sandbox_media_command in its format. With `on_demand`, video_upload reads the frames instead of a
+// thread.
+int video_open_media(const char *command, int width, int height, enum video_format format, bool on_demand);
+// Camera `index` of the names that video_camera_names lists, in frames of width x height: GStreamer with the
 // /dev/video* capture nodes on Linux, the SDL camera elsewhere (AVFoundation on macOS, Media Foundation on Windows).
 int video_open_camera(int index, int width, int height);
 int video_camera_names(const char **names, int capacity);
+// The matrix and range of the I420 frames of `handle`, from now on; the default is BT.601 in limited range, which
+// ffmpeg also assumes for video without color tags.
+void video_set_color(int handle, enum video_matrix matrix, bool full_range);
 bool video_upload(int handle, GLuint texture, int frames); // frames: see video_open_media
 bool video_is_running(int handle);
 int video_frames(int handle); // the count of frames that the stream delivered
-bool video_size(int handle, int *width, int *height);
-bool video_copy_frame(int handle, unsigned char *pixels);
 void video_close(int handle);
-void video_close_all(void);
+void video_close_all(void); // also frees the GL objects of the conversion; before the GL context goes
 
 // Audio input: Meyda-compatible "loudness" features of the audio input (src/audio_input.h).
 // The input of `a` from now on: a device name as in audio_devices(), "" for the default, AUDIO_NONE for none.
