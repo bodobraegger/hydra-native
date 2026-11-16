@@ -11,7 +11,7 @@
 // see src/process.h), or a stream of the patch bay brings them (video_open_stream owns `stream`). The frames are
 // RGBA, or I420 (planar YUV 4:2:0, the planes without padding), which the GPU converts to RGBA. I420 needs 1.5
 // bytes per pixel instead of 4, and most decoders write it without a conversion.
-#define MAX_VIDEO_SOURCES 16 // the handles are 0 to MAX_VIDEO_SOURCES - 1
+#define MAX_VIDEO_SOURCES 64 // the handles are 0 to MAX_VIDEO_SOURCES - 1
 enum video_format { VIDEO_FORMAT_RGBA, VIDEO_FORMAT_I420 };
 // The YUV matrix of I420 frames; video_set_color() names them as ffprobe does.
 enum video_matrix { VIDEO_MATRIX_BT601, VIDEO_MATRIX_BT709, VIDEO_MATRIX_BT2020 };
