@@ -639,7 +639,7 @@ int main(int argc, char **argv) {
         // A hidden Wayland surface never releases its buffers, so a swap could block for ever.
         if (!options.hidden) {
             // Until shortly before the next display refresh, run timers and events instead of a blocking swap.
-            if (settings.vsync && frame_period_ms > 0)
+            if (ui_settings()->vsync && frame_period_ms > 0)
                 wait_for_frame(last_swap + frame_period_ms - SWAP_MARGIN_MS, listener);
             SDL_GL_SwapWindow(window);
             double swapped = now_ms();
@@ -664,7 +664,7 @@ int main(int argc, char **argv) {
                 SDL_GetWindowSizeInPixels(window, &width, &height);
                 printf("{\"width\":%d,\"height\":%d,\"vsync\":%s,\"fps\":%.1f,\"jsFrameMeanMs\":%.3f,"
                        "\"overlayFrameMeanMs\":%.3f,\"renderer\":\"%s\",\"differenceBlend\":\"%s\"}\n",
-                       width, height, settings.vsync ? "true" : "false", (bench_frames - 1) / (elapsed / 1000),
+                       width, height, ui_settings()->vsync ? "true" : "false", (bench_frames - 1) / (elapsed / 1000),
                        frame_js_ms / bench_frames, frame_overlay_ms / bench_frames,
                        (const char *)glGetString(GL_RENDERER), overlay_difference_method());
                 quit_requested = true;
