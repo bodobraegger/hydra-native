@@ -208,10 +208,10 @@ static bool message_is_error;
 static bool evaluating;
 static char console_message[MAX_MESSAGE];
 static bool suppress_text; // the key press before this text input was a command
-static bool help_visible;
-static bool info_visible;
-static bool extensions_visible;
-static bool settings_visible;
+static bool help_visible; // the help covers the code and the panel
+// The side panel: one at a time.
+enum panel { PANEL_NONE, PANEL_INFO, PANEL_EXTENSIONS, PANEL_SETTINGS };
+static enum panel panel;
 static bool gallery_enabled; // the web editor shows "share" only with a gallery server
 
 // The drop-down list of the toolbar button "reset", which shows with an open file: the entry, its tooltip and its
@@ -1318,6 +1318,16 @@ static struct {
     bool invalid; // the last Enter found no number; it shows in the error color
 } number_field;
 
+// The number field belongs to the settings panel, so it closes with the panel.
+static void set_panel(enum panel shown) {
+    if (shown != PANEL_SETTINGS) number_field.open = false;
+    if (shown == PANEL_SETTINGS && panel != PANEL_SETTINGS) load_settings_lists();
+    if (shown != panel) info_scroll = 0;
+    panel = shown;
+}
+
+static void toggle_panel(enum panel toggled) { set_panel(panel == toggled ? PANEL_NONE : toggled); }
+
 static double number_value(enum number_kind kind) {
     switch (kind) {
     case NUMBER_OPACITY: return code_background_percent();
@@ -1599,9 +1609,7 @@ static void escape(void) {
     else if (signature_help_open) signature_help_open = false;
     else if (prompt.kind != PROMPT_NONE) prompt.kind = PROMPT_NONE;
     else if (help_visible) help_visible = false;
-    else if (info_visible) info_visible = false;
-    else if (extensions_visible) extensions_visible = false;
-    else if (settings_visible) settings_visible = false;
+    else if (panel != PANEL_NONE) set_panel(PANEL_NONE);
     else if (visible && editor_selection_count(&editor) > 1) editor_collapse_to_first(&editor);
     else if (visible && editor_has_selection(&editor)) editor_set_cursor(&editor, editor.cursor, false);
     else if (host.is_fullscreen()) host.toggle_fullscreen();
@@ -1711,22 +1719,9 @@ static void run_command_body(enum command command, bool extend) {
         break;
     case COMMAND_MUTATE_UNDO: replace_with("__mutateUndo", "mutator: nothing to undo"); break;
     case COMMAND_TOGGLE_HELP: help_visible = !help_visible; return;
-    case COMMAND_TOGGLE_EXTENSIONS:
-        extensions_visible = !extensions_visible;
-        info_visible = settings_visible = false;
-        info_scroll = 0;
-        return;
-    case COMMAND_TOGGLE_INFO:
-        info_visible = !info_visible;
-        extensions_visible = settings_visible = false;
-        info_scroll = 0;
-        return;
-    case COMMAND_TOGGLE_SETTINGS:
-        settings_visible = !settings_visible;
-        if (settings_visible) load_settings_lists();
-        info_visible = extensions_visible = false;
-        info_scroll = 0;
-        return;
+    case COMMAND_TOGGLE_EXTENSIONS: toggle_panel(PANEL_EXTENSIONS); return;
+    case COMMAND_TOGGLE_INFO: toggle_panel(PANEL_INFO); return;
+    case COMMAND_TOGGLE_SETTINGS: toggle_panel(PANEL_SETTINGS); return;
     case COMMAND_COPY_PATCH_BAY_ID: copy_patch_bay_id(); return;
     case COMMAND_SET_SERVER:
         open_prompt(PROMPT_SERVER);
@@ -1843,7 +1838,6 @@ static void run_command_body(enum command command, bool extend) {
 }
 
 static enum key_context key_context(void) {
-    if (!settings_visible) number_field.open = false;
     if (number_field.open) return CONTEXT_NUMBER;
     if (reset_menu_open) return CONTEXT_MENU;
     if (completion.open) return settings.autocomplete_style == AUTOCOMPLETE_GHOST ? CONTEXT_GHOST : CONTEXT_COMPLETION;
@@ -1885,7 +1879,7 @@ void ui_text_input(const char *text) {
     reset_menu_open = false;
     if (prompt.kind == PROMPT_UNSAVED) return answer_unsaved(text[0]);
     if (help_visible) return;
-    if (number_field.open && settings_visible) {
+    if (number_field.open) {
         type_number(text);
         return;
     }
@@ -2028,7 +2022,7 @@ static void draw_toolbar(void) {
                      pointer_x <= x + width;
         if (!hover || reset_menu_open) continue; // the open list takes the place of the tooltip
         const char *title = toolbar[i].command == COMMAND_TOGGLE_INFO &&
-            info_visible ? "toolbar.hide-info" : toolbar[i].title;
+            panel == PANEL_INFO ? "toolbar.hide-info" : toolbar[i].title;
         char *text = toolbar[i].command == COMMAND_CLEAR_ALL && file_path ? strdup(RESET_BUTTON_TITLE)
             : title ? host.call("__translate", title) : strdup(command_description(toolbar[i].command));
         if (!text) continue;
@@ -2236,20 +2230,20 @@ static void run_extension_action(const struct panel_button *button) {
         snprintf(code, length + 1, "\n%s\n\n%s\n", result, editor.text);
         editor_replace_text(&editor, code, strlen(code));
         free(code);
-        extensions_visible = false;
+        set_panel(PANEL_NONE);
     } else if (button->action == ACTION_EXTENSION_DOCS && (result = host.call("__extensionDocumentation", index))) {
         SDL_OpenURL(result);
     } else if (button->action == ACTION_EXTENSION_EXAMPLE && (result = host.call("__extensionExample", index))) {
         editor_replace_text(&editor, result, strlen(result));
         evaluate_range(0, editor.length);
-        extensions_visible = false;
+        set_panel(PANEL_NONE);
     }
     free(result);
 }
 
 static bool extensions_click(float x, float y) {
     if (!in_info_panel(x, y)) {
-        extensions_visible = false;
+        set_panel(PANEL_NONE);
         return false;
     }
     size_t button = panel_button_at(x, y);
@@ -2261,7 +2255,7 @@ static bool info_click(float x, float y) {
     float left, top, width, height;
     info_panel(&left, &top, &width, &height);
     if (x < left || x > left + width || y < top || y > top + height) {
-        info_visible = false;
+        set_panel(PANEL_NONE);
         return false;
     }
     float line_height = overlay_line_height();
@@ -2630,7 +2624,7 @@ static void draw_settings(void) {
 
 // Opens `kind` with `text` selected, so that typing replaces it.
 static void open_prompt_with(enum prompt_kind kind, const char *text) {
-    settings_visible = false;
+    set_panel(PANEL_NONE);
     open_prompt(kind);
     snprintf(prompt.query, sizeof prompt.query, "%.*s", (int)sizeof prompt.query - 1, text);
     prompt.query_selected = prompt.query[0] != '\0';
@@ -2658,11 +2652,11 @@ static void run_settings_action(const struct panel_button *button) {
     case ACTION_EXTENSION_EXAMPLE:
     case ACTION_EDIT_NUMBER: return;
     case ACTION_OPEN_FILE:
-        settings_visible = false;
+        set_panel(PANEL_NONE);
         host.choose_file(FILE_DIALOG_OPEN);
         return;
     case ACTION_SETUP_FILE:
-        settings_visible = false;
+        set_panel(PANEL_NONE);
         host.choose_file(FILE_DIALOG_SETUP);
         return;
     case ACTION_SETUP_CLEAR: ui_set_setup_file(""); return;
@@ -2677,7 +2671,7 @@ static void run_settings_action(const struct panel_button *button) {
     case ACTION_SERVER_OFF: set_server(""); return;
     case ACTION_SERVER_WEB_EDITOR: set_server(WEB_EDITOR_SERVER); return;
     case ACTION_SERVER_CUSTOM:
-        settings_visible = false;
+        set_panel(PANEL_NONE);
         run_command(COMMAND_SET_SERVER, false);
         return;
     case ACTION_COPY_STREAM_ID: copy_patch_bay_id(); return;
@@ -2688,15 +2682,15 @@ static void run_settings_action(const struct panel_button *button) {
     case ACTION_FONT_FILE: open_prompt_with(PROMPT_FONT_PATH, settings.font); return;
     case ACTION_FONT: set_font(font_choices[index].file); return;
     case ACTION_RENDER:
-        settings_visible = false;
+        set_panel(PANEL_NONE);
         run_command(COMMAND_RENDER_TO_FILE, false);
         return;
     case ACTION_RENDER_FILE:
-        settings_visible = false;
+        set_panel(PANEL_NONE);
         host.choose_file(FILE_DIALOG_RENDER_FILE);
         return;
     case ACTION_RENDER_AUDIO_FILE:
-        settings_visible = false;
+        set_panel(PANEL_NONE);
         host.choose_file(FILE_DIALOG_RENDER_AUDIO);
         return;
     case ACTION_RENDER_SIZE: {
@@ -2746,8 +2740,8 @@ static bool settings_click(float x, float y) {
         run_settings_action(&clicked);
         return true;
     }
-    if (!in_info_panel(x, y)) settings_visible = false;
-    return settings_visible;
+    if (!in_info_panel(x, y)) set_panel(PANEL_NONE);
+    return panel == PANEL_SETTINGS;
 }
 
 // ---------------------------------------------------------------- help
@@ -2798,9 +2792,9 @@ void ui_mouse_button(float x, float y, bool down, int clicks, SDL_Keymod modifie
     }
     if (toolbar_click(x, y, modifiers)) return;
     reset_menu_open = false;
-    if (info_visible && info_click(x, y)) return;
-    if (extensions_visible && extensions_click(x, y)) return;
-    if (settings_visible && settings_click(x, y)) return;
+    if (panel == PANEL_INFO && info_click(x, y)) return;
+    if (panel == PANEL_EXTENSIONS && extensions_click(x, y)) return;
+    if (panel == PANEL_SETTINGS && settings_click(x, y)) return;
     if (y >= MARGIN && y < code_top()) { // the setup line
         ui_run_setup();
         return;
@@ -2860,8 +2854,8 @@ static bool wheel_number(int lines) {
 
 void ui_wheel(int lines) {
     if (!visible) return;
-    if (settings_visible && wheel_number(lines)) return;
-    if (info_visible || extensions_visible || settings_visible) {
+    if (panel == PANEL_SETTINGS && wheel_number(lines)) return;
+    if (panel != PANEL_NONE) {
         long target = (long)info_scroll - (long)lines * WHEEL_ROWS;
         info_scroll = target < 0 ? 0 : (size_t)target;
         return;
@@ -3344,9 +3338,9 @@ void ui_draw(int width, int height, double now_ms) {
     overlay_set_difference(OVERLAY_CODE_BACKGROUND, settings.code_background_blend == CODE_BLEND_DIFFERENCE);
     overlay_set_difference(OVERLAY_CODE_TEXT, settings.code_text_blend == CODE_BLEND_DIFFERENCE);
     draw_code();
-    if (info_visible) draw_info();
-    if (extensions_visible) draw_extensions();
-    if (settings_visible) draw_settings();
+    if (panel == PANEL_INFO) draw_info();
+    if (panel == PANEL_EXTENSIONS) draw_extensions();
+    if (panel == PANEL_SETTINGS) draw_settings();
     draw_toolbar();
     draw_signature_help();
     draw_completion();
@@ -3383,7 +3377,7 @@ bool ui_text_input_rect(int *x, int *y, int *width, int *height) {
 
 void ui_set_visible(bool show) { visible = show; }
 
-void ui_show_info(void) { info_visible = true; }
+void ui_show_info(void) { set_panel(PANEL_INFO); }
 
 void ui_enable_gallery(void) { gallery_enabled = true; }
 
