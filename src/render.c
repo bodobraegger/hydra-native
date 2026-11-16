@@ -76,7 +76,7 @@ static const struct container *find_container(const char *path) {
     return NULL;
 }
 
-static void tell(const char *text, bool error) {
+static void report(const char *text, bool error) {
     ui_show_message(text, error);
     if (render.progress) fprintf(stderr, "%s\n", text);
 }
@@ -266,18 +266,18 @@ void render_start(const struct settings *settings, double clock_ms, bool progres
     glGetIntegerv(GL_MAX_RENDERBUFFER_SIZE, &max_size);
     if (!container) {
         snprintf(message, sizeof message, "render: %s needs the extension .mp4, .mov or .webm", render.path);
-        return tell(message, true);
+        return report(message, true);
     }
-    if (!process_find_program("ffmpeg")) return tell("render to file needs ffmpeg in PATH", true);
+    if (!process_find_program("ffmpeg")) return report("render to file needs ffmpeg in PATH", true);
     if (settings->render_width > max_size || settings->render_height > max_size) {
         snprintf(message, sizeof message, "render: the GPU renders at most %dx%d", max_size, max_size);
-        return tell(message, true);
+        return report(message, true);
     }
     if (settings->render_audio == RENDER_AUDIO_FILE && !audio)
-        return tell("render audio: \"file\" needs an audio file (settings menu, render)", true);
+        return report("render audio: \"file\" needs an audio file (settings menu, render)", true);
     if (audio && access(audio, R_OK) != 0) {
         snprintf(message, sizeof message, "render: cannot read the audio file %s", audio);
-        return tell(message, true);
+        return report(message, true);
     }
     render.width = settings->render_width;
     render.height = settings->render_height;
@@ -297,19 +297,19 @@ void render_start(const struct settings *settings, double clock_ms, bool progres
         snprintf(render.mix_path, sizeof render.mix_path, "%s" MIX_SUFFIX, render.path);
         if (!(render.mix = fopen(render.mix_path, "wb"))) {
             snprintf(message, sizeof message, "render: cannot write %s", render.mix_path);
-            return tell(message, true);
+            return report(message, true);
         }
         output = render.video_path;
     }
     if (audio && !(render.decoder = start_decoder(audio, NULL, &render.samples))) {
         if (render.mix) close_mix();
-        return tell("render: cannot start ffmpeg", true);
+        return report("render: cannot start ffmpeg", true);
     }
     int input = start_encoder(container, muxed, output);
     if (input < 0) {
         stop_decoder(&render.decoder, render.samples);
         if (render.mix) close_mix();
-        return tell("render: cannot start ffmpeg", true);
+        return report("render: cannot start ffmpeg", true);
     }
     glGenRenderbuffers(1, &render.renderbuffer);
     glBindRenderbuffer(GL_RENDERBUFFER, render.renderbuffer);
@@ -330,7 +330,7 @@ void render_start(const struct settings *settings, double clock_ms, bool progres
         glDeleteRenderbuffers(1, &render.renderbuffer);
         render.framebuffer = render.renderbuffer = 0;
         remove(render.path);
-        return tell("render: no memory for the frames", true);
+        return report("render: no memory for the frames", true);
     }
     render.active = true;
     SDL_GL_SetSwapInterval(0); // the window shows the progress only, and a swap must not wait for the display
@@ -367,7 +367,7 @@ static void finish(enum render_end end) {
                  sources_muted ? "; render audio: sources needs a video with sound; the file is muted" : "");
     }
     render.succeeded = ok && end == RENDER_DONE;
-    tell(message, end != RENDER_CANCELED && !ok);
+    report(message, end != RENDER_CANCELED && !ok);
 }
 
 // Feeds the sound up to the time of `frame`. False when the render ended instead, because the audio file ended.
