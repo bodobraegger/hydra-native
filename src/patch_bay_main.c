@@ -35,6 +35,7 @@
 //
 // On Windows every stream is a pipe: SOCKET is a named pipe, and poll_streams (below) takes the place of poll.
 #define _CRT_RAND_S // rand_s of Windows
+#include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>
@@ -90,6 +91,8 @@ static size_t i420_frame_size(int width, int height) {
 #define DEFAULT_PAYLOAD_TYPE 96
 #define MAX_PAYLOAD_TYPE 127 // RTP has 7 bits for it
 #define STUN_SERVER "stun:stun.l.google.com:19302" // the first STUN server of the defaults of simple-peer
+#define MAX_ICE_SERVERS 8
+#define MAX_ICE_URL 1024
 #define DATA_CHANNEL_LABEL "hydra-native"
 #define MAX_RATE_MESSAGE "maxRate"
 #define MAX_STREAM_RATE 60 // frames per second, SETTINGS_MAX_STREAM_RATE: also the maximum of a web editor
@@ -201,6 +204,10 @@ static bool stopping, quitting;
 static int64_t stop_deadline;
 static volatile sig_atomic_t quit_signal;
 static char own_id[ID_LENGTH + 1];
+// The ICE servers of the next connections: those of the 'ready' event that libjuice can use, else STUN_SERVER.
+static char ice_urls[MAX_ICE_SERVERS][MAX_ICE_URL];
+static const char *ice_servers[MAX_ICE_SERVERS] = { STUN_SERVER };
+static int ice_server_count = 1;
 static char *nick, *stream_id;
 // The tables of pb-live.js and rtc-patch-bay.js: JSON objects keep the order of their members, as JavaScript does.
 static cJSON *nick_from_id, *id_from_nick, *peer_list;
@@ -757,13 +764,69 @@ static void peer_signal(struct peer *peer, const cJSON *signal) {
     else log_text(true, "an invalid description of %s", peer->id);
 }
 
+// Percent-encodes all but the unreserved characters of RFC 3986, so that a credential of base64 ('+', '/', '=')
+// survives the URL of an ICE server, which libdatachannel decodes again. False when `text` does not fit.
+static bool percent_encode(const char *text, char *encoded, size_t size) {
+    static const char digits[] = "0123456789ABCDEF";
+    size_t length = 0;
+    for (const unsigned char *c = (const unsigned char *)text; *c; c++) {
+        bool unreserved = isalnum(*c) || strchr("-._~", *c);
+        if (length + (unreserved ? 1 : 3) >= size) return false;
+        if (unreserved) {
+            encoded[length++] = (char)*c;
+        } else {
+            encoded[length++] = '%';
+            encoded[length++] = digits[*c >> 4];
+            encoded[length++] = digits[*c & 0xF];
+        }
+    }
+    encoded[length] = '\0';
+    return true;
+}
+
+// The URL of an ICE server of the 'ready' event for libdatachannel: "stun:host:port" stays as it is, and
+// "turn:host:port?transport=udp" gets the username and the credential. libjuice uses only STUN and TURN over UDP,
+// so TURN over TCP or TLS (also "turns:") gives false.
+static bool ice_url(const char *url, const char *username, const char *credential, char *out, size_t size) {
+    if (!strncmp(url, "stun:", 5)) return snprintf(out, size, "%s", url) < (int)size;
+    if (strncmp(url, "turn:", 5) || strstr(url, "transport=tcp") || strstr(url, "transport=tls")) return false;
+    char user[MAX_ICE_URL / 4], password[MAX_ICE_URL / 4];
+    if (!percent_encode(username ? username : "", user, sizeof user) ||
+        !percent_encode(credential ? credential : "", password, sizeof password))
+        return false;
+    return snprintf(out, size, "turn:%s:%s@%s", user, password, url + 5) < (int)size;
+}
+
+// The `servers` of the 'ready' event: the iceServers of RTCConfiguration, which hydra-server takes from a Twilio
+// token and the web editor gives to simple-peer. Without a STUN server among them, STUN_SERVER is added; without
+// `servers`, it is the only one.
+static void set_ice_servers(const cJSON *servers) {
+    int count = 0;
+    bool stun = false;
+    for (const cJSON *server = cJSON_IsArray(servers) ? servers->child : NULL; server; server = server->next) {
+        // Twilio also sends the old `url`, with the same URL as `urls`.
+        const cJSON *urls = cJSON_GetObjectItemCaseSensitive(server, "urls");
+        if (!urls) urls = cJSON_GetObjectItemCaseSensitive(server, "url");
+        const cJSON *first = cJSON_IsArray(urls) ? urls->child : urls;
+        const char *username = member_string(server, "username"), *credential = member_string(server, "credential");
+        for (const cJSON *url = first; url && count < MAX_ICE_SERVERS; url = cJSON_IsArray(urls) ? url->next : NULL) {
+            if (!cJSON_IsString(url) || !ice_url(url->valuestring, username, credential, ice_urls[count], MAX_ICE_URL))
+                continue;
+            stun = stun || !strncmp(url->valuestring, "stun:", 5);
+            ice_servers[count] = ice_urls[count];
+            count++;
+        }
+    }
+    if (!stun && count < MAX_ICE_SERVERS) ice_servers[count++] = STUN_SERVER;
+    ice_server_count = count;
+}
+
 static struct peer *peer_create(const char *id, bool initiator, bool send) {
     if (peer_count >= MAX_CONNECTIONS) {
         log_text(true, "no connection to %s: the patch bay has %d connections", id, MAX_CONNECTIONS);
         return NULL;
     }
-    const char *ice_servers[] = { STUN_SERVER };
-    rtcConfiguration configuration = { .iceServers = ice_servers, .iceServersCount = 1,
+    rtcConfiguration configuration = { .iceServers = ice_servers, .iceServersCount = ice_server_count,
                                        .disableAutoNegotiation = true,
                                        // simple-peer adds the video in a later negotiation than the data channel
                                        .forceMediaTransport = true };
@@ -1213,6 +1276,7 @@ static void receive_event(const cJSON *event) {
     const cJSON *first = cJSON_GetArrayItem(event, 0), *argument = cJSON_GetArrayItem(event, 1);
     const char *name = cJSON_IsString(first) ? first->valuestring : "";
     if (!strcmp(name, "ready")) {
+        set_ice_servers(cJSON_GetObjectItemCaseSensitive(argument, "servers"));
         const cJSON *ids = cJSON_GetObjectItemCaseSensitive(argument, "peers");
         for (const cJSON *id = cJSON_IsArray(ids) ? ids->child : NULL; id; id = id->next)
             if (cJSON_IsString(id)) new_peer(id->valuestring);

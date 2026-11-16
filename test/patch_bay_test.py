@@ -3,13 +3,20 @@
 (test/signalling_server.cjs on 127.0.0.1): instance A draws red and publishes it, instance B joins the same room,
 receives A with s0.initStream(id, { fps }) and reads the color back. B then counts the new frames of the stream for a
 second: at most about fps arrive, and A publishes at that rate. The public signalling server is never used.
+The 'ready' event sends ICE servers in the form of the Twilio token of hydra-server: STUN, TURN over UDP with a
+password that needs percent-encoding, and TURN over TCP and TLS, which the helper leaves out. With coturn
+(`turnserver` in PATH, or its path in TURNSERVER), they point to a local TURN server, and a relay candidate must pass
+the signalling: coturn gives one only for the right password.
 Run with `make check` (it needs build/hydra-native and node_modules)."""
 import json
 import os
 import pathlib
+import shutil
+import socket
 import subprocess
 import sys
 import tempfile
+import time
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 BUILD = pathlib.Path(os.environ.get("HYDRA_NATIVE_BUILD", ROOT / "build"))
@@ -19,6 +26,10 @@ MAX_RATE = 10 # frames per second of the stream that B receives
 COUNT_MS = 1000
 MAX_COUNTED = MAX_RATE * COUNT_MS // 1000 + 2 # the tolerance of the receiver can let one frame more through
 MIN_COUNTED = 3
+TURN_USER = "hydra"
+TURN_PASSWORD = "a+b/c=d@e"
+TURN_START_SECONDS = 1
+TURNSERVER = os.environ.get("TURNSERVER") or shutil.which("turnserver")
 
 PUBLISHER = """
 solid(1, 0, 0).out()
@@ -62,7 +73,29 @@ const check = setInterval(() => {
 }, 250)
 """
 
-server = subprocess.Popen(["node", str(ROOT / "test" / "signalling_server.cjs"), "0"], stdout=subprocess.PIPE, text=True)
+
+
+def free_udp_port():
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+        probe.bind(("127.0.0.1", 0))
+        return probe.getsockname()[1]
+
+
+turn_port = free_udp_port()
+turn = None
+if TURNSERVER:
+    turn = subprocess.Popen([TURNSERVER, "-n", "--no-cli", "--no-tls", "--no-dtls", "--listening-ip=127.0.0.1",
+                             "--relay-ip=127.0.0.1", f"--listening-port={turn_port}", "--allow-loopback-peers",
+                             "--lt-cred-mech", f"--user={TURN_USER}:{TURN_PASSWORD}", "--realm=hydra"],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(TURN_START_SECONDS)
+stun_url, turn_url = f"stun:127.0.0.1:{turn_port}", f"turn:127.0.0.1:{turn_port}?transport=udp"
+ice_servers = [{"url": stun_url, "urls": stun_url},
+               {"url": turn_url, "urls": turn_url, "username": TURN_USER, "credential": TURN_PASSWORD},
+               *[{"urls": f"{scheme}:127.0.0.1:{turn_port}?transport=tcp", "username": TURN_USER,
+                  "credential": TURN_PASSWORD} for scheme in ("turn", "turns")]]
+server = subprocess.Popen(["node", str(ROOT / "test" / "signalling_server.cjs"), "0"], stdout=subprocess.PIPE,
+                          text=True, env=dict(os.environ, ICE_SERVERS=json.dumps(ice_servers), LOG_CANDIDATES="1"))
 try:
     port = server.stdout.readline().split()[1]
     url = f"http://127.0.0.1:{port}"
@@ -84,7 +117,10 @@ try:
         publisher_output = publisher.communicate(timeout=TIMEOUT_SECONDS)[0]
 finally:
     server.terminate()
-    server.wait()
+    candidates = server.communicate()[0].splitlines()
+    if turn:
+        turn.terminate()
+        turn.wait()
 
 output = receiver.stdout + receiver.stderr
 results = [line for line in output.splitlines() if line.startswith("RESULT ")]
@@ -97,4 +133,8 @@ if not MIN_COUNTED <= frames <= MAX_COUNTED:
     sys.exit(f"patch_bay_test: {frames} frames in {COUNT_MS} ms, expected {MIN_COUNTED} to {MAX_COUNTED}\n{output}")
 if f"PUBLISH true {MAX_RATE}" not in publisher_output:
     sys.exit(f"patch_bay_test: the publisher did not publish at {MAX_RATE} fps\n{publisher_output}")
-print(f"patch_bay_test: ok, {results[0][len('RESULT received '):]}")
+relays = [line for line in candidates if " typ relay " in line]
+if TURNSERVER and not relays:
+    sys.exit("patch_bay_test: no relay candidate from the TURN server\n" + "\n".join(candidates))
+turn_result = f"{len(relays)} relay candidates" if TURNSERVER else "TURN not checked: no turnserver"
+print(f"patch_bay_test: ok, {turn_result}, {results[0][len('RESULT received '):]}")

@@ -90,7 +90,8 @@ build/hydra-native.exe sketch.js
 At the first build, CMake downloads the C libraries of [THIRD_PARTY.md](THIRD_PARTY.md) into vendor/ and checks
 their SHA-256 hashes.
 
-`make test` runs the unit tests. `make check` also runs the checks in hidden windows, which need a GPU.
+`make test` runs the unit tests. `make check` also runs the checks in hidden windows, which need a GPU. With
+coturn installed (`turnserver` in PATH), the patch bay check also tests a TURN relay.
 
 ## What hydra-native leaves out
 

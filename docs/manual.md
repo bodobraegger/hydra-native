@@ -293,6 +293,9 @@ most frames per second that hydra-native takes from a received stream: it drops 
 editor. `s0.initStream(id, { fps: 10 })` sets this maximum for one stream; the other params of `initStream` stay the
 texture options. A receiving hydra-native tells a hydra-native sender its maximum. The sender then sends at the
 highest maximum of its receivers when that is lower than its stream rate out; a web editor counts as 60.
+As the web editor does, the patch bay connects through the STUN and TURN servers that the signalling server sends
+(hydra-server sends the TURN servers of Twilio). hydra-native uses only TURN over UDP, so a network that blocks all
+UDP gets no connection; without servers from the signalling server, it uses the STUN server of the web editor.
 
 The audio object `a` is the one of hydra-synth (`a.show()`, `a.setBins()`, `a.setSmooth()`, `a.fft`).
 hydra-native processes the input with a noise suppression and an automatic gain control, as getUserMedia() does
