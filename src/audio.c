@@ -51,11 +51,12 @@ static void compute_band_limits(int limits[BARK_BAND_COUNT + 1]) {
 static int capture(void *argument) {
     (void)argument;
     for (;;) {
+        // The flag clears before the copy, so that a change after the copy opens the device again.
+        SDL_SetAtomicInt(&device_changed, 0);
         char device[sizeof device_name];
         SDL_LockSpinlock(&lock);
         snprintf(device, sizeof device, "%s", device_name);
         SDL_UnlockSpinlock(&lock);
-        SDL_SetAtomicInt(&device_changed, 0);
         if (strcmp(device, AUDIO_NONE) != 0 && audio_input_open(device, program_directory)) {
             analyze(); // until the device fails or changes
             audio_input_close();
