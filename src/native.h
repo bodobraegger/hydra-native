@@ -29,6 +29,7 @@ int video_camera_names(const char **names, int capacity);
 void video_set_color(int handle, enum video_matrix matrix, bool full_range);
 bool video_upload(int handle, GLuint texture, int frames); // frames: see video_open_media
 bool video_is_running(int handle);
+int video_count(void); // the open sources
 int video_frames(int handle); // the count of frames that the stream delivered
 void video_close(int handle);
 void video_close_all(void); // also frees the GL objects of the conversion; before the GL context goes

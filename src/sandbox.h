@@ -36,6 +36,7 @@ struct media_playback {
     double rate;
     bool loop;
     bool on_demand;
+    int threads; // of the video decoder of ffmpeg
 };
 
 // The input of ffmpeg and ffprobe for `url`: the path of a file:// URL, or the URL itself; NULL for a local file in

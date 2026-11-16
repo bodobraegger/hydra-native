@@ -21,6 +21,7 @@
 
 #define MAX_COMMAND 8192
 #define MAX_CAPTURE_NUMBERS 8 // the longest usage, of "area", has six
+#define MIN_DECODER_THREADS 2
 
 static int to_int(JSContext *ctx, JSValueConst value) {
     int32_t result = 0;
@@ -221,8 +222,11 @@ static JSValue js_video_open(JSContext *ctx, JSValueConst this, int argc, JSValu
 static JSValue js_media_open(JSContext *ctx, JSValueConst this, int argc, JSValueConst *argv) {
     const char *url = JS_ToCString(ctx, argv[0]), *kind = JS_ToCString(ctx, argv[3]);
     int width = to_int(ctx, argv[1]), height = to_int(ctx, argv[2]);
+    // The open videos share the cores, so that many videos do not make ffmpeg start a frame thread (and its frames)
+    // for each core in each of them; one video keeps all cores for the frames from a keyframe to a seek position.
+    int threads = SDL_max(MIN_DECODER_THREADS, SDL_GetNumLogicalCPUCores() / (video_count() + 1));
     struct media_playback playback = { to_float(ctx, argv[4]), to_float(ctx, argv[5]), JS_ToBool(ctx, argv[6]),
-                                       JS_ToBool(ctx, argv[7]) };
+                                       JS_ToBool(ctx, argv[7]), threads };
     char command[MAX_COMMAND];
     JSValue result = JS_EXCEPTION;
     if (url && kind) {

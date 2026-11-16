@@ -495,6 +495,12 @@ int video_frames(int handle) {
     return source ? SDL_GetAtomicInt(&source->frames) : 0;
 }
 
+int video_count(void) {
+    int count = 0;
+    for (int handle = 0; handle < MAX_VIDEO_SOURCES; handle++) count += sources[handle] != NULL;
+    return count;
+}
+
 bool video_is_running(int handle) {
     struct video_source *source = find_source(handle);
     return source && SDL_GetAtomicInt(&source->running);

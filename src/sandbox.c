@@ -83,13 +83,13 @@ enum command_status sandbox_media_command(char *command, size_t size, const char
              format == VIDEO_FORMAT_I420 ? "yuv420p" : "rgba");
     const char *protocols = sandboxed ? "-protocol_whitelist " SANDBOX_PROTOCOLS " " : "";
     if (!strcmp(kind, "youtube"))
-        snprintf(command, size, "yt-dlp -q -f %s -o - %s | ffmpeg -hide_banner -loglevel error -re -i - %s",
-                 format_word, word, output);
+        snprintf(command, size, "yt-dlp -q -f %s -o - %s | ffmpeg -hide_banner -loglevel error -re -threads %d -i - %s",
+                 format_word, word, playback->threads, output);
     else if (!strcmp(kind, "image"))
         snprintf(command, size, "ffmpeg -hide_banner -loglevel error %s-i %s -frames:v 1 %s", protocols, word, output);
     else
-        snprintf(command, size, "ffmpeg -hide_banner -loglevel error %s-ss %.3f %s-i %s %s", protocols,
-                 playback->start, playback->loop ? "-stream_loop -1 " : "", word, output);
+        snprintf(command, size, "ffmpeg -hide_banner -loglevel error %s-ss %.3f %s-threads %d -i %s %s", protocols,
+                 playback->start, playback->loop ? "-stream_loop -1 " : "", playback->threads, word, output);
     free(word);
     free(format_word);
     return COMMAND_OK;
