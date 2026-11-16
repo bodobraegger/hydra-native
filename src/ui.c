@@ -1676,7 +1676,7 @@ static void run_command_body(enum command command, bool extend) {
     switch (command) {
     case COMMAND_NONE:
     case COMMAND_COUNT: break;
-    case COMMAND_TOGGLE_CODE: visible = !visible; return;
+    case COMMAND_TOGGLE_CODE: ui_set_visible(!visible); return;
     case COMMAND_EVAL_LINE: editor_line_range(&editor, &start, &end); evaluate_range(start, end); break;
     case COMMAND_EVAL_BLOCK: editor_block_range(&editor, &start, &end); evaluate_range(start, end); break;
     case COMMAND_EVAL_ALL: evaluate_all(); break;
@@ -3377,7 +3377,8 @@ bool ui_text_input_rect(int *x, int *y, int *width, int *height) {
     return true;
 }
 
-void ui_set_visible(bool show) { visible = show; }
+// The question about unsaved changes shows only with the code, so the code stays until it has an answer.
+void ui_set_visible(bool show) { visible = show || prompt.kind == PROMPT_UNSAVED; }
 
 void ui_show_info(void) { set_panel(PANEL_INFO); }
 
