@@ -29,6 +29,7 @@ static struct {
     char *pending;
     size_t pending_size, pending_capacity;
     int rate, max_rate; // of patch_bay_set_rates
+    unsigned generation; // counts the stops, so that a line handler that stops the helper ends the read loop
 } helper = { .input = -1, .output = -1 };
 
 // Writes the waiting lines as far as the helper takes them; false when the helper is gone.
@@ -107,10 +108,12 @@ void patch_bay_poll(void (*line)(const char *text)) {
         }
         helper.used += (size_t)count;
         char *start = helper.buffer, *end;
+        unsigned generation = helper.generation;
         while ((end = memchr(start, '\n', helper.used - (size_t)(start - helper.buffer)))) {
             *end = '\0';
             line(start);
-            if (!helper.process) return; // the line stopped the patch bay, which freed the buffer
+            // The line stopped the patch bay, which freed the buffer, and perhaps started a new helper.
+            if (helper.generation != generation) return;
             start = end + 1;
         }
         helper.used -= (size_t)(start - helper.buffer);
@@ -162,5 +165,7 @@ void patch_bay_stop(void) {
     helper.pending = NULL;
     helper.pending_size = helper.pending_capacity = 0;
     helper.process = NULL;
+    helper.buffer = NULL;
     helper.input = helper.output = -1;
+    helper.generation++;
 }
