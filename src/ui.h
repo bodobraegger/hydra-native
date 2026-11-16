@@ -64,7 +64,6 @@ void ui_draw_status(int width, int height, const char *text); // only the bar, a
 void ui_set_visible(bool visible);
 void ui_set_code(const char *code); // shows code that has no file (a sketch URL)
 void ui_show_info(void);
-void ui_enable_gallery(void); // shows the "share" button, as the web editor does with a gallery server
 void ui_share_done(bool ok, const char *output); // the URL of the shared sketch, or the error
 void ui_show_random_example(void); // like the web editor at a start without a sketch
 void ui_show_message(const char *text, bool error);

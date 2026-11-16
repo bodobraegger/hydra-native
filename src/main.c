@@ -568,7 +568,6 @@ int main(int argc, char **argv) {
         ui_show_random_example();
         ui_show_info();
     }
-    if (share_server()[0]) ui_enable_gallery();
     if (!settings.code_visible) ui_set_visible(false);
     // "watch" of the settings menu applies at once.
     // The open file of the overlay can change through the "file" row and Ctrl+S, so the check follows it.

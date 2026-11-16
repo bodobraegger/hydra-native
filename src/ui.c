@@ -212,7 +212,6 @@ static bool help_visible; // the help covers the code and the panel
 // The side panel: one at a time.
 enum panel { PANEL_NONE, PANEL_INFO, PANEL_EXTENSIONS, PANEL_SETTINGS };
 static enum panel panel;
-static bool gallery_enabled; // the web editor shows "share" only with a gallery server
 
 // The drop-down list of the toolbar button "reset", which shows with an open file: the entry, its tooltip and its
 // command.
@@ -1200,7 +1199,6 @@ static void set_server(const char *url) {
     save_settings();
     host.set_server(url);
     free(host.call("__setPatchBayServer", ""));
-    gallery_enabled = url[0] != '\0';
     char text[SETTINGS_TEXT + 64];
     if (url[0]) snprintf(text, sizeof text, "gallery and patch bay: %s", url);
     else snprintf(text, sizeof text, "gallery and patch bay: off");
@@ -1932,7 +1930,10 @@ static const struct toolbar_item toolbar[] = {
 };
 #define TOOLBAR_COUNT (sizeof toolbar / sizeof toolbar[0])
 
-static bool toolbar_shown(size_t index) { return gallery_enabled || toolbar[index].command != COMMAND_GALLERY_SHARE; }
+// The web editor shows "share" only with a gallery server.
+static bool toolbar_shown(size_t index) {
+    return settings.gallery_server[0] || toolbar[index].command != COMMAND_GALLERY_SHARE;
+}
 
 static const char *toolbar_label(size_t index) {
     return toolbar[index].command == COMMAND_CLEAR_ALL && file_path ? "reset" : toolbar[index].label;
@@ -3382,7 +3383,6 @@ void ui_set_visible(bool show) { visible = show || prompt.kind == PROMPT_UNSAVED
 
 void ui_show_info(void) { set_panel(PANEL_INFO); }
 
-void ui_enable_gallery(void) { gallery_enabled = true; }
 
 void ui_share_done(bool ok, const char *output) {
     char text[MAX_MESSAGE];
