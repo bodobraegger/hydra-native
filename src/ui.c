@@ -1108,13 +1108,21 @@ static void find_again(int direction) {
     find(direction);
 }
 
+// The matches change only with the text or the query, so the search runs again only then.
 static void update_matches(void) {
-    free(matches);
-    matches = NULL;
-    match_count = 0;
-    // ponytail: searches the whole text each frame, fine for sketch-sized code
-    if (prompt.kind == PROMPT_FIND && prompt.query[0])
-        match_count = editor_find_all(&editor, prompt.query, strlen(prompt.query), true, &matches);
+    static unsigned searched_revision;
+    static char searched_query[MAX_PROMPT];
+    static bool searched;
+    bool finding = prompt.kind == PROMPT_FIND && prompt.query[0];
+    if (!finding || !searched || searched_revision != editor.revision || strcmp(searched_query, prompt.query)) {
+        free(matches);
+        matches = NULL;
+        match_count = 0;
+        if (finding) match_count = editor_find_all(&editor, prompt.query, strlen(prompt.query), true, &matches);
+        searched = finding;
+        searched_revision = editor.revision;
+        snprintf(searched_query, sizeof searched_query, "%s", prompt.query);
+    }
     size_t start, end;
     editor_selection(&editor, &start, &end);
     for (active_match = 0; active_match < match_count; active_match++)
@@ -3066,15 +3074,21 @@ static void draw_row(size_t line, size_t row_start, size_t row_end, size_t inden
 
 // The setup file as a line above the code in the comment color, relative to the folder of the open sketch when it
 // is inside it. It is not part of the editor text; a click on it runs the setup file again.
+// The text resolves both paths, so it changes only with them.
 static void draw_setup_line(void) {
-    const char *path = settings.setup_file;
-    char *sketch = file_path ? absolute_path(file_path) : NULL, *setup = absolute_path(path);
-    const char *name = sketch ? ui_base_name(sketch) : NULL;
-    if (name && name != sketch && !strncmp(setup, sketch, (size_t)(name - sketch))) path = setup + (name - sketch);
-    char text[SETTINGS_TEXT + 32];
-    snprintf(text, sizeof text, "await loadScript(\"%s\")", path);
-    free(sketch);
-    free(setup);
+    static char text[SETTINGS_TEXT + 32], text_sketch[PATH_MAX], text_setup[SETTINGS_TEXT];
+    const char *open_file = file_path ? file_path : "";
+    if (!text[0] || strcmp(text_sketch, open_file) || strcmp(text_setup, settings.setup_file)) {
+        const char *path = settings.setup_file;
+        char *sketch = file_path ? absolute_path(file_path) : NULL, *setup = absolute_path(path);
+        const char *name = sketch ? ui_base_name(sketch) : NULL;
+        if (name && name != sketch && !strncmp(setup, sketch, (size_t)(name - sketch))) path = setup + (name - sketch);
+        snprintf(text, sizeof text, "await loadScript(\"%s\")", path);
+        snprintf(text_sketch, sizeof text_sketch, "%s", open_file);
+        snprintf(text_setup, sizeof text_setup, "%s", settings.setup_file);
+        free(sketch);
+        free(setup);
+    }
     size_t columns = text_columns(text) < visible_columns() ? text_columns(text) : visible_columns();
     overlay_set_layer(OVERLAY_CODE_BACKGROUND);
     overlay_rect(MARGIN - TEXT_PADDING, MARGIN, (float)columns * overlay_char_width() + 2 * TEXT_PADDING,
@@ -3091,11 +3105,21 @@ static void draw_code(void) {
     size_t rows = visible_rows();
     if (scroll_row >= layout.total_rows) scroll_row = layout.total_rows - 1;
     size_t first_line = line_of_row(scroll_row);
-    struct highlight_state state = { 0 };
-    for (size_t line = 0; line < first_line; line++) {
-        size_t start = editor_line_start(&editor, line);
-        highlight_line(&state, editor.text + start, editor_line_end(&editor, line) - start, NULL);
+    // The state at the first visible line comes from all lines above it; it is kept until the text changes, so
+    // that a scroll down highlights only the lines that it passes.
+    static struct {
+        bool valid;
+        unsigned revision;
+        size_t line;
+        struct highlight_state state;
+    } above;
+    if (!above.valid || above.revision != editor.revision || above.line > first_line)
+        above = (typeof(above)){ .valid = true, .revision = editor.revision };
+    for (; above.line < first_line; above.line++) {
+        size_t start = editor_line_start(&editor, above.line);
+        highlight_line(&above.state, editor.text + start, editor_line_end(&editor, above.line) - start, NULL);
     }
+    struct highlight_state state = above.state;
     struct selection *selections;
     size_t selection_count = editor_selections(&editor, &selections);
     long bracket = editor_has_selection(&editor) ? -1 : editor_matching_bracket(&editor, editor.cursor);
